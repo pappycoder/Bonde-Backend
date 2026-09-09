@@ -95,6 +95,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Source reorganization (feature-module layout)**:
+  - Feature modules moved under `src/modules/` (`auth/`, `health/`), with auth
+    split into `principal/`, `guards/`, `decorators/`, and `services/`.
+  - `common/` tidied: rate-limit storage + `@StrictThrottle()` consolidated in
+    `common/throttling/`; `ApiErrorDto` + `@ApiErrorResponse()` grouped in
+    `common/errors/`; 404 catch-all moved to `common/http/`.
+  - No file renames or exported-symbol changes — only import paths moved.
+  - `AGENTS.md` gained a **Module structure** section documenting the layout and
+    placement conventions for new features.
 - `CommonModule` (catch-all) now imports **last** in `AppModule` so real feature
   routes (e.g. `/api/auth/me`) register before the wildcard.
 - **Config/environment**:

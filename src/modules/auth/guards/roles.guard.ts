@@ -1,8 +1,8 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { IS_PUBLIC_KEY } from './public.decorator.js';
-import { ROLES_KEY } from './roles.decorator.js';
-import { ROLE_HIERARCHY, type BondeRole } from './auth-principal.js';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator.js';
+import { ROLES_KEY } from '../decorators/roles.decorator.js';
+import { ROLE_HIERARCHY, type BondeRole } from '../principal/auth-principal.js';
 import type { AuthedRequest } from './auth.guard.js';
 
 /**

@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwksService, JWKS, jwksFromConfig } from './jwks.service.js';
+import { JwksService, JWKS, jwksFromConfig } from './services/jwks.service.js';
 import { AuthController } from './auth.controller.js';
 
 @Module({

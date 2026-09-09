@@ -1,5 +1,5 @@
 import { Controller, All, NotFoundException, Logger } from '@nestjs/common';
-import { Public } from '../auth/public.decorator.js';
+import { Public } from '../../modules/auth/decorators/public.decorator.js';
 
 /**
  * Catch-all for unmatched routes.

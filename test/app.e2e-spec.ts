@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import request from 'supertest';
 import { AppModule } from './../src/app.module.js';
 import { AppConfig } from './../src/config/configuration.js';
-import { JwksService } from './../src/auth/jwks.service.js';
+import { JwksService } from './../src/modules/auth/services/jwks.service.js';
 import { configureSwagger } from './../src/common/swagger.js';
 
 /**

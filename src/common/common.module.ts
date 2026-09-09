@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { CatchAllController } from './catch-all.controller.js';
+import { CatchAllController } from './http/catch-all.controller.js';
 
 /**
  * Hosts infrastructure-wide shared controllers (currently the API 404

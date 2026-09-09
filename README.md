@@ -22,6 +22,16 @@ Built with **NestJS 12**, **TypeScript (strict)**, backed by **Supabase** for au
 
 > **Note:** This scaffold is ESM-first and targets the NestJS 12 toolchain (Vitest for tests, oxlint for linting).
 
+## Project structure
+
+```
+src/
+  common/    shared infrastructure (redis, cache, throttling, errors, filters, http, swagger)
+  modules/   business features, one directory per domain (auth, health, ...)
+  config/    typed AppConfig + Joi env validation
+  prisma/    Prisma service/module
+```
+
 ## Getting started
 
 ### Prerequisites

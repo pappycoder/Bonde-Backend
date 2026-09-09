@@ -1,5 +1,5 @@
 import { SetMetadata } from '@nestjs/common';
-import type { BondeRole } from './auth-principal.js';
+import type { BondeRole } from '../principal/auth-principal.js';
 
 export const ROLES_KEY = 'roles';
 

@@ -1,9 +1,9 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { CurrentUser } from './current-user.decorator.js';
-import type { AuthPrincipal } from './auth-principal.js';
-import { AuthPrincipalDto } from './auth-principal.dto.js';
-import { ApiErrorResponse } from '../common/api-error-response.decorator.js';
+import { CurrentUser } from './decorators/current-user.decorator.js';
+import type { AuthPrincipal } from './principal/auth-principal.js';
+import { AuthPrincipalDto } from './principal/auth-principal.dto.js';
+import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
 
 @ApiTags('auth')
 @ApiBearerAuth('access-token')

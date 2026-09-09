@@ -37,8 +37,10 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
 - Enforce roles with `@Roles('ADMIN', ...)`; hierarchy `SUPER_ADMIN > ADMIN > USER`,
   read from the access token's `app_metadata.role` (absent → `USER`). Roles are
   assigned in Supabase (dashboard / edge function), not in PostgreSQL.
-- `src/auth/` exports `@CurrentUser()`, `@Roles(...)`, `@Public()`, and
-  `AuthPrincipal`. Use `@CurrentUser()` to get the verified principal.
+- `src/modules/auth/` exports `@CurrentUser()`, `@Roles(...)`, `@Public()`, and
+  `AuthPrincipal`. Use `@CurrentUser()` to get the verified principal (auth
+  decorators are a shared contract — importing them from `common/` or other
+  modules is intentional).
 - Password recovery emails are sent by **Supabase Auth** (its own SMTP
   integration) — do not build a recovery endpoint. Our `otp_codes`
   table + Resend/Termii keys are for app-level flows (e.g. phone
@@ -65,6 +67,36 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
 - **ESM only.** All relative imports include the `.js` extension (NestJS 12 `nodenext` resolution). Do not import without the file extension.
 - TypeScript **strict**. Avoid `any` except where oxlint explicitly allows it (`no-explicit-any` is off).
 
+## Module structure
+```
+src/
+  common/    shared, cross-cutting infrastructure (no feature logic)
+    redis/       global ioredis connection + client interface
+    cache/       CacheService / CacheModule
+    throttling/  {redis|memory}-throttler.storage + @StrictThrottle()
+    errors/      ApiErrorDto + @ApiErrorResponse()
+    filters/     global HttpExceptionFilter
+    http/        API-wide controllers (404 catch-all)
+    swagger.ts   configureSwagger bootstrap helper
+  modules/   one directory per business domain
+    <feature>/
+      <feature>.module.ts, <feature>.controller.ts        (home-grown structure)
+      principal/   cross-cutting types/DTOs shared within the feature
+      guards/      feature guards
+      decorators/  param/method/class decorators
+      services/    feature services
+    auth/          Supabase JWT verification + RBAC (global APP_GUARDs)
+    health/        terminus health/readiness probes
+  config/   typed AppConfig (configuration.ts + Joi env.validation.ts)
+  prisma/   PrismaModule + PrismaService (pg driver adapter)
+```
+- Feature modules own a domain end-to-end; keep subfolders only once a category
+  has more than a couple of files. New features live under `src/modules/`.
+- Specs are colocated next to their source (`*.spec.ts`).
+- `common/` never imports feature internals, except the shared auth decorator
+  contract from `modules/auth/decorators/` (e.g. `@Public()` on the catch-all).
+- Direct relative imports only (`.js` suffix); no index barrels, no `@/` alias.
+
 ## Redis & resilience
 - The global `RedisClient` (`src/common/redis/`) is the single ioredis connection.
   TLS-only providers (e.g. Upstash) require `rediss://` in `REDIS_URL`;
@@ -85,13 +117,12 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   outage yields cache misses (source is read) — never an error.
 - Rate limiting: the `default` throttler is env-driven and applies to every
   route. Security-sensitive endpoints (OTP send/verify, etc.) must additionally
-  be stamped `@StrictThrottle()` (`src/common/throttle/`), which applies the
+  be stamped `@StrictThrottle()` (`src/common/throttling/`), which applies the
   `strict` throttle (5/min with 5-min lockout by default, env-tuned). Existing
   endpoints are unaffected because the strict throttle is `skipIf`-ignored
   unless marked.
 - Prefer `@nestjs/throttler` names/decorators over hand-rolled limits.
 - Do not access `process.env` directly in feature modules — use the typed config (`ConfigService` with `AppConfig`) defined in `src/config/`.
-- Follow NestJS modular structure: one feature directory per domain with controller / service / module / DTOs.
 - Never commit `.env`, secrets, or the Supabase service-role key.
 - The Supabase service-role key is **server-only** and must never reach a client.
 

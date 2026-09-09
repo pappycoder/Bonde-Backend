@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { UnauthorizedException } from '@nestjs/common';
 import { SupabaseAuthGuard } from './auth.guard.js';
-import type { AuthPrincipal } from './auth-principal.js';
-import { IS_PUBLIC_KEY } from './public.decorator.js';
+import type { AuthPrincipal } from '../principal/auth-principal.js';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator.js';
 
 const principal: AuthPrincipal = {
   userId: 'u-1',

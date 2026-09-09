@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ForbiddenException } from '@nestjs/common';
 import { RolesGuard } from './roles.guard.js';
-import type { AuthPrincipal, BondeRole } from './auth-principal.js';
-import { IS_PUBLIC_KEY } from './public.decorator.js';
-import { ROLES_KEY } from './roles.decorator.js';
+import type { AuthPrincipal, BondeRole } from '../principal/auth-principal.js';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator.js';
+import { ROLES_KEY } from '../decorators/roles.decorator.js';
 
 function principal(role: BondeRole): AuthPrincipal {
   return {

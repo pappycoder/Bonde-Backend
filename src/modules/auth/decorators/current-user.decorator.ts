@@ -1,5 +1,5 @@
 import { createParamDecorator, ExecutionContext, UnauthorizedException } from '@nestjs/common';
-import type { AuthPrincipal } from './auth-principal.js';
+import type { AuthPrincipal } from '../principal/auth-principal.js';
 
 interface AuthedRequest {
   user?: AuthPrincipal;

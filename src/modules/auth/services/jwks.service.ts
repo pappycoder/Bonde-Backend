@@ -1,8 +1,8 @@
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from 'jose';
-import type { AppConfig } from '../config/configuration.js';
-import { ROLE_HIERARCHY, type AuthPrincipal, type BondeRole } from './auth-principal.js';
+import type { AppConfig } from '../../../config/configuration.js';
+import { ROLE_HIERARCHY, type AuthPrincipal, type BondeRole } from '../principal/auth-principal.js';
 
 export const JWKS = 'JWKS';
 

@@ -8,10 +8,10 @@ import {
 } from '@nestjs/common';
 import { HealthCheck, HealthCheckService, HealthIndicatorService } from '@nestjs/terminus';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { REDIS_CLIENT } from '../common/redis/redis.module.js';
-import type { RedisClient } from '../common/redis/redis-client.interface.js';
-import { Public } from '../auth/public.decorator.js';
-import { ApiErrorResponse } from '../common/api-error-response.decorator.js';
+import { REDIS_CLIENT } from '../../common/redis/redis.module.js';
+import type { RedisClient } from '../../common/redis/redis-client.interface.js';
+import { Public } from '../auth/decorators/public.decorator.js';
+import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
 
 @ApiTags('health')
 @Controller('health')

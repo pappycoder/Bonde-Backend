@@ -5,19 +5,19 @@ import { APP_GUARD, APP_FILTER, Reflector } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
-import { HealthModule } from './health/health.module.js';
+import { HealthModule } from './modules/health/health.module.js';
 import { RedisModule, REDIS_CLIENT } from './common/redis/redis.module.js';
-import { RedisThrottlerStorage } from './common/storage/redis-throttler.storage.js';
+import { RedisThrottlerStorage } from './common/throttling/redis-throttler.storage.js';
 import { CacheModule } from './common/cache/cache.module.js';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
 import { CommonModule } from './common/common.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
-import { AuthModule } from './auth/auth.module.js';
-import { SupabaseAuthGuard } from './auth/auth.guard.js';
-import { RolesGuard } from './auth/roles.guard.js';
+import { AuthModule } from './modules/auth/auth.module.js';
+import { SupabaseAuthGuard } from './modules/auth/guards/auth.guard.js';
+import { RolesGuard } from './modules/auth/guards/roles.guard.js';
 import configuration, { AppConfig } from './config/configuration.js';
 import { envValidationSchema } from './config/env.validation.js';
-import { STRICT_THROTTLE } from './common/throttle/strict-throttle.decorator.js';
+import { STRICT_THROTTLE } from './common/throttling/strict-throttle.decorator.js';
 import { RedisClient } from './common/redis/redis-client.interface.js';
 
 @Module({
