@@ -22,6 +22,11 @@ export interface AppConfig {
   redis: {
     url: string;
   };
+  throttle: {
+    ttl: number;
+    limit: number;
+    blockDuration: number;
+  };
 }
 
 export default (): AppConfig => ({
@@ -43,5 +48,10 @@ export default (): AppConfig => ({
   },
   redis: {
     url: process.env.REDIS_URL ?? 'redis://localhost:6379',
+  },
+  throttle: {
+    ttl: Number(process.env.THROTTLE_TTL ?? 60_000),
+    limit: Number(process.env.THROTTLE_LIMIT ?? 100),
+    blockDuration: Number(process.env.THROTTLE_BLOCK_DURATION ?? 0),
   },
 });
