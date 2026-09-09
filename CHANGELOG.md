@@ -31,9 +31,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     in the image; only migrations need a real URL).
 - **Updated scripts** in `package.json`: `prisma:generate`, `prisma:validate`,
   `prisma:migrate`, `prisma:deploy`, `prisma:studio`.
+- **Auth (Phase 3)**: Supabase JWT verification + RBAC (verify-only — clients
+  authenticate against Supabase Auth directly; the API never sees passwords or
+  refresh tokens).
+  - New `src/auth/` module: `JwksService` (ES256 verification via
+    `{SUPABASE_URL}/auth/v1/.well-known/jwks.json`, `jose` with a DI-provided
+    key set), global `SupabaseAuthGuard` (Bearer token → `AuthPrincipal`),
+    global `RolesGuard` (`SUPER_ADMIN > ADMIN > USER` from
+    `app_metadata.role`, defaults USER).
+  - Decorators: `@Public()` (health/root/catch-all stay public), `@Roles(...)`,
+    `@CurrentUser()`.
+  - `GET /api/auth/me` returns the verified principal.
+  - Dependency: `jose` 6.
+- **Schema**: `profiles.onboarding_completed_at` (migration
+  `20260909171921_add_onboarding_completed_at`) — forward-preparation for the
+  onboarding phase.
 
 ### Changed
 
+- `CommonModule` (catch-all) now imports **last** in `AppModule` so real feature
+  routes (e.g. `/api/auth/me`) register before the wildcard.
 - **Config/environment**:
   - Added `AppConfig.resend`, `AppConfig.termii`, `AppConfig.encryption` and Joi
     validation for `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `TERMII_API_KEY`,

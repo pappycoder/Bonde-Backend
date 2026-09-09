@@ -3,6 +3,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module.js';
+import { JwksService } from './../src/auth/jwks.service.js';
 
 /**
  * E2E smoke tests.
@@ -56,6 +57,46 @@ describe('App (e2e)', () => {
       statusCode: 404,
       error: 'NotFoundException',
       message: ['Route not found'],
+    });
+  });
+
+  it('GET /auth/me without a token → uniform JSON 401', async () => {
+    const res = await request(app.getHttpServer()).get('/auth/me').expect(401);
+    expect(res.body).toMatchObject({
+      statusCode: 401,
+      error: 'UnauthorizedException',
+      message: ['Missing bearer token'],
+    });
+  });
+
+  it('GET /auth/me with an invalid bearer token → 401', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/auth/me')
+      .set('Authorization', 'Bearer not-a-real-token')
+      .expect(401);
+    expect(res.body.statusCode).toBe(401);
+  });
+
+  it('GET /auth/me returns the verified principal', async () => {
+    const jwks = app.get(JwksService);
+    vi.spyOn(jwks, 'verify').mockResolvedValue({
+      userId: 'u-123',
+      email: 'me@bonde.app',
+      phone: '+2348000000000',
+      role: 'ADMIN',
+      appMetadata: { role: 'ADMIN' },
+      userMetadata: {},
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/auth/me')
+      .set('Authorization', 'Bearer valid-token')
+      .expect(200);
+
+    expect(res.body).toMatchObject({
+      userId: 'u-123',
+      email: 'me@bonde.app',
+      role: 'ADMIN',
     });
   });
 });

@@ -107,6 +107,7 @@ model Profile {
   phoneVerified Boolean @default(false) @map("phone_verified")
   emailVerified Boolean @default(false) @map("email_verified")
   avatarUrl String?  @map("avatar_url")
+  onboardingCompletedAt DateTime? @map("onboarding_completed_at")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

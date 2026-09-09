@@ -43,6 +43,7 @@
     "hpp": "^0.2.3",
     "ioredis": "^5.11.1",
     "joi": "^18.2.8",
+    "jose": "^6.2.12",
     "nestjs-pino": "^5.1.0",
     "nestjs-throttler-storage-redis": "^0.5.1",
     "pino": "^10.3.1",

@@ -11,6 +11,9 @@ import { RedisThrottlerStorage } from './common/storage/redis-throttler.storage.
 import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
 import { CommonModule } from './common/common.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
+import { AuthModule } from './auth/auth.module.js';
+import { SupabaseAuthGuard } from './auth/auth.guard.js';
+import { RolesGuard } from './auth/roles.guard.js';
 import configuration, { AppConfig } from './config/configuration.js';
 import { envValidationSchema } from './config/env.validation.js';
 import { RedisClient } from './common/redis/redis-client.interface.js';
@@ -57,8 +60,9 @@ import { RedisClient } from './common/redis/redis-client.interface.js';
 
     RedisModule,
     HealthModule,
-    CommonModule,
     PrismaModule,
+    AuthModule,
+    CommonModule,
   ],
   controllers: [AppController],
   providers: [
@@ -66,6 +70,14 @@ import { RedisClient } from './common/redis/redis-client.interface.js';
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: SupabaseAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
     },
     {
       provide: APP_FILTER,

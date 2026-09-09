@@ -2,6 +2,7 @@ import { Controller, Get, HttpCode, HttpStatus, Inject } from '@nestjs/common';
 import { HealthCheck, HealthCheckService, HealthIndicatorService } from '@nestjs/terminus';
 import { REDIS_CLIENT } from '../common/redis/redis.module.js';
 import type { RedisClient } from '../common/redis/redis-client.interface.js';
+import { Public } from '../auth/public.decorator.js';
 
 @Controller('health')
 export class HealthController {
@@ -12,6 +13,7 @@ export class HealthController {
   ) {}
 
   @Get()
+  @Public()
   @HealthCheck()
   @HttpCode(HttpStatus.OK)
   check() {
@@ -26,6 +28,7 @@ export class HealthController {
   }
 
   @Get('ready')
+  @Public()
   @HttpCode(HttpStatus.OK)
   readiness() {
     return { status: 'ready' as const };

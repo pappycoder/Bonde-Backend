@@ -29,6 +29,21 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   never store or log plaintext card numbers.
 - OTP codes are stored SHA-256 hashed (`otp_codes.code` holds the digest).
 
+## Auth (verify-only)
+- Clients authenticate against **Supabase Auth directly**; the API never builds
+  its own auth. `SupabaseAuthGuard` + `RolesGuard` are global `APP_GUARD`s.
+- New authenticated routes are protected by default. Opt out with `@Public()`
+  (already applied to health, root, and the 404 catch-all).
+- Enforce roles with `@Roles('ADMIN', ...)`; hierarchy `SUPER_ADMIN > ADMIN > USER`,
+  read from the access token's `app_metadata.role` (absent → `USER`). Roles are
+  assigned in Supabase (dashboard / edge function), not in PostgreSQL.
+- `src/auth/` exports `@CurrentUser()`, `@Roles(...)`, `@Public()`, and
+  `AuthPrincipal`. Use `@CurrentUser()` to get the verified principal.
+- Password recovery emails are sent by **Supabase Auth** (its own SMTP
+  integration) — do not build a recovery endpoint. Our `otp_codes`
+  table + Resend/Termii keys are for app-level flows (e.g. phone
+  verification), which are a later phase.
+
 ## Conventions
 - **ESM only.** All relative imports include the `.js` extension (NestJS 12 `nodenext` resolution). Do not import without the file extension.
 - TypeScript **strict**. Avoid `any` except where oxlint explicitly allows it (`no-explicit-any` is off).

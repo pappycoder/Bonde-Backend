@@ -1,4 +1,5 @@
 import { Controller, All, NotFoundException, Logger } from '@nestjs/common';
+import { Public } from '../auth/public.decorator.js';
 
 /**
  * Catch-all for unmatched routes.
@@ -16,6 +17,7 @@ export class CatchAllController {
   private readonly logger = new Logger('CatchAllController');
 
   @All('*splat')
+  @Public()
   handleUnmatched(): never {
     this.logger.warn('Unmatched route requested');
     throw new NotFoundException('Route not found');
