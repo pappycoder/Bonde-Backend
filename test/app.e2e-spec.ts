@@ -1,8 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import request from 'supertest';
 import { AppModule } from './../src/app.module.js';
 import { JwksService } from './../src/auth/jwks.service.js';
+import { configureSwagger } from './../src/common/swagger.js';
 
 /**
  * E2E smoke tests.
@@ -28,6 +30,11 @@ describe('App (e2e)', () => {
         transform: true,
       }),
     );
+    const config = moduleFixture.get(ConfigService);
+    configureSwagger(app, {
+      nodeEnv: config.get('nodeEnv'),
+      publicUrl: config.get('publicUrl'),
+    });
     await app.init();
   });
 
@@ -97,5 +104,28 @@ describe('App (e2e)', () => {
       email: 'me@bonde.app',
       role: 'ADMIN',
     });
+  });
+
+  it('GET /api/docs-json → OpenAPI 3 document', async () => {
+    const res = await request(app.getHttpServer()).get('/api/docs-json').expect(200);
+    expect(res.body).toMatchObject({
+      openapi: expect.stringMatching(/^3\./),
+      info: expect.objectContaining({ title: 'Bonde API' }),
+      paths: expect.objectContaining({
+        '/auth/me': expect.anything(),
+        '/health': expect.anything(),
+      }),
+      components: expect.objectContaining({
+        securitySchemes: expect.objectContaining({
+          'access-token': expect.anything(),
+        }),
+      }),
+    });
+  });
+
+  it('GET /api/docs → Swagger UI page', async () => {
+    const res = await request(app.getHttpServer()).get('/api/docs').expect(200);
+    expect(res.headers['content-type']).toContain('text/html');
+    expect(res.text).toContain('swagger-ui');
   });
 });

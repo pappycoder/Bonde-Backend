@@ -46,6 +46,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Schema**: `profiles.onboarding_completed_at` (migration
   `20260909171921_add_onboarding_completed_at`) — forward-preparation for the
   onboarding phase.
+- **Swagger / OpenAPI (Phase 4)**: `@nestjs/swagger` 12 + `swagger-ui-express`.
+  - Mounted at `/api/docs` (UI) and `/api/docs-json` (OpenAPI 3 document) in
+    non-production via `configureSwagger` (`src/common/swagger.ts`); a no-op in
+    production.
+  - DocumentBuilder: *Bonde API*, version 0.1.0, `addBearerAuth('access-token')`
+    scheme, server from `PUBLIC_URL`, Supabase-auth usage description.
+  - Nest CLI swagger plugin enabled (`nest-cli.json`) for automatic DTO schema
+    inference.
+  - Annotations: `AuthController` (`@ApiTags('auth')`, bearer, `AuthPrincipalDto`
+    model), `HealthController` (`@ApiTags('health')`, public), shared `ApiErrorDto`
+    + `@ApiErrorResponse()` documenting the uniform error shape for 400/401/403/
+    404/409/500, `AppController` excluded via `@ApiExcludeController()`.
 
 ### Changed
 

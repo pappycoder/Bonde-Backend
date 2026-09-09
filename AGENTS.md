@@ -44,6 +44,23 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   table + Resend/Termii keys are for app-level flows (e.g. phone
   verification), which are a later phase.
 
+## Swagger / OpenAPI docs
+- Mounted by `configureSwagger` in `src/common/swagger.ts` at `/api/docs` (UI)
+  and `/api/docs-json` (OpenAPI 3). It is a **no-op in `production`** — docs are
+  a development convenience only and must never be exposed publicly.
+- The Nest CLI swagger plugin is enabled in `nest-cli.json` (auto-infers DTO
+  schemas); add explicit `@ApiProperty` metadata only for unions, nullable/
+  enum fields, and example values.
+- Annotate every controller with `@ApiTags`. Protected routes get
+  `@ApiBearerAuth('access-token')`; add `@ApiOperation({ summary })` and a
+  typed `@ApiOkResponse({ type })` (use a real DTO class as the response model,
+  e.g. `AuthPrincipalDto`).
+- Document errors with the shared `@ApiErrorResponse()` decorator (declares the
+  uniform `ApiErrorDto` shape for 400/401/403/404/409/500 emitted by
+  `HttpExceptionFilter`). Do not leak 5xx internals into schemas.
+- Exclude non-API helpers (e.g. the root hello controller) with
+  `@ApiExcludeController()`.
+
 ## Conventions
 - **ESM only.** All relative imports include the `.js` extension (NestJS 12 `nodenext` resolution). Do not import without the file extension.
 - TypeScript **strict**. Avoid `any` except where oxlint explicitly allows it (`no-explicit-any` is off).

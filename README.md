@@ -54,7 +54,7 @@ docker compose up -d redis
 pnpm start:dev
 ```
 
-The API is served at `http://localhost:3001`. Swagger docs are available at `/api` in non-production environments.
+The API is served at `http://localhost:3001`. Swagger / OpenAPI docs are available at `/api/docs` (UI) and `/api/docs-json` (OpenAPI 3 document) in non-production environments.
 
 ## Environment variables
 
@@ -105,10 +105,10 @@ src/
 
 ## Roadmap
 
-- [ ] Phase 1 — Core infrastructure (validation, security, logging, health)
-- [ ] Phase 2 — Database design (Prisma schema on Supabase Postgres)
-- [ ] Phase 3 — Auth (Supabase JWT verification + RBAC)
-- [ ] Phase 4 — Swagger / OpenAPI documentation
+- [x] Phase 1 — Core infrastructure (validation, security, logging, health)
+- [x] Phase 2 — Database design (Prisma schema on Supabase Postgres)
+- [x] Phase 3 — Auth (Supabase JWT verification + RBAC)
+- [x] Phase 4 — Swagger / OpenAPI documentation
 - [ ] Phase 5 — Redis caching & rate limiting
 - [ ] Phase 6 — Storage (Supabase)
 - [ ] Phase 7 — Shared admin + mobile features
