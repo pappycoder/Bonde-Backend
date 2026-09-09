@@ -211,3 +211,151 @@ describe('App (e2e) — rate limiting', () => {
     expect(Array.isArray(blocked.body.message)).toBe(true);
   });
 });
+
+/**
+ * Storage: the signed-URL endpoints are auth-protected, enforce the bucket/
+ * path guardrails, and proxy their Supabase calls through a stubbed `fetch`
+ * (the e2e app boots against `example.supabase.co`, so no real Storage API
+ * is hit).
+ */
+describe('App (e2e) — storage', () => {
+  let app: INestApplication;
+
+  beforeEach(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+        transformOptions: { enableImplicitConversion: true },
+      }),
+    );
+    await app.init();
+
+    const jwks = app.get(JwksService);
+    vi.spyOn(jwks, 'verify').mockResolvedValue({
+      userId: 'u-123',
+      email: 'me@bonde.app',
+      phone: null,
+      role: 'ADMIN',
+      appMetadata: { role: 'ADMIN' },
+      userMetadata: {},
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              signedUrl: '/object/upload/sign/bonde-avatars/u-123%2Favatar.jpeg?token=t',
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    await app.close();
+  });
+
+  it('POST /storage/upload-url without a token → 401', () => {
+    return request(app.getHttpServer()).post('/storage/upload-url').send({}).expect(401);
+  });
+
+  it('POST /storage/upload-url returns a signed upload URL', async () => {
+    const server = app.getHttpServer();
+    const uploadUrl = `${process.env.SUPABASE_URL!}/storage/v1/object/upload/sign/bonde-avatars/u-123%2Favatar.jpeg?token=t`;
+
+    const res = await request(server)
+      .post('/storage/upload-url')
+      .set('Authorization', 'Bearer valid-token')
+      .send({ bucket: 'bonde-avatars', path: 'u-123/avatar.jpeg', contentType: 'image/jpeg' })
+      .expect(201);
+
+    expect(res.body).toMatchObject({
+      bucket: 'bonde-avatars',
+      path: 'u-123/avatar.jpeg',
+      method: 'PUT',
+      uploadUrl,
+      headers: { 'content-type': 'image/jpeg' },
+      expiresIn: 900,
+    });
+  });
+
+  it('POST /storage/upload-url rejects unknown buckets → 400', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/storage/upload-url')
+      .set('Authorization', 'Bearer valid-token')
+      .send({ bucket: 'bonde-unknown', path: 'u/a.jpg', contentType: 'image/jpeg' })
+      .expect(400);
+
+    expect(res.body.statusCode).toBe(400);
+  });
+
+  it('POST /storage/upload-url rejects unsafe paths → 400', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/storage/upload-url')
+      .set('Authorization', 'Bearer valid-token')
+      .send({ bucket: 'bonde-avatars', path: '../etc/passwd', contentType: 'image/jpeg' })
+      .expect(400);
+
+    expect(res.body).toMatchObject({
+      statusCode: 400,
+      error: 'BadRequestException',
+    });
+  });
+
+  it('POST /storage/upload-url rejects disallowed content types → 400', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/storage/upload-url')
+      .set('Authorization', 'Bearer valid-token')
+      .send({ bucket: 'bonde-avatars', path: 'u-1/notes.txt', contentType: 'text/plain' })
+      .expect(400);
+
+    expect(res.body.statusCode).toBe(400);
+  });
+
+  it('GET /storage/signed-url returns a signed read URL', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/storage/signed-url')
+      .set('Authorization', 'Bearer valid-token')
+      .query({ bucket: 'bonde-avatars', path: 'u-123/avatar.jpeg', expiresIn: 60 })
+      .expect(200);
+
+    expect(res.body).toMatchObject({
+      bucket: 'bonde-avatars',
+      path: 'u-123/avatar.jpeg',
+      expiresIn: 60,
+      signedUrl: expect.stringContaining(`${process.env.SUPABASE_URL!}/storage/v1/object/upload/`),
+    });
+  });
+
+  it('GET /storage/public-url serves public buckets and rejects private ones', async () => {
+    const server = app.getHttpServer();
+
+    const publicRes = await request(server)
+      .get('/storage/public-url')
+      .set('Authorization', 'Bearer valid-token')
+      .query({ bucket: 'bonde-avatars', path: 'u-123/avatar.jpeg' })
+      .expect(200);
+    expect(publicRes.body.publicUrl).toBe(
+      `${process.env.SUPABASE_URL!}/storage/v1/object/public/bonde-avatars/u-123/avatar.jpeg`,
+    );
+
+    const privateRes = await request(server)
+      .get('/storage/public-url')
+      .set('Authorization', 'Bearer valid-token')
+      .query({ bucket: 'bonde-kyc-docs', path: 'u-123/kyc.pdf' })
+      .expect(400);
+    expect(privateRes.body.statusCode).toBe(400);
+  });
+});

@@ -9,6 +9,7 @@ import { HealthModule } from './modules/health/health.module.js';
 import { RedisModule, REDIS_CLIENT } from './common/redis/redis.module.js';
 import { RedisThrottlerStorage } from './common/throttling/redis-throttler.storage.js';
 import { CacheModule } from './common/cache/cache.module.js';
+import { StorageModule } from './common/storage/storage.module.js';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
 import { CommonModule } from './common/common.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
@@ -83,6 +84,7 @@ import { RedisClient } from './common/redis/redis-client.interface.js';
 
     RedisModule,
     CacheModule,
+    StorageModule,
     HealthModule,
     PrismaModule,
     AuthModule,

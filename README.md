@@ -120,7 +120,7 @@ src/
 - [x] Phase 3 — Auth (Supabase JWT verification + RBAC)
 - [x] Phase 4 — Swagger / OpenAPI documentation
 - [x] Phase 5 — Redis caching & rate limiting
-- [ ] Phase 6 — Storage (Supabase)
+- [x] Phase 6 — Storage (Supabase)
 - [ ] Phase 7 — Shared admin + mobile features
 - [ ] Phase 8 — Testing & delivery
 

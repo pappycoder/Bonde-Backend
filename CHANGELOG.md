@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Storage (Phase 6)**: Supabase Storage foundation.
+  - `StorageService` (`src/common/storage/`, `@Global()`) wrapping the Storage
+    REST API with the server-only service-role key: signed upload URLs
+    (`POST /object/upload/sign`), signed read URLs (`POST /object/sign`),
+    stable public URLs (public buckets), server-side upload, remove, list, and
+    idempotent bucket creation.
+  - Fixed bucket catalog (`bonde-avatars` public; `bonde-kyc-docs`,
+    `bonde-chat-files` private) with per-bucket content-type allowlists, size
+    caps, and `expiresIn` bounds; unsafe paths (`..`, leading `/`, spaces),
+    unknown buckets, and non-allowlisted content types are rejected before any
+    HTTP call. Fail-closed (uniform `503`) when Storage is unreachable.
+  - Thin auth-protected endpoints: `POST /api/storage/upload-url`,
+    `GET /api/storage/signed-url`, `GET /api/storage/public-url` (no file
+    proxying; avatars/KYC/chat flows build on these in Phase 7).
+  - Tests: 24 new unit cases (guardrails, URL/object flows, error mapping) +
+    7 e2e (auth, buckets, unsafe paths, content-type allowlist, public/private
+    URL rules) with stubbed `fetch`.
+  - Docs: AGENTS.md `## Storage (Supabase)` section.
+
 - **Database schema (Phase 2)**: Full Prisma schema for the Bonde domain.
   - 16 tables: `profiles`, `accounts`, `wallets`, `card_providers`, `cards`,
     `card_locks`, `card_categories`, `chats`, `messages`, `transactions`,

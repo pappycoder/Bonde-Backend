@@ -77,6 +77,7 @@ src/
     errors/      ApiErrorDto + @ApiErrorResponse()
     filters/     global HttpExceptionFilter
     http/        API-wide controllers (404 catch-all)
+    storage/     StorageService + signed-URL endpoints
     swagger.ts   configureSwagger bootstrap helper
   modules/   one directory per business domain
     <feature>/
@@ -125,6 +126,22 @@ src/
 - Do not access `process.env` directly in feature modules — use the typed config (`ConfigService` with `AppConfig`) defined in `src/config/`.
 - Never commit `.env`, secrets, or the Supabase service-role key.
 - The Supabase service-role key is **server-only** and must never reach a client.
+
+## Storage (Supabase)
+- `StorageService` (`src/common/storage/`) mediates the Supabase Storage REST
+  API with the **service-role key** (server-only — never returned or logged).
+  It is a `@Global()` module; any feature module can inject it.
+- Buckets are a fixed catalog in `storage.types.ts`: `bonde-avatars` (public),
+  `bonde-kyc-docs` and `bonde-chat-files` (private). Unknown buckets, unsafe
+  paths (leading `/`, `..`, spaces), disallowed content types, and oversized
+  declarations are rejected before any HTTP call leaves the server.
+- Mobile uploads use signed URLs (`POST /api/storage/upload-url` → PUT URL +
+  `content-type` header); reads use `GET /api/storage/signed-url`. The API
+  never proxies file bytes; per-bucket `expiresIn` bounds live in
+  `storage.types.ts`.
+- Storage is a write-path dependency: on outage, upload/sign calls fail closed
+  with a uniform `503` (`ServiceUnavailableException`) rather than pretending
+  the write succeeded.
 
 ## Verification
 Run `pnpm check` before finishing. If e2e fails due to missing Supabase credentials, note the requirement rather than disabling the test.
