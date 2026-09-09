@@ -1,4 +1,11 @@
-import { Controller, Get, HttpCode, HttpStatus, Inject } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { HealthCheck, HealthCheckService, HealthIndicatorService } from '@nestjs/terminus';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { REDIS_CLIENT } from '../common/redis/redis.module.js';
@@ -23,14 +30,36 @@ export class HealthController {
   @ApiOkResponse({ description: 'Health of backing services (e.g. Redis)' })
   @ApiErrorResponse()
   check() {
-    return this.health.check([
-      () =>
-        this.indicator.check('redis').attempt(async (_signal) => {
-          const pong = await this.redis.ping();
-          if (pong !== 'PONG') throw new Error('unexpected PING response');
-          return { message: 'pong' };
-        }),
-    ]);
+    return this.health
+      .check([
+        () =>
+          this.indicator.check('redis').attempt(async (_signal) => {
+            const pong = await this.redis.ping();
+            if (pong !== 'PONG') throw new Error('unexpected PING response');
+            return { message: 'pong' };
+          }),
+      ])
+      .catch((error: unknown) => {
+        // Terminus throws ServiceUnavailableException(result) when a dependency
+        // is down. Surface its message through the uniform error contract so a
+        // degraded health endpoint reports *which* dependency failed instead of
+        // a generic "Internal Server Error".
+        if (error instanceof ServiceUnavailableException) {
+          const result = error.getResponse() as {
+            status?: string;
+            error?: Record<string, string>;
+          };
+          const failures = result?.error
+            ? Object.values(result.error).filter(Boolean)
+            : ['Service Unavailable'];
+          throw new ServiceUnavailableException({
+            statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+            error: 'ServiceUnavailableException',
+            message: failures.length > 0 ? failures : ['Service Unavailable'],
+          });
+        }
+        throw error;
+      });
   }
 
   @Get('ready')

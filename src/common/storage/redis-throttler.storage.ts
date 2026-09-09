@@ -1,5 +1,7 @@
+import { Logger } from '@nestjs/common';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import { RedisClient } from '../redis/redis-client.interface.js';
+import { MemoryThrottlerStorage } from './memory-throttler.storage.js';
 
 /**
  * Shape returned by ThrottlerStorage.increment. Mirrors the record interface
@@ -13,7 +15,8 @@ export interface ThrottlerStorageRecord {
 }
 
 /**
- * Redis-backed storage for @nestjs/throttler.
+ * Redis-backed storage for @nestjs/throttler with a graceful (fail-open)
+ * fallback to per-process memory limits when Redis is unreachable.
  *
  * Rate-limit counters and block state are stored as Redis keys with automatic
  * TTL expiry, so they never leak memory and work across multiple API instances.
@@ -21,11 +24,40 @@ export interface ThrottlerStorageRecord {
  * Key layout:
  *   `rate:{throttlerName}:{key}`              — request counter (INCR + PEXPIRE)
  *   `rate:block:{throttlerName}:{key}`        — block flag (SET + PEXPIRE)
+ *
+ * Degradation contract: a rate-limiting store outage MUST never take down the
+ * API or fail a request. When the client is not ready (or a command throws) we
+ * log once and serve the request with a bounded in-memory counter instead.
  */
 export class RedisThrottlerStorage implements ThrottlerStorage {
+  private readonly memory = new MemoryThrottlerStorage();
+  private readonly logger = new Logger('RedisThrottlerStorage');
+  private warnedOffline = false;
+
   constructor(private readonly client: RedisClient) {}
 
   async increment(
+    key: string,
+    ttl: number,
+    limit: number,
+    blockDuration: number,
+    throttlerName: string,
+  ): Promise<ThrottlerStorageRecord> {
+    if (this.client.status !== 'ready') {
+      return this.fallback(key, ttl, limit, blockDuration, throttlerName);
+    }
+
+    try {
+      const record = await this.incrementRedis(key, ttl, limit, blockDuration, throttlerName);
+      this.markOnline();
+      return record;
+    } catch (error) {
+      this.logFallback(error);
+      return this.fallback(key, ttl, limit, blockDuration, throttlerName);
+    }
+  }
+
+  private async incrementRedis(
     key: string,
     ttl: number,
     limit: number,
@@ -75,5 +107,31 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
       isBlocked: false,
       timeToBlockExpire: 0,
     };
+  }
+
+  private fallback(
+    key: string,
+    ttl: number,
+    limit: number,
+    blockDuration: number,
+    throttlerName: string,
+  ): Promise<ThrottlerStorageRecord> {
+    return this.memory.increment(key, ttl, limit, blockDuration, throttlerName);
+  }
+
+  private logFallback(error: unknown): void {
+    if (this.warnedOffline) return;
+    this.warnedOffline = true;
+    this.logger.warn(
+      'Redis rate-limit storage unavailable — degraded to in-memory fallback:',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  private markOnline(): void {
+    if (this.warnedOffline) {
+      this.warnedOffline = false;
+      this.logger.log('Rate-limit storage back on Redis');
+    }
   }
 }

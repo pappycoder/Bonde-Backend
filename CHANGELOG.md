@@ -57,7 +57,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Annotations: `AuthController` (`@ApiTags('auth')`, bearer, `AuthPrincipalDto`
     model), `HealthController` (`@ApiTags('health')`, public), shared `ApiErrorDto`
     + `@ApiErrorResponse()` documenting the uniform error shape for 400/401/403/
-    404/409/500, `AppController` excluded via `@ApiExcludeController()`.
+    404/409/429/500/503, `AppController` excluded via `@ApiExcludeController()`.
+- **Redis resilience**: rate limiting no longer takes the API down when Redis is
+  unreachable.
+  - `RedisThrottlerStorage` now **fails open**: a not-ready client or a failing
+    command falls back to per-process `MemoryThrottlerStorage` (bounded,
+    block-aware) with a one-time warning instead of throwing
+    `MaxRetriesPerRequestError` → 500 on every request.
+  - Redis client hardened: bounded `connectTimeout` (5s) + backoff
+    (`min(times*200, 2000)`), log-once-per-outage with `ready`/`reconnecting`
+    transitions.
+  - `assertRedisUrl` fails the boot with a clear error when `REDIS_URL` uses the
+    non-TLS `redis://` scheme against a `.upstash.io` host (Upstash requires
+    `rediss://`).
+  - `/api/health` returns the uniform **503** `ApiErrorDto` whose `message` lists
+    the failing dependency (e.g. Redis) instead of a generic "Internal Server
+    Error"; `/api/health/ready` remains 200 and Redis-independent.
+  - Tests: 32 unit (memory storage, fail-open paths, TLS guard) + 12 e2e incl. a
+    full Redis-outage suite (dead port): `/auth/me` still 401, `/health/ready`
+    200, `/health` 503 — never 500.
 
 ### Changed
 

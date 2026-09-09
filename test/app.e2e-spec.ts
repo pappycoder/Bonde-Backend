@@ -129,3 +129,46 @@ describe('App (e2e)', () => {
     expect(res.text).toContain('swagger-ui');
   });
 });
+
+/**
+ * Resilience: the API must stay up when Redis is unreachable. Rate limiting
+ * fails open to per-process memory limits and the health endpoint reports a
+ * 503 (degraded) instead of crashing every request with a 500.
+ */
+describe('App (e2e) — Redis outage', () => {
+  let app: INestApplication;
+  const DEAD_REDIS = 'redis://127.0.0.1:6399';
+
+  beforeEach(async () => {
+    process.env.REDIS_URL = DEAD_REDIS;
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }));
+    await app.init();
+  });
+
+  afterEach(async () => {
+    delete process.env.REDIS_URL;
+    await app.close();
+  });
+
+  it('GET /auth/me without a token → 401 (not 500)', () => {
+    return request(app.getHttpServer()).get('/auth/me').expect(401);
+  });
+
+  it('GET /health/ready → 200 (does not depend on Redis)', () => {
+    return request(app.getHttpServer()).get('/health/ready').expect(200);
+  });
+
+  it('GET /health → 503 reporting the failing dependency', async () => {
+    const res = await request(app.getHttpServer()).get('/health').expect(503);
+    expect(res.body).toMatchObject({
+      statusCode: 503,
+      error: 'ServiceUnavailableException',
+    });
+    expect(res.body.message.length).toBeGreaterThan(0);
+  });
+});

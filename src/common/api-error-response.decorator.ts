@@ -8,6 +8,8 @@ const ERROR_STATUSES: Record<number, string> = {
   [HttpStatus.FORBIDDEN]: 'Authenticated but insufficient role',
   [HttpStatus.NOT_FOUND]: 'Route not found',
   [HttpStatus.CONFLICT]: 'Resource state conflict',
+  [HttpStatus.TOO_MANY_REQUESTS]: 'Rate limit exceeded (or temporarily blocked)',
+  [HttpStatus.SERVICE_UNAVAILABLE]: 'Dependency (e.g. Redis) unreachable — retry later',
   [HttpStatus.INTERNAL_SERVER_ERROR]: 'Unexpected server error',
 };
 

@@ -10,6 +10,7 @@ import type { EventEmitter } from 'node:events';
  * commands we actually use while remaining resilient to ioredis version churn.
  */
 export interface RedisClient extends EventEmitter {
+  status: string;
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   quit(): Promise<string>;

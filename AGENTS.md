@@ -64,6 +64,19 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
 ## Conventions
 - **ESM only.** All relative imports include the `.js` extension (NestJS 12 `nodenext` resolution). Do not import without the file extension.
 - TypeScript **strict**. Avoid `any` except where oxlint explicitly allows it (`no-explicit-any` is off).
+
+## Redis & resilience
+- The global `RedisClient` (`src/common/redis/`) is the single ioredis connection.
+  TLS-only providers (e.g. Upstash) require `rediss://` in `REDIS_URL`;
+  `assertRedisUrl` fails the build fast on a `redis://` URL against `.upstash.io`.
+- Rate limiting (`RedisThrottlerStorage`) is **fail-open**: if Redis is down or
+  not ready, it degrades to per-process `MemoryThrottlerStorage` and logs a
+  warning — the API never 5xxes because of a rate-limit store outage.
+- `/api/health` reports `503` (uniform `ApiErrorDto`, message lists the failing
+  dependency) when a dependency is down; `/api/health/ready` stays `200`.
+- Do not reintroduce `enableOfflineQueue: false` — commands issued before the
+  first connect would fail outright; keep bounded `maxRetriesPerRequest` +
+  `retryStrategy` and rely on the throttler fallback instead.
 - Do not access `process.env` directly in feature modules — use the typed config (`ConfigService` with `AppConfig`) defined in `src/config/`.
 - Follow NestJS modular structure: one feature directory per domain with controller / service / module / DTOs.
 - Never commit `.env`, secrets, or the Supabase service-role key.
