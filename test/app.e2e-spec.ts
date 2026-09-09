@@ -3,6 +3,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import request from 'supertest';
 import { AppModule } from './../src/app.module.js';
+import { AppConfig } from './../src/config/configuration.js';
 import { JwksService } from './../src/auth/jwks.service.js';
 import { configureSwagger } from './../src/common/swagger.js';
 
@@ -30,7 +31,7 @@ describe('App (e2e)', () => {
         transform: true,
       }),
     );
-    const config = moduleFixture.get(ConfigService);
+    const config = moduleFixture.get<ConfigService<AppConfig, true>>(ConfigService);
     configureSwagger(app, {
       nodeEnv: config.get('nodeEnv'),
       publicUrl: config.get('publicUrl'),
@@ -170,5 +171,43 @@ describe('App (e2e) — Redis outage', () => {
       error: 'ServiceUnavailableException',
     });
     expect(res.body.message.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Rate limiting: the global `default` throttler rejects traffic past the
+ * configured limit (env-tuned low here) with a uniform 429.
+ */
+describe('App (e2e) — rate limiting', () => {
+  let app: INestApplication;
+
+  beforeEach(async () => {
+    process.env.THROTTLE_LIMIT = '3';
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }));
+    await app.init();
+  });
+
+  afterEach(async () => {
+    delete process.env.THROTTLE_LIMIT;
+    await app.close();
+  });
+
+  it('allows requests under the limit, then returns uniform 429', async () => {
+    const server = app.getHttpServer();
+    for (let i = 0; i < 3; i++) {
+      await request(server).get('/health/ready').expect(200);
+    }
+
+    const blocked = await request(server).get('/health/ready').expect(429);
+    expect(blocked.body).toMatchObject({
+      statusCode: 429,
+      error: 'ThrottlerException',
+    });
+    expect(Array.isArray(blocked.body.message)).toBe(true);
   });
 });

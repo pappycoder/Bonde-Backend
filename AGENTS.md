@@ -77,6 +77,19 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
 - Do not reintroduce `enableOfflineQueue: false` — commands issued before the
   first connect would fail outright; keep bounded `maxRetriesPerRequest` +
   `retryStrategy` and rely on the throttler fallback instead.
+
+## Caching & rate limiting
+- Use `CacheService` (`src/common/cache/`) for cache-aside data: `get<T>`,
+  `set`, `del`, `invalidate('pattern:*')` (SCAN-based) and single-flight
+  `getOrSet(key, ttlMs, loader)`. Keys are prefixed `cache:`. Fail-open: a Redis
+  outage yields cache misses (source is read) — never an error.
+- Rate limiting: the `default` throttler is env-driven and applies to every
+  route. Security-sensitive endpoints (OTP send/verify, etc.) must additionally
+  be stamped `@StrictThrottle()` (`src/common/throttle/`), which applies the
+  `strict` throttle (5/min with 5-min lockout by default, env-tuned). Existing
+  endpoints are unaffected because the strict throttle is `skipIf`-ignored
+  unless marked.
+- Prefer `@nestjs/throttler` names/decorators over hand-rolled limits.
 - Do not access `process.env` directly in feature modules — use the typed config (`ConfigService` with `AppConfig`) defined in `src/config/`.
 - Follow NestJS modular structure: one feature directory per domain with controller / service / module / DTOs.
 - Never commit `.env`, secrets, or the Supabase service-role key.

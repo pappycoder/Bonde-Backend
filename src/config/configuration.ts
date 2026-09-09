@@ -26,6 +26,11 @@ export interface AppConfig {
     ttl: number;
     limit: number;
     blockDuration: number;
+    strict: {
+      ttl: number;
+      limit: number;
+      blockDuration: number;
+    };
   };
   resend: {
     apiKey: string;
@@ -64,6 +69,11 @@ export default (): AppConfig => ({
     ttl: Number(process.env.THROTTLE_TTL ?? 60_000),
     limit: Number(process.env.THROTTLE_LIMIT ?? 100),
     blockDuration: Number(process.env.THROTTLE_BLOCK_DURATION ?? 0),
+    strict: {
+      ttl: Number(process.env.THROTTLE_STRICT_TTL ?? 60_000),
+      limit: Number(process.env.THROTTLE_STRICT_LIMIT ?? 5),
+      blockDuration: Number(process.env.THROTTLE_STRICT_BLOCK_DURATION ?? 300_000),
+    },
   },
   resend: {
     apiKey: process.env.RESEND_API_KEY!,

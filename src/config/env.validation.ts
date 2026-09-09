@@ -30,6 +30,9 @@ export const envValidationSchema = Joi.object({
   THROTTLE_TTL: Joi.number().integer().min(1000).default(60_000),
   THROTTLE_LIMIT: Joi.number().integer().min(1).default(100),
   THROTTLE_BLOCK_DURATION: Joi.number().integer().min(0).default(0),
+  THROTTLE_STRICT_TTL: Joi.number().integer().min(1000).default(60_000),
+  THROTTLE_STRICT_LIMIT: Joi.number().integer().min(1).default(5),
+  THROTTLE_STRICT_BLOCK_DURATION: Joi.number().integer().min(0).default(300_000),
 
   RESEND_API_KEY: Joi.string().required(),
   RESEND_FROM_EMAIL: Joi.string().email().default('noreply@bonde.app'),

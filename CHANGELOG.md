@@ -58,6 +58,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     model), `HealthController` (`@ApiTags('health')`, public), shared `ApiErrorDto`
     + `@ApiErrorResponse()` documenting the uniform error shape for 400/401/403/
     404/409/429/500/503, `AppController` excluded via `@ApiExcludeController()`.
+- **Caching & rate limiting (Phase 5)**: Redis on both fronts.
+  - New `CacheModule` + `CacheService` (`src/common/cache/`): cache-aside
+    `get<T>`/`set` (JSON + `PX` TTL), `del`, SCAN-based `invalidate('pattern:*')`,
+    and single-flight `getOrSet(key, ttl, loader)` (per-process). Keys prefixed
+    `cache:`. Fail-open like the throttler: Redis outage → misses pass through
+    to the source, warn-once logging.
+  - Named throttles: global config now registers `default` (env-driven, all
+    routes) plus an opt-in `strict` throttle enforced only where handlers are
+    marked `@StrictThrottle()` (`src/common/throttle/`), wired via
+    `ThrottlerGuard`'s `skipIf` so existing endpoints are unaffected. Strict
+    defaults: 5/min, 5-min block (env-tuned via `THROTTLE_STRICT_*`). Intended
+    for security-sensitive flows (OTP send/verify, etc.).
+  - Tests: 42 unit (incl. cache round-trip, invalidate, single-flight, fail-open)
+    + 13 e2e incl. a 429-on-limit case.
 - **Redis resilience**: rate limiting no longer takes the API down when Redis is
   unreachable.
   - `RedisThrottlerStorage` now **fails open**: a not-ready client or a failing
@@ -76,6 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tests: 32 unit (memory storage, fail-open paths, TLS guard) + 12 e2e incl. a
     full Redis-outage suite (dead port): `/auth/me` still 401, `/health/ready`
     200, `/health` 503 — never 500.
+  - `RedisClient` interface extended with `del` + `scanIterator` (SCAN-based
+    deletion for cache invalidation).
 
 ### Changed
 

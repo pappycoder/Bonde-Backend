@@ -109,7 +109,7 @@ src/
 - [x] Phase 2 — Database design (Prisma schema on Supabase Postgres)
 - [x] Phase 3 — Auth (Supabase JWT verification + RBAC)
 - [x] Phase 4 — Swagger / OpenAPI documentation
-- [ ] Phase 5 — Redis caching & rate limiting
+- [x] Phase 5 — Redis caching & rate limiting
 - [ ] Phase 6 — Storage (Supabase)
 - [ ] Phase 7 — Shared admin + mobile features
 - [ ] Phase 8 — Testing & delivery

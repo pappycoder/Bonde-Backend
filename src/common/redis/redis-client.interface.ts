@@ -17,10 +17,13 @@ export interface RedisClient extends EventEmitter {
   ping(): Promise<string>;
   get(key: string): Promise<string | null>;
   set(key: string, value: string, ...args: (string | number)[]): Promise<string | null>;
+  del(...keys: string[]): Promise<number>;
   incr(key: string): Promise<number>;
   exists(key: string | string[]): Promise<number>;
   pexpire(key: string, milliseconds: number): Promise<number>;
   pttl(key: string): Promise<number>;
+  /** SCAN-based cursor-paginated key iteration (see ioredis `scanIterator`). */
+  scanIterator(options?: Record<string, unknown>): AsyncIterableIterator<string>;
 }
 
 export type { RedisClient as RedisClientType };

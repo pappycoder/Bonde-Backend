@@ -1,13 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
-import { APP_GUARD, APP_FILTER } from '@nestjs/core';
+import { APP_GUARD, APP_FILTER, Reflector } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { HealthModule } from './health/health.module.js';
 import { RedisModule, REDIS_CLIENT } from './common/redis/redis.module.js';
 import { RedisThrottlerStorage } from './common/storage/redis-throttler.storage.js';
+import { CacheModule } from './common/cache/cache.module.js';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
 import { CommonModule } from './common/common.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
@@ -16,6 +17,7 @@ import { SupabaseAuthGuard } from './auth/auth.guard.js';
 import { RolesGuard } from './auth/roles.guard.js';
 import configuration, { AppConfig } from './config/configuration.js';
 import { envValidationSchema } from './config/env.validation.js';
+import { STRICT_THROTTLE } from './common/throttle/strict-throttle.decorator.js';
 import { RedisClient } from './common/redis/redis-client.interface.js';
 
 @Module({
@@ -42,15 +44,36 @@ import { RedisClient } from './common/redis/redis-client.interface.js';
 
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
-      inject: [ConfigService, REDIS_CLIENT],
-      useFactory: (config: ConfigService<AppConfig, true>, redisClient: RedisClient) => {
+      inject: [ConfigService, REDIS_CLIENT, Reflector],
+      useFactory: (
+        config: ConfigService<AppConfig, true>,
+        redisClient: RedisClient,
+        reflector: Reflector,
+      ) => {
         const throttle = config.get('throttle');
         return {
           throttlers: [
             {
+              name: 'default',
               ttl: throttle.ttl,
               limit: throttle.limit,
               blockDuration: throttle.blockDuration,
+            },
+            {
+              // Strict limits apply ONLY where handlers are marked
+              // `@StrictThrottle()` (security-sensitive flows). skipIf ignores
+              // it everywhere else, so existing endpoints are unaffected.
+              name: 'strict',
+              ttl: throttle.strict.ttl,
+              limit: throttle.strict.limit,
+              blockDuration: throttle.strict.blockDuration,
+              skipIf: (context) => {
+                const marked = reflector.getAllAndOverride<boolean>(STRICT_THROTTLE, [
+                  context.getHandler(),
+                  context.getClass(),
+                ]);
+                return marked !== true;
+              },
             },
           ],
           storage: new RedisThrottlerStorage(redisClient),
@@ -59,6 +82,7 @@ import { RedisClient } from './common/redis/redis-client.interface.js';
     }),
 
     RedisModule,
+    CacheModule,
     HealthModule,
     PrismaModule,
     AuthModule,
