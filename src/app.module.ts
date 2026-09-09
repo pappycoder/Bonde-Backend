@@ -10,6 +10,7 @@ import { RedisModule, REDIS_CLIENT } from './common/redis/redis.module.js';
 import { RedisThrottlerStorage } from './common/storage/redis-throttler.storage.js';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
 import { CommonModule } from './common/common.module.js';
+import { PrismaModule } from './prisma/prisma.module.js';
 import configuration, { AppConfig } from './config/configuration.js';
 import { envValidationSchema } from './config/env.validation.js';
 import { RedisClient } from './common/redis/redis-client.interface.js';
@@ -57,6 +58,7 @@ import { RedisClient } from './common/redis/redis-client.interface.js';
     RedisModule,
     HealthModule,
     CommonModule,
+    PrismaModule,
   ],
   controllers: [AppController],
   providers: [

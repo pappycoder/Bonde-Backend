@@ -1,0 +1,438 @@
+// =============================================================================
+// Bonde Backend — Prisma Schema
+// Managed PostgreSQL via Supabase. Auth is handled by Supabase auth.users;
+// our profiles table mirrors its ID and adds app-specific fields.
+// =============================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearchPostgres"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum CardStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+}
+
+enum LockType {
+  SELF_DESTRUCT
+  MERCHANT
+  TIME
+  CATEGORY
+  BUDGET
+}
+
+enum CardRestrictedCategory {
+  TRAVEL_HOTEL
+  FOOD_RESTAURANT
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  PAYMENT
+  TRANSFER
+}
+
+enum TransactionStatus {
+  PENDING
+  SUCCESS
+  FAIL
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  DECLINED
+}
+
+enum TransactionFrequency {
+  ONE_TIME
+  MONTHLY
+  YEARLY
+}
+
+enum ThresholdType {
+  FIRST_TIME
+  LARGE_AMOUNT
+}
+
+enum NotificationStatus {
+  UNREAD
+  READ
+}
+
+enum NotificationType {
+  SYSTEM
+  TRANSACTION
+  CHAT
+  CARD
+}
+
+enum OtpChannel {
+  EMAIL
+  PHONE
+}
+
+enum BiometricType {
+  FACE
+  FINGERPRINT
+}
+
+// ---------------------------------------------------------------------------
+// Models — Auth / Identity
+// ---------------------------------------------------------------------------
+
+/// Extends Supabase `auth.users` (1:1). Stores app-specific profile data;
+/// auth fields (email, password hash, etc.) live in `auth.users`.
+model Profile {
+  id        String   @id @db.Uuid
+  fullName  String   @map("full_name") @db.VarChar(255)
+  phone     String?  @unique @db.VarChar(20)
+  phoneVerified Boolean @default(false) @map("phone_verified")
+  emailVerified Boolean @default(false) @map("email_verified")
+  avatarUrl String?  @map("avatar_url")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  accounts          Account[]
+  cards             Card[]
+  chats             Chat[]
+  transactions      Transaction[]
+  notifications     Notification[]
+  otpCodes          OtpCode[]
+  biometricDevices  BiometricDevice[]
+  thresholds        TransactionThreshold[]
+  auditLogs         AuditLog[]
+  transactionApprovals TransactionApproval[]
+
+  @@map("profiles")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Banking
+// ---------------------------------------------------------------------------
+
+/// Bank account with a generated account number (bank-style + Luhn check digit).
+model Account {
+  id            String   @id @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  accountNumber String   @unique @map("account_number") @db.VarChar(20)
+  accountType   String   @default("checking") @map("account_type") @db.VarChar(20)
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user      Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallets   Wallet[]
+
+  @@index([userId])
+  @@map("accounts")
+}
+
+/// Wallet linked 1:1 to an account. Balance is authoritative (local).
+model Wallet {
+  id        String   @id @db.Uuid
+  accountId String   @unique @map("account_id") @db.Uuid
+  balance   Decimal  @default(0) @db.Decimal(15, 2)
+  currency  String   @default("NGN") @db.VarChar(3)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  account      Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@map("wallets")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Cards
+// ---------------------------------------------------------------------------
+
+/// Generic third-party card issuers. `config` holds API keys / secrets
+/// encrypted at the application level.
+model CardProvider {
+  id        String   @id @db.Uuid
+  name      String   @unique @db.VarChar(100)
+  baseUrl   String   @map("base_url")
+  isActive  Boolean  @default(true) @map("is_active")
+  config    Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  cards Card[]
+
+  @@map("card_providers")
+}
+
+/// Virtual or physical card. `cardNumberEncrypted` is AES-256-GCM encrypted;
+/// `cardNumberLast4` is plaintext for display. Balance is synced from provider
+/// (display-only cache, not authoritative).
+model Card {
+  id                    String     @id @db.Uuid
+  userId                String     @map("user_id") @db.Uuid
+  providerId            String     @map("provider_id") @db.Uuid
+  cardNumberEncrypted   String     @map("card_number_encrypted")
+  cardNumberLast4       String     @map("card_number_last4") @db.VarChar(4)
+  cardType              String     @default("virtual") @map("card_type") @db.VarChar(20)
+  status                CardStatus @default(ACTIVE)
+  nickname              String?    @db.VarChar(100)
+  maxSpendLimit         Decimal?   @map("max_spend_limit") @db.Decimal(15, 2)
+  monthlyLimit          Decimal?   @map("monthly_limit") @db.Decimal(15, 2)
+  expirationType        String     @map("expiration_type") @db.VarChar(20)
+  expirationDate        DateTime   @map("expiration_date")
+  externalReferenceId   String?    @map("external_reference_id") @db.VarChar(100)
+  createdAt             DateTime   @default(now()) @map("created_at")
+  updatedAt             DateTime   @updatedAt @map("updated_at")
+
+  user                  Profile    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider              CardProvider @relation(fields: [providerId], references: [id])
+  locks                 CardLock[]
+  restrictedCategories  CardCategory[]
+  transactions          Transaction[]
+
+  @@index([userId])
+  @@index([providerId])
+  @@map("cards")
+}
+
+/// Composable lock on a card. A card can have multiple locks of different types.
+/// `config` holds type-specific payload as JSONB.
+model CardLock {
+  id        String   @id @db.Uuid
+  cardId    String   @map("card_id") @db.Uuid
+  lockType  LockType @map("lock_type")
+  config    Json     @default("{}")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([cardId, lockType])
+  @@map("card_locks")
+}
+
+/// Restricted spending category on a card. Deny-by default (`isAllowed` = false).
+model CardCategory {
+  id        String                  @id @db.Uuid
+  cardId    String                  @map("card_id") @db.Uuid
+  category  CardRestrictedCategory
+  isAllowed Boolean                 @default(false) @map("is_allowed")
+  createdAt DateTime                @default(now()) @map("created_at")
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([cardId, category])
+  @@map("card_categories")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Chat / AI
+// ---------------------------------------------------------------------------
+
+/// AI conversation session.
+model Chat {
+  id        String     @id @db.Uuid
+  userId    String     @map("user_id") @db.Uuid
+  title     String?    @db.VarChar(255)
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  user         Profile       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages     Message[]
+  transactions Transaction[]
+
+  @@index([userId])
+  @@map("chats")
+}
+
+/// Single message inside a chat.
+model Message {
+  id        String      @id @db.Uuid
+  chatId    String      @map("chat_id") @db.Uuid
+  role      MessageRole
+  content   String
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId, createdAt])
+  @@map("messages")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Transactions
+// ---------------------------------------------------------------------------
+
+/// Financial transaction. `chatId` is set when the transaction was initiated
+/// by the AI. `nextOccurrenceDate` is indexed for the recurring-payment
+/// scheduler (`WHERE is_recurring AND nextOccurrenceDate <= now()`).
+model Transaction {
+  id                  String           @id @db.Uuid
+  userId              String           @map("user_id") @db.Uuid
+  walletId            String           @map("wallet_id") @db.Uuid
+  cardId              String?          @map("card_id") @db.Uuid
+  chatId              String?          @map("chat_id") @db.Uuid
+  type                TransactionType
+  status              TransactionStatus @default(PENDING)
+  approvalStatus      ApprovalStatus   @default(PENDING) @map("approval_status")
+  amount              Decimal          @db.Decimal(15, 2)
+  currency            String           @default("NGN") @db.VarChar(3)
+  description         String?          @db.VarChar(500)
+  metadata            Json?            @default("{}")
+  frequency           TransactionFrequency @default(ONE_TIME)
+  isRecurring         Boolean          @default(false) @map("is_recurring")
+  recurrenceEndDate   DateTime?        @map("recurrence_end_date")
+  nextOccurrenceDate  DateTime?        @map("next_occurrence_date")
+  thresholdWarning    Boolean          @default(false) @map("threshold_warning")
+  approvalNotes       String?          @map("approval_notes") @db.VarChar(500)
+  approvedAt          DateTime?        @map("approved_at")
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+
+  user    Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet  Wallet   @relation(fields: [walletId], references: [id])
+  card    Card?    @relation(fields: [cardId], references: [id], onDelete: SetNull)
+  chat    Chat?    @relation(fields: [chatId], references: [id], onDelete: SetNull)
+
+  approvals TransactionApproval[]
+
+  @@index([userId, status])
+  @@index([walletId])
+  @@index([chatId])
+  @@index([nextOccurrenceDate])
+  @@map("transactions")
+}
+
+/// Audit trail of approval decisions for a transaction.
+model TransactionApproval {
+  id            String         @id @db.Uuid
+  transactionId String         @map("transaction_id") @db.Uuid
+  status        ApprovalStatus
+  approvedBy    String         @map("approved_by") @db.Uuid
+  notes         String?        @db.VarChar(500)
+  createdAt     DateTime       @default(now()) @map("created_at")
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  approver    Profile     @relation(fields: [approvedBy], references: [id])
+
+  @@index([transactionId])
+  @@map("transaction_approvals")
+}
+
+/// Per-user configurable warning thresholds.
+model TransactionThreshold {
+  id             String        @id @db.Uuid
+  userId         String        @map("user_id") @db.Uuid
+  thresholdType  ThresholdType @map("threshold_type")
+  thresholdValue Decimal       @map("threshold_value") @db.Decimal(15, 2)
+  isActive       Boolean       @default(true) @map("is_active")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, thresholdType])
+  @@map("transaction_thresholds")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Notifications
+// ---------------------------------------------------------------------------
+
+/// In-app notification. Supports real-time delivery via Supabase Realtime
+/// (INSERT subscription) or NestJS WebSocket gateway.
+model Notification {
+  id        String             @id @db.Uuid
+  userId    String             @map("user_id") @db.Uuid
+  title     String             @db.VarChar(255)
+  content   String
+  status    NotificationStatus @default(UNREAD)
+  type      NotificationType   @default(SYSTEM)
+  metadata  Json?              @default("{}")
+  readAt    DateTime?          @map("read_at")
+  createdAt DateTime           @default(now()) @map("created_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Security
+// ---------------------------------------------------------------------------
+
+/// 4-digit OTP codes for password recovery. Stored SHA-256 hashed (never
+/// plaintext). Expire after 5 minutes.
+model OtpCode {
+  id        String     @id @db.Uuid
+  userId    String     @map("user_id") @db.Uuid
+  code      String     @db.VarChar(64) // SHA-256 hex digest
+  channel   OtpChannel
+  expiresAt DateTime   @map("expires_at")
+  used      Boolean    @default(false)
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, channel, used])
+  @@map("otp_codes")
+}
+
+/// Per-device biometric enrollment. Actual biometric data lives on the
+/// device secure enclave; we store only the public key for challenge verification.
+model BiometricDevice {
+  id            String        @id @db.Uuid
+  userId        String        @map("user_id") @db.Uuid
+  deviceId      String        @map("device_id") @db.VarChar(255)
+  deviceName    String        @map("device_name") @db.VarChar(100)
+  biometricType BiometricType @map("biometric_type")
+  publicKey     String        @map("public_key")
+  isActive      Boolean       @default(true) @map("is_active")
+  lastUsedAt    DateTime?     @map("last_used_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@map("biometric_devices")
+}
+
+/// Security / compliance audit trail.
+model AuditLog {
+  id         String   @id @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  action     String   @db.VarChar(100)
+  entityType String   @map("entity_type") @db.VarChar(50)
+  entityId   String   @map("entity_id") @db.Uuid
+  metadata   Json?    @default("{}")
+  ipAddress  String?  @map("ip_address") @db.VarChar(45) // IPv6 max
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user Profile? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

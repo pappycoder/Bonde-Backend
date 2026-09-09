@@ -18,6 +18,9 @@ RUN corepack enable
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Generate the Prisma client. no `.env` exists in the image, so a dummy
+# DIRECT_URL satisfies prisma.config.ts; only migrations use a real URL.
+RUN DIRECT_URL="postgresql://dummy:dummy@localhost:5432/dummy" pnpm exec prisma generate
 RUN pnpm run build
 RUN pnpm prune --prod
 

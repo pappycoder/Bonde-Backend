@@ -27,6 +27,17 @@ export interface AppConfig {
     limit: number;
     blockDuration: number;
   };
+  resend: {
+    apiKey: string;
+    fromEmail: string;
+  };
+  termii: {
+    apiKey: string;
+    senderId: string;
+  };
+  encryption: {
+    cardKey: string;
+  };
 }
 
 export default (): AppConfig => ({
@@ -53,5 +64,16 @@ export default (): AppConfig => ({
     ttl: Number(process.env.THROTTLE_TTL ?? 60_000),
     limit: Number(process.env.THROTTLE_LIMIT ?? 100),
     blockDuration: Number(process.env.THROTTLE_BLOCK_DURATION ?? 0),
+  },
+  resend: {
+    apiKey: process.env.RESEND_API_KEY!,
+    fromEmail: process.env.RESEND_FROM_EMAIL ?? 'noreply@bonde.app',
+  },
+  termii: {
+    apiKey: process.env.TERMII_API_KEY!,
+    senderId: process.env.TERMII_SENDER_ID ?? 'Bonde',
+  },
+  encryption: {
+    cardKey: process.env.CARD_ENCRYPTION_KEY!,
   },
 });

@@ -30,4 +30,12 @@ export const envValidationSchema = Joi.object({
   THROTTLE_TTL: Joi.number().integer().min(1000).default(60_000),
   THROTTLE_LIMIT: Joi.number().integer().min(1).default(100),
   THROTTLE_BLOCK_DURATION: Joi.number().integer().min(0).default(0),
+
+  RESEND_API_KEY: Joi.string().required(),
+  RESEND_FROM_EMAIL: Joi.string().email().default('noreply@bonde.app'),
+
+  TERMII_API_KEY: Joi.string().required(),
+  TERMII_SENDER_ID: Joi.string().max(11).default('Bonde'),
+
+  CARD_ENCRYPTION_KEY: Joi.string().hex().length(64).required(),
 });
