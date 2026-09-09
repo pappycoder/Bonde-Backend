@@ -1,7 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
-import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module.js';
 import { JwksService } from './../src/auth/jwks.service.js';
 
@@ -14,7 +13,7 @@ import { JwksService } from './../src/auth/jwks.service.js';
  * src/main.ts, so routes are hit relative to each controller.
  */
 describe('App (e2e)', () => {
-  let app: INestApplication<App>;
+  let app: INestApplication;
 
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
