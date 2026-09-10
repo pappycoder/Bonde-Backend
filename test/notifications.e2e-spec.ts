@@ -17,6 +17,7 @@ describe('Notifications (self-service e2e)', () => {
     ctx = await bootE2EApp();
     await truncateAll(ctx.prisma);
     await seedBaseFixtures(ctx.prisma);
+    await ctx.prisma.notification.deleteMany();
   });
 
   afterEach(async () => {

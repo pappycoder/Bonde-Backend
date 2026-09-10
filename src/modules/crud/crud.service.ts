@@ -284,7 +284,7 @@ export class CrudService {
       if (!field.visible || !(name in source)) continue;
       const value = source[name];
       if (value instanceof Date) out[name] = value.toISOString();
-      else if (value instanceof Prisma.Decimal) out[name] = value.toString();
+      else if (value instanceof Prisma.Decimal) out[name] = value.toFixed(2);
       else out[name] = value;
     }
     return out;

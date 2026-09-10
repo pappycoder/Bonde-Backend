@@ -78,7 +78,7 @@ function withAuthHeader(raw: ReturnType<typeof request>): AuthedHttp {
  * switch under-counts and rate-limit assertions flake. Await readiness so every
  * suite that boots via `bootE2EApp` counts on Redis from the first request.
  */
-async function waitForRedisReady(client: RedisClient, timeoutMs = 15_000): Promise<void> {
+async function waitForRedisReady(client: RedisClient, timeoutMs = 30_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {

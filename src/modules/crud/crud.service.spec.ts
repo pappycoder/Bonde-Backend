@@ -130,7 +130,7 @@ describe('CrudService.get / update / delete', () => {
     };
     const { service } = makeService({ TransactionThreshold: thresholds });
     const record = (await service.get('transaction-thresholds', UUID)) as Record<string, unknown>;
-    expect(record.thresholdValue).toBe('150.5');
+    expect(record.thresholdValue).toBe('150.50');
     expect(record.createdAt).toBe('2026-01-01T00:00:00.000Z');
   });
 

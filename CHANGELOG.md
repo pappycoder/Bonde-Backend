@@ -92,6 +92,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     a 9-scenario `test/auth.e2e-spec.ts` against a fake Supabase gateway.
   - Docs: AGENTS.md `## Auth (BFF over Supabase + bearer verification)`.
 
+- **Self-service user data surface**: user-scoped CRUD/read endpoints across
+  the remaining domain models (all `@CurrentUser()`-scoped; anything not owned
+  is a uniform 404).
+  - **Accounts & wallets are 1:1**: `Account.userId` is now `@unique`
+    (migration `20260910130000_add_account_user_unique`), so a user holds one
+    account and one wallet. **Full CRUD** is exposed so provisioning services
+    can drive them: `GET/POST/PATCH/DELETE /api/account` (POST `201`; 409 on
+    unique `userId`/`accountNumber`; a Luhn-valid 10-digit `accountNumber` is
+    generated when omitted; DELETE cascades the 1:1 wallet) and
+    `GET/POST/PATCH/DELETE /api/wallet` (POST 404 until the caller's account
+    exists, 409 duplicate; DELETE 400 while transactions still reference it).
+  - **Cards** (`src/modules/cards/`): `GET /api/cards[/:id]` (PAN never
+    returned — `cardNumberLast4` only), `PATCH /:id/pause|resume` (400 if
+    `CANCELLED`), `PATCH /:id/limit`, plus nested composable locks and
+    restricted categories under `/:id/locks` and `/:id/categories`
+    (unique `cardId+lockType` / `cardId+category` → 409). Provisioning is
+    internal/provider-owned, so there is still no user `POST`.
+  - **Chats** (`src/modules/chats/`): `GET/POST /api/chats`, `GET/PATCH/DELETE
+    /api/chats/:id`, `GET /api/chats/:id/messages` (chronological, secondary
+    `id` sort for tied `createdAt`) and `POST .../messages` (USER-role only;
+    assistant replies remain out of scope).
+  - **Transactions + approvals expose full CRUD** (`src/modules/transactions/`):
+    `GET/POST/PATCH/DELETE /api/transactions` (POST resolves `walletId` →
+    `wallet.account.userId` and `cardId`/`chatId` ownership; P2003 → 400),
+    `GET /api/transactions/recent?limit=`, `GET /api/transactions/:id`,
+    `GET/POST/PATCH/DELETE /api/approvals` (POST locks `approvedBy` to the
+    caller; the owning transaction must be the caller's). **Transaction writes
+    never touch `wallet.balance`** — reconciliation happens via
+    `PATCH /api/wallet`.
+  - **Thresholds** (`src/modules/thresholds/`): user CRUD at `/api/thresholds`
+    (unique `userId+thresholdType` → 409). **Biometrics**
+    (`src/modules/biometrics/`): CRUD at `/api/biometric-devices` storing only
+    the verification `publicKey` (`unique(userId, deviceId)` → 409).
+  - **Audit self-service**: `GET /api/audit-logs[/:id]` in the existing audit
+    module — read-only, caller's entries only (admin-wide remains
+    `/api/admin/audit-logs`). Writes in all modules are audited
+    (`account.*`, `wallet.*`, `transaction.*`, `approval.*`, `card.*`,
+    `chat.*`, `threshold.*`, `biometric.*`).
+  - **Money normalization (contract change)**: every `Decimal` money field
+    serializes to a **fixed 2-decimal string** (`"2500.00"`) via
+    `src/common/money/money.ts` — applied in the feature services (wallet
+    `balance`, transaction `amount`, threshold `thresholdValue`, card limits)
+    **and** the admin `CrudService` (admin consumers now also get 2dp).
+  - Tests: 5 e2e files (`accounts-wallets`, `cards`, `chats`,
+    `transactions` incl. approvals+thresholds, `biometrics-audit`) against the
+    extended `seedBaseFixtures` (account+wallet, messages with fixed
+    `createdAt`, PENDING transaction + approval, threshold, notification,
+    biometric device for SEED_USER; the SEED_OTHER user intentionally has none)
+    + per-service unit suites covering the new CRUD paths.
+
 - **Storage (Phase 6)**: Supabase Storage foundation.
   - `StorageService` (`src/common/storage/`, `@Global()`) wrapping the Storage
     REST API with the server-only service-role key: signed upload URLs

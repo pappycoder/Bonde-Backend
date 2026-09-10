@@ -1,9 +1,17 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
 const ENTITY_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+interface PagedOptions {
+  page?: number;
+  pageSize?: number;
+}
+
+const DEFAULT_PAGE_SIZE = 20;
+const MAX_PAGE_SIZE = 100;
 
 export interface AuditLogEntryInput {
   /** Actor. `null`/omitted for system actions. */
@@ -53,5 +61,31 @@ export class AuditLogService {
     if (!ENTITY_UUID.test(input.entityId)) {
       throw new BadRequestException('Audit "entityId" must be a UUID');
     }
+  }
+
+  /** Paged read of the caller's own entries (self-service surface). */
+  async listForUser(userId: string, options: PagedOptions = {}) {
+    const page = options.page ?? 1;
+    const pageSize = Math.min(options.pageSize ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
+    const where: Prisma.AuditLogWhereInput = { userId };
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.auditLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.auditLog.count({ where }),
+    ]);
+
+    return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
+  }
+
+  /** Read of one of the caller's own entries. */
+  async getForUser(userId: string, logId: string) {
+    const entry = await this.prisma.auditLog.findFirst({ where: { id: logId, userId } });
+    if (!entry) throw new NotFoundException('Audit log not found');
+    return entry;
   }
 }

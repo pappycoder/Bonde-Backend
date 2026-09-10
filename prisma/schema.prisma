@@ -134,7 +134,8 @@ model Profile {
 /// Bank account with a generated account number (bank-style + Luhn check digit).
 model Account {
   id            String   @id @db.Uuid
-  userId        String   @map("user_id") @db.Uuid
+  /// A user can hold exactly one account (and, via Wallet.accountId, one wallet).
+  userId        String   @unique @map("user_id") @db.Uuid
   accountNumber String   @unique @map("account_number") @db.VarChar(20)
   accountType   String   @default("checking") @map("account_type") @db.VarChar(20)
   isActive      Boolean  @default(true) @map("is_active")
@@ -144,7 +145,6 @@ model Account {
   user      Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
   wallets   Wallet[]
 
-  @@index([userId])
   @@map("accounts")
 }
 

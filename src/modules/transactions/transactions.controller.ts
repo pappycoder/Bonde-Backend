@@ -1,0 +1,143 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+} from '@nestjs/swagger';
+import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
+import type { AuthPrincipal } from '../auth/principal/auth-principal.js';
+import { AuditLogService } from '../audit/audit-log.service.js';
+import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
+import {
+  CreateTransactionDto,
+  ListTransactionsQueryDto,
+  PagedTransactionsDto,
+  RecentTransactionsQueryDto,
+  TransactionDto,
+  TransactionsDeleteResponseDto,
+  UpdateTransactionDto,
+} from './transactions.dto.js';
+import { TransactionsService } from './transactions.service.js';
+
+/**
+ * Self-service transactions surface: read endpoints plus create/update/delete
+ * for the money-movement flows to record activity through the API.
+ */
+@ApiTags('transactions')
+@ApiBearerAuth('access-token')
+@Controller('transactions')
+export class TransactionsController {
+  constructor(
+    private readonly transactions: TransactionsService,
+    private readonly audit: AuditLogService,
+  ) {}
+
+  @Get('recent')
+  @ApiOperation({ summary: 'List your most recent transactions (bounded)' })
+  @ApiOkResponse({ type: [TransactionDto] })
+  @ApiErrorResponse()
+  recent(@CurrentUser() principal: AuthPrincipal, @Query() query: RecentTransactionsQueryDto) {
+    return this.transactions.recent(principal.userId, query.limit);
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'List all of your transactions (paged, optional filters)' })
+  @ApiOkResponse({ type: PagedTransactionsDto })
+  @ApiErrorResponse()
+  list(@CurrentUser() principal: AuthPrincipal, @Query() query: ListTransactionsQueryDto) {
+    return this.transactions.list(principal.userId, {
+      status: query.status,
+      type: query.type,
+      approvalStatus: query.approvalStatus,
+      page: query.page,
+      pageSize: query.pageSize,
+    });
+  }
+
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Record a transaction (owned wallet/card/chat; balance not touched)',
+  })
+  @ApiCreatedResponse({ type: TransactionDto })
+  @ApiErrorResponse()
+  async create(@CurrentUser() principal: AuthPrincipal, @Body() dto: CreateTransactionDto) {
+    const transaction = await this.transactions.create(principal.userId, dto);
+    await this.audit.record({
+      userId: principal.userId,
+      action: 'transaction.create',
+      entityType: 'transaction',
+      entityId: transaction.id,
+      metadata: { type: transaction.type, amount: transaction.amount },
+    });
+    return transaction;
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get one of your transactions' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: TransactionDto })
+  @ApiErrorResponse()
+  get(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.transactions.get(principal.userId, id);
+  }
+
+  @Patch(':id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Update one of your transactions' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: TransactionDto })
+  @ApiErrorResponse()
+  async update(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: UpdateTransactionDto,
+  ) {
+    const transaction = await this.transactions.update(principal.userId, id, dto);
+    await this.audit.record({
+      userId: principal.userId,
+      action: 'transaction.update',
+      entityType: 'transaction',
+      entityId: id,
+    });
+    return transaction;
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Delete one of your transactions' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: TransactionsDeleteResponseDto })
+  @ApiErrorResponse()
+  async remove(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    const result = await this.transactions.remove(principal.userId, id);
+    await this.audit.record({
+      userId: principal.userId,
+      action: 'transaction.delete',
+      entityType: 'transaction',
+      entityId: id,
+    });
+    return result;
+  }
+}

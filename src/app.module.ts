@@ -19,6 +19,13 @@ import { OtpModule } from './modules/otp/otp.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { AuditLogModule } from './modules/audit/audit-log.module.js';
 import { CrudModule } from './modules/crud/crud.module.js';
+import { AccountsModule } from './modules/accounts/accounts.module.js';
+import { WalletsModule } from './modules/wallets/wallets.module.js';
+import { CardsModule } from './modules/cards/cards.module.js';
+import { ChatsModule } from './modules/chats/chats.module.js';
+import { TransactionsModule } from './modules/transactions/transactions.module.js';
+import { ThresholdsModule } from './modules/thresholds/thresholds.module.js';
+import { BiometricsModule } from './modules/biometrics/biometrics.module.js';
 import { SupabaseAuthGuard } from './modules/auth/guards/auth.guard.js';
 import { RolesGuard } from './modules/auth/guards/roles.guard.js';
 import configuration, { AppConfig } from './config/configuration.js';
@@ -98,6 +105,13 @@ import { RedisClient } from './common/redis/redis-client.interface.js';
     NotificationsModule,
     AuditLogModule,
     CrudModule,
+    AccountsModule,
+    WalletsModule,
+    CardsModule,
+    ChatsModule,
+    TransactionsModule,
+    ThresholdsModule,
+    BiometricsModule,
     CommonModule,
   ],
   controllers: [AppController],

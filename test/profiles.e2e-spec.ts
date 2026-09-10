@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   bootE2EApp,
+  SEED_OTHER_ID,
   SEED_OTHER_PHONE,
   SEED_USER_ID,
   seedBaseFixtures,
@@ -27,7 +28,8 @@ describe('Profiles self-service (e2e)', () => {
   });
 
   it('404s when the profile has not been provisioned', async () => {
-    await ctx.prisma.profile.delete({ where: { id: SEED_USER_ID } });
+    ctx.setPrincipal({ userId: SEED_OTHER_ID });
+    await ctx.prisma.profile.delete({ where: { id: SEED_OTHER_ID } });
     const res = await ctx.http.get('/profile').expect(404);
     expect(res.body.statusCode).toBe(404);
   });

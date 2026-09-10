@@ -115,6 +115,57 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   `randomUUID()` client-side (CrudService/NotificationsService/OtpService/
   AuditLogService all do).
 
+## Self-service user data surface
+- Authenticated (USER+) endpoints under the `api` prefix scope **every** read
+  and write to `principal.userId`; anything not owned resolves to a uniform 404
+  (`NotificationsService.markRead` pattern) — never 403 — so existence is not
+  leaked. Modules: `accounts/`, `wallets/`, `cards/`, `chats/`,
+  `transactions/` (transactions + approvals), `thresholds/`, `biometrics/`.
+- **Accounts & wallets are 1:1**: `Account.userId` is `@unique` (migration
+  `20260910130000_add_account_user_unique`), so a user holds exactly one
+  account and, via unique `Wallet.accountId`, one wallet. They are provisioned
+  by other services, but the self-service surface exposes **full CRUD** so those
+  services can drive them: `GET/POST/PATCH/DELETE /api/account` (POST `201`,
+  409 on unique `userId`/`accountNumber`; omitted `accountNumber` gets a
+  Luhn-valid 10-digit one from `accounts/account-number.ts`; DELETE cascades
+  the 1:1 wallet) and `GET/POST/PATCH/DELETE /api/wallet` (POST 404s until the
+  caller's account exists at `wallet.accountId`, 409 duplicate;
+  DELETE 400 if transactions still reference it). `PATCH /api/wallet` is where
+  money-movement reconciles `balance`.
+- **Cards**: `GET /api/cards[/:id]` never returns `cardNumberEncrypted` (only
+  `cardNumberLast4`); provisioning is internal/provider-owned so there is no
+  user `POST`. Users manage lifecycle (`PATCH .../pause|resume` — 400 if
+  `CANCELLED`, `PATCH .../limit`) and the composable locks / restricted
+  categories nested under `/api/cards/:id/locks` and `.../categories`
+  (unique `cardId+lockType` / `cardId+category` → 409).
+- **Transactions & approvals expose full CRUD** for provisioning services:
+  `GET/POST/PATCH/DELETE /api/transactions` (POST resolves `walletId` →
+  `wallet.account.userId` and `cardId`/`chatId` ownership → 404; P2003 → 400),
+  `GET /api/transactions/recent?limit=` (≤50, declared before `:id`),
+  `GET/POST/PATCH/DELETE /api/approvals` (POST `approvedBy` is always the
+  caller, never client-supplied; the owning transaction must be the caller's).
+  **Transaction writes never touch `wallet.balance`** — reconciliation happens
+  through `PATCH /api/wallet`. Thresholds are user-CRUD (`/api/thresholds`,
+  unique `userId+thresholdType` → 409).
+- **Chats**: `/api/chats` history + CRUD; `/api/chats/:id/messages` lists
+  chronologically (secondary `id` sort makes seeded `createdAt` ties
+  deterministic) and `POST` appends only `USER`-role messages (assistant
+  replies come from the AI pipeline).
+- **Biometrics**: `/api/biometric-devices` CRUD stores only the verification
+  `publicKey`; `unique(userId, deviceId)` → 409. **Audit**: `GET
+  /api/audit-logs[/:id]` shows only the caller's entries and is read-only
+  (admin-wide list remains `/api/admin/audit-logs`).
+- List endpoints use the `{ items, total, page, pageSize, totalPages }`
+  envelope (pageSize ≤ 100, default 20); `recent` and nested locks/categories
+  return plain bounded arrays. **Every `Decimal` money field serializes to a
+  fixed 2-decimal string** (`"2500.00"`) via `src/common/money/money.ts`
+  (`money()` = `Decimal`.toFixed(2)) — applied in the feature services and the
+  admin `CrudService`. Writes are audited via `AuditLogService.record`
+  (`account.create|update|delete`, `wallet.create|update|delete`,
+  `transaction.create|update|delete`, `approval.create|update|delete`,
+  `card.pause|resume|limit|lock.*|category.*`, `chat.*[.message]*`,
+  `threshold.*`, `biometric.*`).
+
 ## Database & testing
 - Runtime DB is Supabase Postgres (`DATABASE_URL` pooled, `DIRECT_URL` direct)
   via the `PrismaPg` driver adapter. **e2e DB suites instead run against a local
@@ -124,7 +175,10 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
 - `test/db.ts` owns the constants + fixtures: seeded profiles use **real UUIDs**
   (`SEED_USER_ID` etc.) because `profiles.id` is `@db.Uuid`; `truncateAll`
   TRUNCATEs the 16 tables CASCADE; `seedBaseFixtures` upserts the profile/
-  provider/card/chat baseline.
+  provider/card/chat baseline **plus** an account+wallet (SEED_USER only — the
+  SEED_OTHER user intentionally has none, powering 1:1 ownership 404s),
+  chat messages, a PENDING transaction + approval, a threshold, a
+  notification, and a biometric device for SEED_USER.
 - Vitest global setup (`test/global-setup.ts`, configured via
   `vitest.config.e2e.ts` → `globalSetup`) applies `prisma migrate deploy` with
   `DATABASE_URL`/`DIRECT_URL` pointed at local Postgres and seeds fixtures;
@@ -197,8 +251,15 @@ src/
     profiles/      self-service profile (GET/PATCH /profile, avatar)
     otp/           app-level phone/email verification (send/verify)
     notifications/ mobile notification feed (list/read/read-all)
-    audit/         append-only AuditLogService.record
+    audit/         append-only AuditLogService.record + self-service audit-logs
     crud/          generic admin data-grid (registry + /admin/:resource)
+    accounts/      single account (CRUD /account, 1:1 via unique Account.userId)
+    wallets/       single wallet (CRUD /wallet)
+    cards/         cards (list/detail, pause/resume/limit, locks, categories)
+    chats/         chat history + messages (+USER message append)
+    transactions/  transactions + approvals CRUD
+    thresholds/    user transaction thresholds (CRUD)
+    biometrics/    enrolled biometric devices (CRUD)
   config/   typed AppConfig (configuration.ts + Joi env.validation.ts)
   prisma/   PrismaModule + PrismaService (pg driver adapter)
 ```
