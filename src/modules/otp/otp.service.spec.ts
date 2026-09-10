@@ -85,14 +85,14 @@ describe('OtpService.send', () => {
     expect(sender.send).not.toHaveBeenCalled();
   });
 
-  it('sends a 6-digit code and stores only its SHA-256 digest', async () => {
+  it('sends a 4-digit code and stores only its SHA-256 digest', async () => {
     const { service, captured, prisma } = makeService();
     await expect(
       service.send(PRINCIPAL, { channel: OtpChannel.PHONE, target: PHONE }),
     ).resolves.toEqual({ status: 'sent' });
 
     expect(captured).toHaveLength(1);
-    expect(captured[0]).toMatch(/^[0-9]{6}$/);
+    expect(captured[0]).toMatch(/^[0-9]{4}$/);
     const created = prisma.otpCode.create.mock.calls[0][0] as { data: { code: string } };
     expect(created.data.code).toMatch(/^[0-9a-f]{64}$/); // sha-256 hex, never plaintext
     expect(created.data.code).not.toBe(captured[0]);
@@ -107,7 +107,7 @@ describe('OtpService.send', () => {
     });
   });
 
-  it('fails closed (503) and invalidates the code when delivery fails', async () => {
+  it('fails closed (503) and voids the code when delivery fails', async () => {
     const failingSender: SenderStub = {
       send: vi.fn(async () => {
         throw new OtpSendError('down');
@@ -118,9 +118,10 @@ describe('OtpService.send', () => {
     await expect(
       service.send(PRINCIPAL, { channel: OtpChannel.PHONE, target: PHONE }),
     ).rejects.toThrow(ServiceUnavailableException);
-    expect(prisma.otpCode.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'otp-created-id' }, data: { used: true } }),
-    );
+    expect(prisma.otpCode.updateMany).toHaveBeenCalledWith({
+      where: { userId: USER_ID, channel: OtpChannel.PHONE, used: false },
+      data: { used: true },
+    });
   });
 });
 
@@ -130,7 +131,7 @@ describe('OtpService.verify', () => {
   it('rejects an unknown/expired code', async () => {
     const { service } = makeService();
     await expect(
-      service.verify(PRINCIPAL, { channel: OtpChannel.PHONE, target: PHONE, code: '000000' }),
+      service.verify(PRINCIPAL, { channel: OtpChannel.PHONE, target: PHONE, code: '0000' }),
     ).rejects.toThrow(BadRequestException);
   });
 
@@ -139,7 +140,7 @@ describe('OtpService.verify', () => {
     await service.send(PRINCIPAL, { channel: OtpChannel.PHONE, target: PHONE });
     const sent = captured[0];
 
-    const wrong = sent === '000000' ? '000001' : '000000';
+    const wrong = sent === '0000' ? '0001' : '0000';
     (prisma.otpCode.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       id: 'otp-1',
       userId: USER_ID,

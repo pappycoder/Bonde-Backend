@@ -15,6 +15,9 @@ export interface AppConfig {
     anonKey: string;
     serviceRoleKey: string;
   };
+  auth: {
+    tokenSecret: string;
+  };
   database: {
     url: string;
     directUrl: string;
@@ -57,6 +60,9 @@ export default (): AppConfig => ({
     url: process.env.SUPABASE_URL!,
     anonKey: process.env.SUPABASE_ANON_KEY!,
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  },
+  auth: {
+    tokenSecret: process.env.AUTH_TOKEN_SECRET!,
   },
   database: {
     url: process.env.DATABASE_URL!,

@@ -99,10 +99,12 @@ enum BiometricType {
 // ---------------------------------------------------------------------------
 
 /// Extends Supabase `auth.users` (1:1). Stores app-specific profile data;
-/// auth fields (email, password hash, etc.) live in `auth.users`.
+/// auth fields (password hash, etc.) live in `auth.users`. `email` mirrors
+/// `auth.users.email` so app-side lookups never touch those tables.
 model Profile {
   id        String   @id @db.Uuid
   fullName  String   @map("full_name") @db.VarChar(255)
+  email     String   @unique @db.VarChar(254)
   phone     String?  @unique @db.VarChar(20)
   phoneVerified Boolean @default(false) @map("phone_verified")
   emailVerified Boolean @default(false) @map("email_verified")

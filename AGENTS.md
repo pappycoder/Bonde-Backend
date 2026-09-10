@@ -30,38 +30,63 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   never store or log plaintext card numbers.
 - OTP codes are stored SHA-256 hashed (`otp_codes.code` holds the digest).
 
-## Auth (verify-only)
-- Clients authenticate against **Supabase Auth directly**; the API never builds
-  its own auth. `SupabaseAuthGuard` + `RolesGuard` are global `APP_GUARD`s.
-- New authenticated routes are protected by default. Opt out with `@Public()`
-  (already applied to health, root, and the 404 catch-all).
-- Enforce roles with `@Roles('ADMIN', ...)`; hierarchy `SUPER_ADMIN > ADMIN > USER`,
-  read from the access token's `app_metadata.role` (absent → `USER`). Roles are
-  assigned in Supabase (dashboard / edge function), not in PostgreSQL.
-- `src/modules/auth/` exports `@CurrentUser()`, `@Roles(...)`, `@Public()`, and
-  `AuthPrincipal`. Use `@CurrentUser()` to get the verified principal (auth
-  decorators are a shared contract — importing them from `common/` or other
-  modules is intentional).
-- Password recovery emails are sent by **Supabase Auth** (its own SMTP
-  integration) — do not build a recovery endpoint. App-level proof-of-control
-  (phone/email verification) goes through `POST /api/otp/send` /
-  `POST /api/otp/verify` instead (see `## Profiles, OTP & verification`).
+## Auth (BFF over Supabase + bearer verification)
+- The API is a **BFF for Supabase Auth**: it brokers registration, email
+  verification, login, refresh, and password recovery against the **GoTrue REST
+  API** so mobile/dashboard clients never hold the service-role key. It stores
+  no passwords or refresh tokens itself.
+- Layout (`src/modules/auth/`):
+  - `guards/` + `decorators/` + `principal/`: global `SupabaseAuthGuard`
+    (Bearer → `AuthPrincipal` via remote JWKS) + `RolesGuard`
+    (`SUPER_ADMIN > ADMIN > USER` from `app_metadata.role`; absent → `USER`).
+    Import the shared contract from `modules/auth/decorators/`
+    (`@Public()`, `@Roles(...)`, `@CurrentUser()`, `AuthPrincipal`) — also from
+    `common/` and other features (intentional).
+  - `supabase/` (`supabase-auth.client.ts`): `SupabaseAuthGateway` +
+    `SupabaseAuthClient` (factory-injected via the `SUPABASE_AUTH_BODY` token so
+    e2e can swap a fake; GoTrue calls carry a 10s timeout) + `AuthProviderError`
+    with codes `USER_EXISTS`, `INVALID_CREDENTIALS`, `EMAIL_NOT_CONFIRMED`,
+    `NOT_FOUND`, `PROVIDER`.
+  - `services/` (`auth.service.ts`, `auth-tokens.service.ts`): orchestration +
+    short-lived HS256 `registration`/`reset` tickets (`AUTH_TOKEN_SECRET`,
+    Redis nonce `auth:nonce:{purpose}:{jti}`). The `verify*` helpers only check
+    the nonce; `consume*` revokes it — **always consume AFTER the protected
+    step succeeds** so a wrong code never burns the ticket.
+- Auth routes are `@Public()` + `@StrictThrottle()`: `POST /api/auth/register`
+  (201 → `{ status, registrationToken }`), `POST /api/auth/verify-email`, `POST
+  /api/auth/resend-verification-otp`, `POST /api/auth/login`, `POST
+  /api/auth/refresh`, `POST /api/auth/forgot-password`, `POST
+  /api/auth/verify-reset-otp`, `PATCH /api/auth/reset-password`. `GET
+  /api/auth/me` stays authenticated.
+- **Login requires email verification**: registration creates an
+  `email_confirm:false` user (service-role `createUser`) and `login` returns
+  403 until `verify-email` succeeds. `forgot-password` always answers 200 — no
+  user enumeration. Emails are normalized to lowercase.
+- New authenticated routes are protected by default; opt out with `@Public()`.
+  Roles are assigned in Supabase (dashboard / edge function), never in
+  PostgreSQL.
 
 ## Profiles, OTP & verification
-- **Profiles**: `profiles` extends Supabase `auth.users` 1:1 and is provisioned
-  by the auth flow — never created ad-hoc. Users mutate their own row through
-  `GET/PATCH /api/profile` (`src/modules/profiles/`). `phone` is unique (409 on
-  conflict); changing it resets `phoneVerified`. `onboardingCompleted: true`
-  stamps `onboardingCompletedAt`. Avatar paths must be under `u-<userId>/`;
-  URLs come from `StorageService.getPublicUrl('bonde-avatars', path)` — the API
-  never proxies bytes.
-- **OTP**: codes are 6-digit, stored as **SHA-256 digests** (never plaintext),
-  5-min TTL, single-use; sending a new code invalidates earlier ones (mark
-  prior `used=true` inside a transaction). Targets must be the caller's own
+- **Profiles**: `profiles` mirrors Supabase `auth.users` 1:1 — including the
+  verified `email` (`VARCHAR(254)`, unique, provisioned at registration) — and
+  is provisioned by the auth flow, never created ad-hoc. Users mutate their own
+  row through `GET/PATCH /api/profile` (`src/modules/profiles/`). `phone` is
+  unique (409 on conflict); changing it resets `phoneVerified`.
+  `onboardingCompleted: true` stamps `onboardingCompletedAt`. Avatar paths must
+  be under `u-<userId>/`; URLs come from
+  `StorageService.getPublicUrl('bonde-avatars', path)` — the API never proxies
+  bytes.
+- **OTP**: codes are **4-digit** (`OTP_CODE_LENGTH = 4`), stored as **SHA-256
+  digests** (never plaintext), 5-min TTL, single-use; sending a new code
+  invalidates earlier ones. `OtpService` exposes principal-free primitives
+  `generateCode(userId, channel)` (returns the plaintext), `consumeCode(userId,
+  channel, code)` (boolean) and `invalidate(userId, channel)`; the `send` /
+  `verify` self-service endpoints wrap them. Targets must be the caller's own
   email (EMAIL) or principal/profile phone (PHONE). Delivery crosses the
   `OTP_SENDER` token (`src/modules/otp/otp-sender.interface.ts`) — production
-  backs it with `RoutingOtpSender` (Termii SMS / Resend email). **Fail closed**:
-  a `OtpSendError` becomes a 503 *and* the just-created code is voided.
+  backs it with `RoutingOtpSender` (Termii SMS / Resend email). **Fail
+  closed**: a `OtpSendError` becomes a 503 *and* the just-created code is
+  voided.
 - **Throttling**: `send`/`verify` are stamped `@StrictThrottle()` (strict
   throttle, env-tuned). The response never includes the code; tests capture it
   by overriding the `OTP_SENDER` provider.
@@ -111,11 +136,20 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   the bare client), and optional `overrideProvider` hooks (`BootE2EOptions.overrides`).
 - **Serial execution matters**: e2e files trunctate + reseed the SAME local
   Postgres, so `vitest.config.e2e.ts` sets `fileParallelism: false`.
-- **Redis interplay**: throttler counters live in Redis. Suite/DB isolation is
-  done with distinct Redis DBs (e.g. OTP uses `:6379/15`, its 429 proof uses a
-  scratch `:6379/14`) and env overrides are restored in `afterAll`. The default
-  throttler only blocks when `THROTTLE_BLOCK_DURATION > 0` — the rate-limit e2e
-  sets it explicitly.
+- **Redis interplay**: throttler counters live in Redis. Suites pin **dedicated
+  Redis DBs** (`:6379/12` rate-limit scratch, `/13` smoke, `/14` 429-proof,
+  `/15` OTP, `/16` auth) with env overrides restored in `afterAll`, and
+  `test/global-setup.ts` flushes `0,12,13,14,15,16` so counters never leak
+  between runs. `bootE2EApp` awaits Redis `ready` before returning so every
+  request of a suite counts on ONE store — a burst straddling the fail-open
+  memory→Redis switch would otherwise split counters and 429/under-count
+  non-deterministically.
+- **Throttle semantics**: both `RedisThrottlerStorage` and the memory fallback
+  block a key only when its count **EXCEEDS** the `limit` (`count > limit`) —
+  hitting exactly `limit` is allowed — matching `@nestjs/throttler` ("blocked
+  if it exceeds"). The default throttler blocks only while
+  `THROTTLE_BLOCK_DURATION > 0`; the rate-limit e2e sets it explicitly (limit 3
+  ⇒ requests 1–3 pass, #4 is 429).
 
 ## Swagger / OpenAPI docs
 - Mounted by `configureSwagger` in `src/common/swagger.ts` at `/api/docs` (UI)
@@ -157,7 +191,8 @@ src/
       guards/      feature guards
       decorators/  param/method/class decorators
       services/    feature services
-    auth/          Supabase JWT verification + RBAC (global APP_GUARDs)
+    auth/          Supabase BFF + JWT verification + RBAC (global APP_GUARDs;
+                   supabase/ gateway client, services/ orchestration + tickets)
     health/        terminus health/readiness probes
     profiles/      self-service profile (GET/PATCH /profile, avatar)
     otp/           app-level phone/email verification (send/verify)

@@ -22,6 +22,9 @@ export const envValidationSchema = Joi.object({
   SUPABASE_ANON_KEY: Joi.string().required(),
   SUPABASE_SERVICE_ROLE_KEY: Joi.string().required(),
 
+  // HS256 secret for short-lived registration/reset tokens (not Supabase JWTs).
+  AUTH_TOKEN_SECRET: Joi.string().min(32).required(),
+
   DATABASE_URL: Joi.string().required(),
   DIRECT_URL: Joi.string().required(),
 

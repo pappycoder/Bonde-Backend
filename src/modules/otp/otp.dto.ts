@@ -25,10 +25,10 @@ export class VerifyOtpDto {
   @Length(3, 254)
   target: string;
 
-  @ApiProperty({ example: '481516', description: '6-digit code' })
+  @ApiProperty({ example: '4815', description: '4-digit code' })
   @IsString()
-  @Length(6, 6)
-  @Matches(/^[0-9]{6}$/, { message: 'code must be 6 digits' })
+  @Length(4, 4)
+  @Matches(/^[0-9]{4}$/, { message: 'code must be 4 digits' })
   code: string;
 }
 

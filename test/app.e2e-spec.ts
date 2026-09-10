@@ -2,10 +2,59 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import request from 'supertest';
+import { afterAll } from 'vitest';
 import { AppModule } from './../src/app.module.js';
 import { AppConfig } from './../src/config/configuration.js';
 import { JwksService } from './../src/modules/auth/services/jwks.service.js';
 import { configureSwagger } from './../src/common/swagger.js';
+import { REDIS_CLIENT } from './../src/common/redis/redis.module.js';
+import type { RedisClient } from './../src/common/redis/redis-client.interface.js';
+import { Redis } from 'ioredis';
+
+/**
+ * This smoke file runs on its OWN Redis database (db 13) so the rate-limiting
+ * describe never shares counters with the other suites. Restored in afterAll.
+ */
+const ORIGINAL_REDIS_URL = process.env.REDIS_URL;
+process.env.REDIS_URL = 'redis://localhost:6379/13';
+
+afterAll(() => {
+  if (ORIGINAL_REDIS_URL === undefined) {
+    delete process.env.REDIS_URL;
+  } else {
+    process.env.REDIS_URL = ORIGINAL_REDIS_URL;
+  }
+});
+
+/**
+ * The Redis client connects asynchronously after `app.init()`. Requests fired
+ * before it reaches `ready` fall back to the per-process memory counter, which
+ * is silently abandoned once the client connects — so a burst straddling the
+ * switch would under-count and never 429. Await readiness to keep the
+ * rate-limit counters on a single (Redis) store.
+ */
+async function waitForRedisReady(client: RedisClient, timeoutMs = 15_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await client.ping();
+      return;
+    } catch {
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 25));
+    }
+  }
+  throw new Error('Redis did not become ready before timeout');
+}
+
+/** Wipe a scratch Redis DB so rate-limit counters always start from zero. */
+async function flushDb(db: number): Promise<void> {
+  const redis = new Redis({ host: '127.0.0.1', port: 6379, db });
+  try {
+    await redis.flushdb();
+  } finally {
+    await redis.quit();
+  }
+}
 
 /**
  * E2E smoke tests.
@@ -152,7 +201,7 @@ describe('App (e2e) — Redis outage', () => {
   });
 
   afterEach(async () => {
-    delete process.env.REDIS_URL;
+    process.env.REDIS_URL = 'redis://localhost:6379/13';
     await app.close();
   });
 
@@ -180,8 +229,13 @@ describe('App (e2e) — Redis outage', () => {
  */
 describe('App (e2e) — rate limiting', () => {
   let app: INestApplication;
+  // Own scratch DB so this describe never inherits counters from other
+  // describes/files on the shared DB and is order-independent.
+  const RATE_DB = 'redis://localhost:6379/12';
 
   beforeEach(async () => {
+    process.env.REDIS_URL = RATE_DB;
+    await flushDb(12);
     process.env.THROTTLE_LIMIT = '3';
     process.env.THROTTLE_BLOCK_DURATION = '60000';
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -191,9 +245,11 @@ describe('App (e2e) — rate limiting', () => {
     app = moduleFixture.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }));
     await app.init();
+    await waitForRedisReady(moduleFixture.get<RedisClient>(REDIS_CLIENT));
   });
 
   afterEach(async () => {
+    process.env.REDIS_URL = 'redis://localhost:6379/13';
     delete process.env.THROTTLE_LIMIT;
     delete process.env.THROTTLE_BLOCK_DURATION;
     await app.close();

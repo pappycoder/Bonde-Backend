@@ -76,7 +76,7 @@ describe('OTP verification (e2e)', () => {
       .expect(201);
     expect(res.body).toEqual({ status: 'sent' });
     expect(sent.at(-1)?.target).toBe(SEED_USER_PHONE);
-    expect(lastCode()).toMatch(/^[0-9]{6}$/);
+    expect(lastCode()).toMatch(/^[0-9]{4}$/);
 
     const stored = await ctx.prisma.otpCode.findFirst({ where: { userId: SEED_USER_ID } });
     expect(stored).toBeTruthy();
@@ -134,7 +134,7 @@ describe('OTP verification (e2e)', () => {
 
     const res = await ctx.http
       .post('/otp/verify')
-      .send({ channel: OtpChannel.PHONE, target: SEED_USER_PHONE, code: '000000' })
+      .send({ channel: OtpChannel.PHONE, target: SEED_USER_PHONE, code: '0000' })
       .expect(400);
     expect(res.body.message).toContain('Invalid verification code');
 
@@ -194,7 +194,7 @@ describe('OTP verification (e2e)', () => {
 
     await ctx.http
       .post('/otp/verify')
-      .send({ channel: OtpChannel.PHONE, target: SEED_USER_PHONE, code: '123456' })
+      .send({ channel: OtpChannel.PHONE, target: SEED_USER_PHONE, code: '1234' })
       .expect(400);
   });
 

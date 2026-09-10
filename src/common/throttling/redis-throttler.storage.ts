@@ -87,8 +87,9 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
 
     const timeToExpire = await this.client.pttl(counterKey);
 
-    // If the user has hit the limit, set a block window.
-    if (totalHits >= limit && blockDuration > 0) {
+    // If the request exceeded the limit, set a block window. Hitting exactly
+    // `limit` is still allowed — the (limit+1)th request is what gets blocked.
+    if (totalHits > limit && blockDuration > 0) {
       const alreadyBlocked = await this.client.exists(blockKey);
       if (!alreadyBlocked) {
         await this.client.set(blockKey, '1', 'PX', blockDuration);

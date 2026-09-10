@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
+import { Redis } from 'ioredis';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { seedBaseFixtures, TEST_DB_URL, truncateAll } from './db.js';
@@ -17,10 +18,14 @@ const RETRY_MS = 500;
  * 1. Waits for the dockerized Postgres (port 5433) to accept connections.
  * 2. Applies `prisma migrate deploy` against that local instance.
  * 3. Seeds the baseline fixtures every suite depends on.
+ * 4. Flushes the Redis throttler databases so rate-limit counters never leak
+ *    between runs (suites pin dedicated DBs: rate-limit scratch=12, app=13,
+ *    429-proof=14, OTP=15, auth=16; the shared default is 0).
  */
 export async function setup(): Promise<void> {
   await deployMigrations();
   await seedLocalDatabase();
+  await flushRedisKeyDatabases();
 }
 
 /** Wipes the local test database so a fresh run starts clean. */
@@ -60,6 +65,27 @@ async function seedLocalDatabase(): Promise<void> {
     await seedBaseFixtures(prisma);
   } finally {
     await prisma.$disconnect();
+  }
+}
+
+/**
+ * Clear any throttler counters left over from a previous run (Redis counters
+ * have a 60s TTL, so back-to-back runs could otherwise 429 a suite's first
+ * request). Best-effort: if Redis is down, suites degrade instead of failing.
+ */
+async function flushRedisKeyDatabases(): Promise<void> {
+  for (const db of [0, 12, 13, 14, 15, 16]) {
+    let redis: Redis | undefined;
+    try {
+      redis = new Redis({ host: '127.0.0.1', port: 6379, db });
+      await redis.flushdb();
+    } catch {
+      // Redis unreachable — throttlers/cache degrade at runtime.
+    } finally {
+      if (redis) {
+        await redis.quit().catch(() => redis?.disconnect());
+      }
+    }
   }
 }
 

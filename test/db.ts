@@ -20,6 +20,7 @@ export const SEED_USER_EMAIL = 'me@bonde.app';
 /** Second profile — used for ownership/conflict assertions. */
 export const SEED_OTHER_ID = '22222222-2222-4222-8222-222222222222';
 export const SEED_OTHER_PHONE = '+2348000000002';
+export const SEED_OTHER_EMAIL = 'other@bonde.app';
 
 export const SEED_PROVIDER_ID = '33333333-3333-4333-8333-333333333333';
 export const SEED_CARD_ID = '44444444-4444-4444-8444-444444444444';
@@ -59,6 +60,7 @@ export async function seedBaseFixtures(prisma: AnyPrisma): Promise<void> {
       {
         id: SEED_USER_ID,
         fullName: 'Amina Sule',
+        email: SEED_USER_EMAIL,
         phone: SEED_USER_PHONE,
         phoneVerified: true,
         emailVerified: true,
@@ -66,6 +68,7 @@ export async function seedBaseFixtures(prisma: AnyPrisma): Promise<void> {
       {
         id: SEED_OTHER_ID,
         fullName: 'Chidi Okafor',
+        email: SEED_OTHER_EMAIL,
         phone: SEED_OTHER_PHONE,
         phoneVerified: true,
         emailVerified: false,

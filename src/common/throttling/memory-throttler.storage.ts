@@ -50,7 +50,9 @@ export class MemoryThrottlerStorage implements ThrottlerStorage {
 
     bucket.count += 1;
 
-    const hitsExceeded = bucket.count >= limit && blockDuration > 0;
+    // Block only once the limit is EXCEEDED — the request that reaches exactly
+    // `limit` is still allowed (framework semantics: "blocked if it exceeds").
+    const hitsExceeded = bucket.count > limit && blockDuration > 0;
     if (hitsExceeded) bucket.blockedUntil = now + blockDuration;
 
     return {

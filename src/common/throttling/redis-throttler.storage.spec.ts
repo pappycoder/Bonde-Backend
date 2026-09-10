@@ -66,12 +66,12 @@ describe('RedisThrottlerStorage', () => {
     expect(record.isBlocked).toBe(false);
   });
 
-  it('blocks a key once the limit is hit while falling back', async () => {
+  it('blocks a key only once the limit is exceeded while falling back', async () => {
     const client = failingClient('ready');
     const storage = new RedisThrottlerStorage(client);
 
     let record;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       record = await storage.increment('ip:1', 60_000, 3, 10_000, 'default');
     }
     expect(record!.isBlocked).toBe(true);

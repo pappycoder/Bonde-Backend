@@ -10,7 +10,7 @@ Built with **NestJS 12**, **TypeScript (strict)**, backed by **Supabase** for au
 | --- | --- |
 | Framework | NestJS 12 (Express, ESM) |
 | Language | TypeScript (strict) |
-| Auth | Supabase Auth (JWT verified via JWKS) + RBAC |
+| Auth | Supabase Auth (GoTrue REST BFF + JWT via JWKS) + RBAC |
 | Database | Supabase PostgreSQL via Prisma |
 | Storage | Supabase Storage |
 | Cache / Rate-limit | Redis 7 |
@@ -66,6 +66,15 @@ pnpm start:dev
 
 The API is served at `http://localhost:3001`. Swagger / OpenAPI docs are available at `/api/docs` (UI) and `/api/docs-json` (OpenAPI 3 document) in non-production environments.
 
+**Auth (BFF over Supabase):** registration and password recovery are brokered by
+this API against Supabase Auth so clients never hold the service-role key.
+See `POST /api/auth/register` → `POST /api/auth/verify-email` →
+`POST /api/auth/login` (403 until verified), plus `/api/auth/refresh`,
+`/api/auth/resend-verification-otp`, `/api/auth/forgot-password`,
+`/api/auth/verify-reset-otp`, `PATCH /api/auth/reset-password`, and the
+authenticated `GET /api/auth/me`. Email verification and password reset use
+4-digit OTPs delivered via the `OTP_SENDER` provider.
+
 ## Environment variables
 
 See [`.env.example`](./.env.example) for the full reference. Key variables:
@@ -81,6 +90,7 @@ See [`.env.example`](./.env.example) for the full reference. Key variables:
 | `DATABASE_URL` | ✅ | Pooled Postgres connection (runtime) |
 | `DIRECT_URL` | ✅ | Direct Postgres connection (migrations) |
 | `REDIS_URL` | – | Redis connection URI |
+| `AUTH_TOKEN_SECRET` | ✅ | HS256 secret (≥32 chars) for short-lived registration/reset tickets |
 
 ## Scripts
 
@@ -125,7 +135,7 @@ src/
 - [x] Phase 4 — Swagger / OpenAPI documentation
 - [x] Phase 5 — Redis caching & rate limiting
 - [x] Phase 6 — Storage (Supabase)
-- [x] Phase 7 — Foundation + admin CRUD: profiles, OTP/verification, notifications, audit trail, generic admin data-grid
+- [x] Phase 7 — Foundation + admin CRUD: profiles (incl. verified email), OTP/verification, notifications, audit trail, generic admin data-grid, and the **auth BFF** (register / verify-email / login / refresh / forgot + reset password)
 - [ ] Phase 8 — Testing & delivery
 
 ## License

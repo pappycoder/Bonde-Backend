@@ -8,6 +8,8 @@ import { AppConfig } from '../src/config/configuration.js';
 import { JwksService } from '../src/modules/auth/services/jwks.service.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { configureSwagger } from '../src/common/swagger.js';
+import { REDIS_CLIENT } from '../src/common/redis/redis.module.js';
+import type { RedisClient } from '../src/common/redis/redis-client.interface.js';
 import type { AuthPrincipal, BondeRole } from '../src/modules/auth/principal/auth-principal.js';
 import { SEED_USER_EMAIL, SEED_USER_ID, SEED_USER_PHONE, TEST_DB_URL } from './db.js';
 
@@ -69,6 +71,27 @@ function withAuthHeader(raw: ReturnType<typeof request>): AuthedHttp {
 }
 
 /**
+ * Root Flushing between suites happens at the storage level; within a suite the
+ * throttler counters must land on a single store. Requests fired before the
+ * Redis client reaches `ready` fall back to the per-process memory counter,
+ * which is silently abandoned once the client connects — a burst straddling the
+ * switch under-counts and rate-limit assertions flake. Await readiness so every
+ * suite that boots via `bootE2EApp` counts on Redis from the first request.
+ */
+async function waitForRedisReady(client: RedisClient, timeoutMs = 15_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await client.ping();
+      return;
+    } catch {
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 25));
+    }
+  }
+  throw new Error('Redis did not become ready before timeout');
+}
+
+/**
  * Boots the full AppModule for e2e, pointed at the local test Postgres, with a
  * mockable JWKS verifier. Call `setPrincipal(...)` / `role(...)` after booting
  * to control the authenticated principal (defaults to the seeded user). Note:
@@ -97,6 +120,7 @@ export async function bootE2EApp(options: BootE2EOptions = {}): Promise<BootedE2
   const config = moduleFixture.get<ConfigService<AppConfig, true>>(ConfigService);
   configureSwagger(app, { nodeEnv: config.get('nodeEnv'), publicUrl: config.get('publicUrl') });
   await app.init();
+  await waitForRedisReady(app.get<RedisClient>(REDIS_CLIENT));
 
   const prisma = app.get(PrismaService);
   const jwks = app.get(JwksService);

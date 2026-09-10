@@ -13,15 +13,16 @@ describe('MemoryThrottlerStorage', () => {
     expect(second.timeToExpire).toBeLessThanOrEqual(60_000);
   });
 
-  it('blocks once the limit is reached for the block duration', async () => {
+  it('blocks only once the limit is exceeded', async () => {
     const storage = new MemoryThrottlerStorage();
     const results = [];
     for (let i = 0; i < 5; i++) {
       results.push(await storage.increment('ip:1', 60_000, 3, 5_000, 'default'));
     }
-    expect(results[2].isBlocked).toBe(true);
+    expect(results[2].isBlocked).toBe(false);
     expect(results[2].totalHits).toBe(3);
     expect(results[3].isBlocked).toBe(true);
+    expect(results[3].totalHits).toBe(4);
     expect(results[3].timeToBlockExpire).toBeGreaterThan(0);
     expect(results[3].timeToBlockExpire).toBeLessThanOrEqual(5_000);
   });

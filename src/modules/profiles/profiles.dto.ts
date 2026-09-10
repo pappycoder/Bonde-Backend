@@ -41,6 +41,9 @@ export class ProfileDto {
   @ApiProperty({ example: 'Amina Sule' })
   fullName: string;
 
+  @ApiProperty({ example: 'amina@bonde.app' })
+  email: string;
+
   @ApiProperty({ type: String, nullable: true, example: '+2348000000000' })
   phone: string | null;
 

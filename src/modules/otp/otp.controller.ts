@@ -28,7 +28,7 @@ export class OtpController {
   @Post('send')
   @StrictThrottle()
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Send a 6-digit code to your own email or phone' })
+  @ApiOperation({ summary: 'Send a 4-digit code to your own email or phone' })
   @ApiCreatedResponse({ type: SendOtpResponseDto })
   @ApiErrorResponse()
   send(@CurrentUser() principal: AuthPrincipal, @Body() dto: SendOtpDto) {

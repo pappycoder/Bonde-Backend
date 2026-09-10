@@ -19,8 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     must live under `u-<userId>/` and resolve to stable public URLs via
     `StorageService.getPublicUrl('bonde-avatars', path)`.
   - **OTP / verification** (`src/modules/otp/`): `POST /api/otp/send`,
-    `POST /api/otp/verify` — app-level proof-of-control, distinct from Supabase
-    Auth password recovery. 6-digit codes, stored as SHA-256 digests
+    `POST /api/otp/verify` — app-level proof-of-control. **4-digit** codes
+    (`OTP_CODE_LENGTH = 4`; `OtpService` exposes the principal-free primitives
+    `generateCode` / `consumeCode` / `invalidate`), stored as **SHA-256 digests**
     (never plaintext), 5-minute TTL, single-use, and sending a new code
     invalidates earlier ones. Delivery goes through the `OTP_SENDER` boundary
     (`RoutingOtpSender` → Termii SMS / Resend email via `fetch`) and **fails
@@ -63,6 +64,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tests: Phase 7 adds ~50 unit + 46 e2e cases (incl. 403/405/409/429/503
     paths, audit redaction, secret never returning `card-providers.config`).
 
+- **Auth BFF over Supabase (Phase 7)**: registration, email verification,
+  login/refresh, and password recovery brokered against the **GoTrue REST API**
+  (`src/modules/auth/supabase/supabase-auth.client.ts`), extending Phase 3's
+  verify-only posture into a full BFF — the API never stores passwords or
+  refresh tokens, and clients never touch the service-role key.
+  - Routes (all `@Public()` + `@StrictThrottle()`): `POST /api/auth/register`
+    (201 → `{ status: 'pending', registrationToken }`), `POST
+    /api/auth/verify-email`, `POST /api/auth/resend-verification-otp`, `POST
+    /api/auth/login`, `POST /api/auth/refresh`, `POST /api/auth/forgot-password`,
+    `POST /api/auth/verify-reset-otp`, `PATCH /api/auth/reset-password`;
+    `GET /api/auth/me` unchanged.
+  - **Signup gate**: registration creates an `email_confirm:false` user (admin
+    `createUser`) and provisions `profiles` (with the new unique
+    `profiles.email`) — login is `403` until email verification completes.
+  - Email verification / password reset use the existing **4-digit OTP**
+    machinery; the protected step is wrapped in a short-lived **HS256
+    registration/reset ticket** (`AUTH_TOKEN_SECRET`, one-time Redis nonce) so a
+    wrong code is rejected without burning the ticket (`verify*` checks,
+    `consume*` revokes; consume only after success). Forgot-password never
+    reveals which emails exist (no enumeration).
+  - Provider errors map via `AuthProviderError`
+    (`USER_EXISTS`/`INVALID_CREDENTIALS`/`EMAIL_NOT_CONFIRMED`/`NOT_FOUND`/
+    `PROVIDER`) to 409/401/403/404/503; downstream failures fail closed.
+  - Tests: `auth.service.spec.ts` unit suite (register/verify/login/refresh/
+    forgot/reset, error mapping, fail-closed delivery, email normalization) and
+    a 9-scenario `test/auth.e2e-spec.ts` against a fake Supabase gateway.
+  - Docs: AGENTS.md `## Auth (BFF over Supabase + bearer verification)`.
+
 - **Storage (Phase 6)**: Supabase Storage foundation.
   - `StorageService` (`src/common/storage/`, `@Global()`) wrapping the Storage
     REST API with the server-only service-role key: signed upload URLs
@@ -104,9 +133,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     in the image; only migrations need a real URL).
 - **Updated scripts** in `package.json`: `prisma:generate`, `prisma:validate`,
   `prisma:migrate`, `prisma:deploy`, `prisma:studio`.
-- **Auth (Phase 3)**: Supabase JWT verification + RBAC (verify-only — clients
-  authenticate against Supabase Auth directly; the API never sees passwords or
-  refresh tokens).
+- **Auth (Phase 3)**: Supabase JWT verification + RBAC (verify-only at the
+  time — clients authenticate against Supabase Auth directly). Superseded as
+  the full auth story by **Auth BFF over Supabase** above; JWKS verification +
+  RBAC remain the trusted-token path for authenticated routes.
   - New `src/auth/` module: `JwksService` (ES256 verification via
     `{SUPABASE_URL}/auth/v1/.well-known/jwks.json`, `jose` with a DI-provided
     key set), global `SupabaseAuthGuard` (Bearer token → `AuthPrincipal`),
