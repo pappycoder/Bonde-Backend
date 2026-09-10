@@ -106,7 +106,12 @@ function makeService(
       findUnique: vi.fn(
         async (_args: {
           where: { id: string };
-        }): Promise<{ id: string; email: string; emailVerified?: boolean } | null> => null,
+        }): Promise<{
+          id: string;
+          email: string;
+          fullName?: string;
+          emailVerified?: boolean;
+        } | null> => null,
       ),
       update: vi.fn(async (args: { where: { id: string }; data: Record<string, unknown> }) => ({
         id: args.where.id,
@@ -135,6 +140,10 @@ function makeService(
     record: vi.fn(async () => undefined),
   } as unknown as AuditLogService;
 
+  const mail = {
+    send: vi.fn(async () => undefined),
+  };
+
   const service = new AuthService(
     prisma as never,
     provider as never,
@@ -142,9 +151,10 @@ function makeService(
     sender as never,
     tokens as never,
     audit as never,
+    mail as never,
   );
 
-  return { service, provider, sender, otp, tokens, prisma, audit, sent, users };
+  return { service, provider, sender, otp, tokens, prisma, audit, mail, sent, users };
 }
 
 describe('AuthService.register', () => {
@@ -225,7 +235,11 @@ describe('AuthService.verifyEmail', () => {
   beforeEach(() => vi.clearAllMocks());
 
   function seedProfile(prisma: ReturnType<typeof makeService>['prisma']) {
-    vi.mocked(prisma.profile.findUnique).mockResolvedValue({ id: USER_ID, email: EMAIL });
+    vi.mocked(prisma.profile.findUnique).mockResolvedValue({
+      id: USER_ID,
+      email: EMAIL,
+      fullName: 'Amina Sule',
+    });
   }
 
   it('confirms the email and flags the profile verified', async () => {
@@ -275,7 +289,36 @@ describe('AuthService.verifyEmail', () => {
     );
   });
 
-  it('does not re-provision when the account already exists', async () => {
+  it('sends a best-effort welcome email with the account number after provisioning', async () => {
+    const { service, mail, prisma } = makeService();
+    seedProfile(prisma);
+
+    await expect(service.verifyEmail({ token: 'tok', code: '1234' })).resolves.toEqual({
+      verified: true,
+    });
+    expect(mail.send).toHaveBeenCalledTimes(1);
+    const doc = mail.send.mock.calls[0][0] as { to: string; subject: string; html: string };
+    expect(doc.to).toBe(EMAIL);
+    expect(doc.subject).toContain('Welcome');
+    const accountNumber = prisma.account.create.mock.calls[0][0].data.accountNumber;
+    expect(doc.html).toContain('Amina Sule');
+    expect(doc.html).toContain(accountNumber);
+  });
+
+  it('keeps verification successful when the welcome email delivery fails', async () => {
+    const { service, mail, prisma, audit } = makeService();
+    seedProfile(prisma);
+    vi.mocked(mail.send).mockRejectedValueOnce(new Error('mail down'));
+
+    await expect(service.verifyEmail({ token: 'tok', code: '1234' })).resolves.toEqual({
+      verified: true,
+    });
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'mail.welcome', userId: USER_ID }),
+    );
+  });
+
+  it('does not send a welcome email on a re-run (no re-provision)', async () => {
     const { service, prisma, audit } = makeService();
     seedProfile(prisma);
     vi.mocked(prisma.account.findUnique).mockResolvedValueOnce({ id: 'acc', userId: USER_ID });
@@ -329,7 +372,11 @@ describe('AuthService.login / refresh', () => {
   it('returns a session and audits login', async () => {
     const { service, prisma, audit } = makeService();
     await service.register({ fullName: 'Amina', email: EMAIL, password: PASSWORD });
-    vi.mocked(prisma.profile.findUnique).mockResolvedValue({ id: USER_ID, email: EMAIL });
+    vi.mocked(prisma.profile.findUnique).mockResolvedValue({
+      id: USER_ID,
+      email: EMAIL,
+      fullName: 'Amina Sule',
+    });
     await service.verifyEmail({ token: 'tok', code: '1234' });
 
     const session = await service.login({ email: EMAIL, password: PASSWORD });
@@ -435,6 +482,38 @@ describe('AuthService forgot-password', () => {
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'auth.reset_password', userId: USER_ID }),
     );
+  });
+
+  it('emails a best-effort password-reset confirmation when the profile is readable', async () => {
+    const { service, mail, prisma } = makeService();
+    vi.mocked(prisma.profile.findUnique).mockResolvedValue({
+      id: USER_ID,
+      email: EMAIL,
+      fullName: 'Amina Sule',
+    });
+
+    await expect(
+      service.resetPassword({ token: 'reset.tok', newPassword: 'new.secure.123' }),
+    ).resolves.toEqual({ status: 'success' });
+    expect(mail.send).toHaveBeenCalledTimes(1);
+    const doc = mail.send.mock.calls[0][0] as { to: string; subject: string; html: string };
+    expect(doc.to).toBe(EMAIL);
+    expect(doc.subject).toContain('password was changed');
+    expect(doc.html).toContain('Amina');
+  });
+
+  it('keeps the reset successful when the confirmation email fails', async () => {
+    const { service, mail, prisma } = makeService();
+    vi.mocked(prisma.profile.findUnique).mockResolvedValue({
+      id: USER_ID,
+      email: EMAIL,
+      fullName: 'Amina Sule',
+    });
+    vi.mocked(mail.send).mockRejectedValueOnce(new Error('mail down'));
+
+    await expect(
+      service.resetPassword({ token: 'reset.tok', newPassword: 'new.secure.123' }),
+    ).resolves.toEqual({ status: 'success' });
   });
 
   it('401 when reset-password uses a bad/consumed token', async () => {

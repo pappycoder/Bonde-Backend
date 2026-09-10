@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Inject,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -42,6 +43,8 @@ import {
   UpdateCardLockDto,
 } from './cards.dto.js';
 import { CardsService } from './cards.service.js';
+import { MAIL_SENDER, type MailSender } from '../../common/mail/mail.types.js';
+import { cardRegisteredEmail } from '../../common/mail/templates/card-registered.js';
 
 /**
  * Self-service cards surface: create/patch (the PAN is generated + encrypted
@@ -56,6 +59,7 @@ export class CardsController {
   constructor(
     private readonly cards: CardsService,
     private readonly audit: AuditLogService,
+    @Inject(MAIL_SENDER) private readonly mail: MailSender,
   ) {}
 
   @Get()
@@ -79,6 +83,7 @@ export class CardsController {
       entityType: 'card',
       entityId: card.id,
     });
+    await this.sendCardRegisteredBestEffort(principal, card);
     return card;
   }
 
@@ -443,5 +448,43 @@ export class CardsController {
       metadata: { categoryId },
     });
     return result;
+  }
+
+  /**
+   * Best-effort "card registered" email: a delivery failure is audited but must
+   * never fail the card creation request. No merchants are attached at creation
+   * time, so the allowlist section reads "None".
+   */
+  private async sendCardRegisteredBestEffort(
+    principal: AuthPrincipal,
+    card: {
+      id: string;
+      cardNumberLast4: string;
+      nickname: string | null;
+      maxSpendLimit: string | null;
+      monthlyLimit: string | null;
+    },
+  ): Promise<void> {
+    if (!principal.email) return;
+    const email = cardRegisteredEmail({
+      firstName: principal.email.split('@')[0] ?? '',
+      last4: card.cardNumberLast4,
+      nickname: card.nickname,
+      maxSpendLimit: card.maxSpendLimit,
+      monthlyLimit: card.monthlyLimit,
+      merchants: [],
+    });
+    try {
+      await this.mail.send({ to: principal.email, subject: email.subject, html: email.html });
+    } catch {
+      await this.audit
+        .record({
+          userId: principal.userId,
+          action: 'mail.card_registered',
+          entityType: 'mail',
+          entityId: card.id,
+        })
+        .catch(() => undefined);
+    }
   }
 }

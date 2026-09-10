@@ -1,52 +1,24 @@
-import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { AppConfig } from '../../config/configuration.js';
+import { Inject, Injectable } from '@nestjs/common';
+import { MAIL_SENDER, type MailSender } from '../../common/mail/mail.types.js';
+import { verificationCodeEmail } from '../../common/mail/templates/verification-code.js';
 import { OtpSendError, type OtpSendRequest, type OtpSender } from './otp-sender.interface.js';
 
-const RESEND_BASE_URL = 'https://api.resend.com';
-const SEND_TIMEOUT_MS = 10_000;
-
 /**
- * Email delivery via Resend. Fails closed: network errors and non-2xx
- * responses become `OtpSendError` (never swallowed).
+ * Email OTP delivery. Delegates the actual send to the global `MAIL_SENDER`
+ * (production: `MailService` → Resend; tests: capture stub) but keeps the
+ * OtpSender contract and stays fail-closed — a delivery problem becomes
+ * `OtpSendError` so the OTP flow voids the code and answers 503.
  */
 @Injectable()
 export class ResendOtpSender implements OtpSender {
-  private readonly apiKey: string;
-  private readonly fromEmail: string;
-
-  constructor(config: ConfigService<AppConfig, true>) {
-    const resend = config.get('resend');
-    this.apiKey = resend.apiKey;
-    this.fromEmail = resend.fromEmail;
-  }
+  constructor(@Inject(MAIL_SENDER) private readonly mail: MailSender) {}
 
   async send(request: OtpSendRequest): Promise<void> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
+    const email = verificationCodeEmail(request.code, 'verify-email');
     try {
-      const response = await globalThis.fetch(`${RESEND_BASE_URL}/emails`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: this.fromEmail,
-          to: [request.target],
-          subject: 'Bonde verification code',
-          html: `<p>Your Bonde verification code is <strong>${request.code}</strong>.</p><p>It expires in 5 minutes.</p>`,
-        }),
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        throw new OtpSendError(`Resend returned HTTP ${response.status}`);
-      }
-    } catch (error) {
-      if (error instanceof OtpSendError) throw error;
+      await this.mail.send({ to: request.target, subject: email.subject, html: email.html });
+    } catch {
       throw new OtpSendError('Email delivery failed');
-    } finally {
-      clearTimeout(timer);
     }
   }
 }

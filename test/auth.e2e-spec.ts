@@ -12,6 +12,7 @@ import {
   type OtpSender,
 } from '../src/modules/otp/otp-sender.interface.js';
 import type { OtpSendRequest } from '../src/modules/otp/otp-sender.interface.js';
+import { MAIL_SENDER, type MailMessage, type MailSender } from '../src/common/mail/mail.types.js';
 import { bootE2EApp, seedBaseFixtures, truncateAll, type BootedE2EApp } from './e2e-app.js';
 
 /**
@@ -115,6 +116,8 @@ describe('Auth endpoints (e2e)', () => {
   let ctx: BootedE2EApp;
   let sent: OtpSendRequest[];
   let failNextSend: boolean;
+  let sentMails: MailMessage[];
+  let failNextMail: boolean;
   const provider = new FakeSupabaseAuth();
   const sender: OtpSender = {
     send: async (request) => {
@@ -122,15 +125,24 @@ describe('Auth endpoints (e2e)', () => {
       sent.push(request);
     },
   };
+  const mailSender: MailSender = {
+    send: async (message) => {
+      if (failNextMail) throw new Error('mail down');
+      sentMails.push(message);
+    },
+  };
 
   beforeEach(async () => {
     sent = [];
     failNextSend = false;
+    sentMails = [];
+    failNextMail = false;
     provider.clear();
     ctx = await bootE2EApp({
       overrides: [
         { token: SUPABASE_AUTH_BODY, useValue: provider },
         { token: OTP_SENDER, useValue: sender },
+        { token: MAIL_SENDER, useValue: mailSender },
       ],
     });
     await truncateAll(ctx.prisma);
@@ -196,6 +208,14 @@ describe('Auth endpoints (e2e)', () => {
 
     const profile = await ctx.prisma.profile.findUnique({ where: { email: EMAIL } });
     expect(profile?.emailVerified).toBe(true);
+
+    const accountAfter = await ctx.prisma.account.findUnique({ where: { userId: profile!.id } });
+    expect(accountAfter).not.toBeNull();
+    expect(sentMails).toHaveLength(1);
+    expect(sentMails[0].to).toBe(EMAIL);
+    expect(sentMails[0].subject).toContain('Welcome');
+    expect(sentMails[0].html).toContain('Account number');
+    expect(sentMails[0].html).toContain(accountAfter!.accountNumber);
 
     const login = await ctx.raw
       .post('/auth/login')
@@ -308,6 +328,11 @@ describe('Auth endpoints (e2e)', () => {
       .expect(200);
     expect(reset.body).toEqual({ status: 'success' });
 
+    const resetMail = sentMails.at(-1);
+    expect(resetMail).toBeDefined();
+    expect(resetMail!.to).toBe(EMAIL);
+    expect(resetMail!.subject).toContain('password was changed');
+
     // Old password is now rejected, the new one works.
     await ctx.raw.post('/auth/login').send({ email: EMAIL, password: PASSWORD }).expect(401);
     const login = await ctx.raw
@@ -343,6 +368,21 @@ describe('Auth endpoints (e2e)', () => {
 
     const stored = await ctx.prisma.otpCode.findFirst({ where: { channel: 'EMAIL' } });
     expect(stored?.used).toBe(true);
+  });
+
+  it('verification succeeds even when the welcome email delivery fails', async () => {
+    failNextMail = true;
+    const reg = await ctx.raw
+      .post('/auth/register')
+      .send({ fullName: 'New User', email: EMAIL, password: PASSWORD })
+      .expect(201);
+
+    const code = lastCode();
+    await ctx.raw
+      .post('/auth/verify-email')
+      .send({ token: reg.body.registrationToken, code })
+      .expect(200);
+    expect(sentMails).toHaveLength(0);
   });
 
   it('rejects malformed payloads', async () => {

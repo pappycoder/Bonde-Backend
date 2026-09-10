@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { CardStatus, LockType } from '@prisma/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { MAIL_SENDER, type MailMessage, type MailSender } from '../src/common/mail/mail.types.js';
 import {
   bootE2EApp,
   SEED_CARD_ID,
   SEED_OTHER_ID,
+  SEED_USER_EMAIL,
   SEED_USER_ID,
   seedBaseFixtures,
   truncateAll,
@@ -13,9 +15,19 @@ import {
 
 describe('Cards self-service (e2e)', () => {
   let ctx: BootedE2EApp;
+  let sentMails: MailMessage[];
+  let failNextMail: boolean;
+  const mailSender: MailSender = {
+    send: async (message) => {
+      if (failNextMail) throw new Error('mail down');
+      sentMails.push(message);
+    },
+  };
 
   beforeEach(async () => {
-    ctx = await bootE2EApp();
+    sentMails = [];
+    failNextMail = false;
+    ctx = await bootE2EApp({ overrides: [{ token: MAIL_SENDER, useValue: mailSender }] });
     await truncateAll(ctx.prisma);
     await seedBaseFixtures(ctx.prisma);
   });
@@ -183,6 +195,21 @@ describe('Cards self-service (e2e)', () => {
       });
       expect(hist).toHaveLength(1);
       expect(hist[0].event).toBe('create');
+
+      expect(sentMails).toHaveLength(1);
+      expect(sentMails[0].to).toBe(SEED_USER_EMAIL);
+      expect(sentMails[0].subject).toContain('ending in');
+      expect(sentMails[0].html).toContain(res.body.cardNumberLast4);
+    });
+
+    it('creates the card even when the notification email delivery fails', async () => {
+      failNextMail = true;
+      const res = await ctx.http
+        .post('/cards')
+        .send({ nickname: 'Delivery', maxSpendLimit: '5000' })
+        .expect(201);
+      expect(res.body.id).toMatch(/^[0-9a-f-]{36}$/);
+      expect(sentMails).toHaveLength(0);
     });
 
     it('rejects an unsupported card type', async () => {

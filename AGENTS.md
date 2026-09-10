@@ -93,12 +93,39 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   `verify` self-service endpoints wrap them. Targets must be the caller's own
   email (EMAIL) or principal/profile phone (PHONE). Delivery crosses the
   `OTP_SENDER` token (`src/modules/otp/otp-sender.interface.ts`) — production
-  backs it with `RoutingOtpSender` (Termii SMS / Resend email). **Fail
-  closed**: a `OtpSendError` becomes a 503 *and* the just-created code is
-  voided.
+  backs it with `RoutingOtpSender` (Termii SMS / `ResendOtpSender` for email,
+  which delegates to the shared `MAIL_SENDER` + verification-code template).
+  **Fail closed**: a `OtpSendError` becomes a 503 *and* the just-created code
+  is voided.
 - **Throttling**: `send`/`verify` are stamped `@StrictThrottle()` (strict
   throttle, env-tuned). The response never includes the code; tests capture it
   by overriding the `OTP_SENDER` provider.
+
+## Email (Resend + templates)
+- `src/common/mail/` is the **only** place that talks to Resend: `MailService`
+  (`MailSender`, `POST /api/emails`, 10s timeout, fail-closed `MailSendError`)
+  is provided under the `MAIL_SENDER` token in the `@Global()` `MailModule`
+  (`{ provide: MAIL_SENDER, useExisting: MailService }`). Feature code must
+  inject **`MAIL_SENDER`**, never Resend directly — e2e overrides the token
+  with a capture stub to keep real email out of tests (auth + cards suites do).
+- Templates live in `src/common/mail/templates/` — pure TS renderers (no new
+  runtime deps), sharing `layout.ts` (max-width 600px, inline-CSS tables, hidden
+  preheader, **no CTA buttons**) and the `esc()` escaper in `parts.ts`. The logo
+  is embedded as a base64 **data URI** (`templates/assets/logo.ts`, built from
+  `logo-transparent-opt.png` — white background removed from `logo.jpeg`; keep
+  `logo-transparent.png` in the repo root as the full-quality artifact).
+- **Two delivery policies**:
+  - **Fail-closed (credentials)**: OTP code emails. `ResendOtpSender`
+    (`src/modules/otp/`) delegates to `MAIL_SENDER` with the
+    `verification-code` template and still throws `OtpSendError` so the OTP
+    flow voids the code and answers 503.
+  - **Best-effort (non-critical)**: welcome (`AuthService.verifyEmail` after
+    provisioning), password-reset confirmation (`resetPassword`),
+    card-registered (`CardsController.create`). Failures are audited
+    (`mail.welcome`, `mail.password_reset`, `mail.card_registered`) and never
+    fail the request.
+- Credentials (codes) and personal data (limits, account numbers) are fine in
+  emails; the PAN never is — only `cardNumberLast4` may be shown.
 
 ## Admin CRUD (registry-driven data-grid)
 - `src/modules/crud/` exposes `POST/GET/PATCH/DELETE /api/admin/:resource[/:id]`

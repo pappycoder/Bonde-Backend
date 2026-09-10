@@ -28,6 +28,9 @@ import type {
   VerifyEmailDto,
   VerifyResetOtpDto,
 } from '../auth.dto.js';
+import { MAIL_SENDER, type MailMessage, type MailSender } from '../../../common/mail/mail.types.js';
+import { welcomeEmail } from '../../../common/mail/templates/welcome.js';
+import { passwordResetEmail } from '../../../common/mail/templates/password-reset.js';
 
 /**
  * BFF auth endpoints. Registration + password changes drive Supabase Auth via
@@ -46,6 +49,7 @@ export class AuthService {
     @Inject(OTP_SENDER) private readonly sender: OtpSender,
     private readonly tokens: AuthTokensService,
     private readonly audit: AuditLogService,
+    @Inject(MAIL_SENDER) private readonly mail: MailSender,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -125,6 +129,15 @@ export class AuthService {
         entityType: 'wallet',
         entityId: provisioned.walletId,
       });
+      const email = welcomeEmail({
+        firstName: profile.fullName,
+        accountNumber: provisioned.accountNumber,
+      });
+      await this.sendBestEffort(
+        { to: profile.email, subject: email.subject, html: email.html },
+        'mail.welcome',
+        userId,
+      );
     }
     return { verified: true as const };
   }
@@ -234,6 +247,18 @@ export class AuthService {
       entityId: userId,
     });
     await this.tokens.consumeResetToken(dto.token);
+    const profile = await this.prisma.profile.findUnique({
+      where: { id: userId },
+      select: { email: true, fullName: true },
+    });
+    if (profile) {
+      const email = passwordResetEmail({ firstName: profile.fullName });
+      await this.sendBestEffort(
+        { to: profile.email, subject: email.subject, html: email.html },
+        'mail.password_reset',
+        userId,
+      );
+    }
     return { status: 'success' as const };
   }
 
@@ -268,7 +293,7 @@ export class AuthService {
         const wallet = await tx.wallet.create({
           data: { id: randomUUID(), accountId: account.id },
         });
-        return { accountId: account.id, walletId: wallet.id };
+        return { accountId: account.id, walletId: wallet.id, accountNumber: account.accountNumber };
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -281,6 +306,25 @@ export class AuthService {
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * Best-effort transactional email (welcome, card registered, password-reset
+   * confirmation): a delivery failure is audited but never fails the request.
+   * Credential emails (OTP codes) do NOT go through here — those fail closed.
+   */
+  private async sendBestEffort(
+    message: MailMessage,
+    action: string,
+    userId: string,
+  ): Promise<void> {
+    try {
+      await this.mail.send(message);
+    } catch {
+      await this.audit
+        .record({ userId, action, entityType: 'mail', entityId: userId })
+        .catch(() => undefined);
+    }
+  }
 
   /** Normalize an email to lowercase for storage + lookups. */
   private normalizeEmail(email: string): string {

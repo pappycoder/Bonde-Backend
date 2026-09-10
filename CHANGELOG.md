@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Transactional email system + templates** (`src/common/mail/`):
+  - Global `MailModule` exposing the `MAIL_SENDER` token (`MailService` →
+    Resend `POST /api/emails`, 10s timeout, fail-closed `MailSendError`).
+    Feature code injects the token; e2e swaps a capture stub so real email is
+    never sent in tests.
+  - Branded, table-based templates (pure TS, no new runtime deps): shared
+    `layout.ts` frame (max-width 600px, inline CSS, hidden preheader, no CTA
+    buttons) + `esc()` HTML-escaping; `code-box.ts`; `verification-code.ts`
+    (per-purpose copy), `welcome.ts`, `forgot-password.ts`, `card-registered.ts`
+    (last4, nickname, NGN limits, merchant allowlist), `password-reset.ts`.
+  - Logo handling: `logo.jpeg` (orange `#FF4B00` wordmark on white) is
+    processed off-repo to a transparent PNG
+    (`logo-transparent.png`/`logo-transparent-opt.png`) and embedded as a base64
+    data URI in `templates/assets/logo.ts` (+ brand palette) — no external image
+    fetch in emails.
+  - Wiring: **OTP code emails** (register / resend-verification-otp /
+    forgot-password / self-service EMAIL) now use the verification-code template
+    through `ResendOtpSender` → `MAIL_SENDER` and stay **fail-closed** (503 +
+    code voided). **Best-effort** emails log on failure but never fail the
+    request: welcome after email verification (`mail.welcome` audit), password
+    reset confirmation (`mail.password_reset`), and card-registered on card
+    creation (`mail.card_registered`).
+  - Tests: `mail.service.spec.ts` (Resend request shape, abort timeout,
+    fail-closed), `templates.spec.ts` (escaping, data-URI logo, per-purpose
+    copy, five-minute expiry, no CTA), auth unit + e2e welcome/password-reset
+    (including mail-down-keeps-request-successful), cards e2e card-registered +
+    mail-down-does-not-block-create.
+  - Docs: AGENTS.md `## Email (Resend + templates)` and related bullets.
+
 - **User card creation, patching, change history, and merchant allowlist**:
   - `POST /api/cards` creates a **virtual** card (nickname, `maxSpendLimit`/
     `monthlyLimit` as fixed 2-decimal strings, `expirationType` `monthly`|
