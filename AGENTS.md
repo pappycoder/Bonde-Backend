@@ -20,7 +20,7 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
 - `pnpm prisma:deploy` — apply migrations in CI/prod (`prisma migrate deploy`)
 
 ## Database (Prisma 7)
-- Schema lives in `prisma/schema.prisma` (16 tables, datasource has NO `url`).
+- Schema lives in `prisma/schema.prisma` (18 tables, datasource has NO `url`).
 - CLI connection config lives in `prisma.config.ts` — Migrate uses `DIRECT_URL`;
   the app runtime uses pooled `DATABASE_URL` via the `@prisma/adapter-pg`
   (`PrismaPg`) driver adapter inside `src/prisma/prisma.service.ts`.
@@ -142,12 +142,23 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   caller's account exists at `wallet.accountId`, 409 duplicate;
   DELETE 400 if transactions still reference it). `PATCH /api/wallet` is where
   money-movement reconciles `balance`.
-- **Cards**: `GET /api/cards[/:id]` never returns `cardNumberEncrypted` (only
-  `cardNumberLast4`); provisioning is internal/provider-owned so there is no
-  user `POST`. Users manage lifecycle (`PATCH .../pause|resume` — 400 if
-  `CANCELLED`, `PATCH .../limit`) and the composable locks / restricted
-  categories nested under `/api/cards/:id/locks` and `.../categories`
-  (unique `cardId+lockType` / `cardId+category` → 409).
+- **Cards**: `POST /api/cards` lets users create a **virtual** card
+  (`cardType`/`nickname`/limits/`expirationType`, default `monthly`; provider =
+  first active `CardProvider`). The 16-digit Luhn PAN is generated + AES-256-GCM
+  encrypted server-side (`card-number.ts` → `src/common/crypto/aes-gcm.ts`,
+  key = `encryption.cardKey`), stored as `cardNumberEncrypted` + plaintext
+  `cardNumberLast4` — `GET /api/cards[/:id]` and never the API responses expose
+  the PAN. `PATCH /api/cards/:id` updates nickname/`cardType`/limits
+  (`PATCH .../limit` remains a thin alias); `PATCH .../pause|resume` — 400 if
+  `CANCELLED`. **Card change timeline**: every card mutation
+  (create/update/pause/resume/limit/lock.*/category.*/merchant.add|remove)
+  writes a `card_history` row (`event` + `{before,after}` diffs) readable via
+  `GET /api/cards/:id/history` (newest first, owned-404). **Merchant
+  allowlist**: `GET/POST/DELETE /api/cards/:id/merchants[/:merchantId]` restrict
+  a card to specific merchants (deny-by-default — the card may only be used at
+  the listed merchants; supplier/provider flow enforces at purchase time).
+  Each entry is `merchantName` + optional `merchantCode`
+  (`@@unique([cardId, merchantCode])`, name-dedupe when code is absent → 409).
 - **Transactions & approvals expose full CRUD** for provisioning services:
   `GET/POST/PATCH/DELETE /api/transactions` (POST resolves `walletId` →
   `wallet.account.userId` and `cardId`/`chatId` ownership → 404; P2003 → 400),
@@ -173,8 +184,8 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   admin `CrudService`. Writes are audited via `AuditLogService.record`
   (`account.create|update|delete`, `wallet.create|update|delete`,
   `transaction.create|update|delete`, `approval.create|update|delete`,
-  `card.pause|resume|limit|lock.*|category.*`, `chat.*[.message]*`,
-  `threshold.*`, `biometric.*`).
+  `card.create|update|pause|resume|limit|lock.*|category.*|merchant.add|merchant.remove`,
+  `chat.*[.message]*`, `threshold.*`, `biometric.*`).
 
 ## Database & testing
 - Runtime DB is Supabase Postgres (`DATABASE_URL` pooled, `DIRECT_URL` direct)
@@ -184,7 +195,7 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   untouched.
 - `test/db.ts` owns the constants + fixtures: seeded profiles use **real UUIDs**
   (`SEED_USER_ID` etc.) because `profiles.id` is `@db.Uuid`; `truncateAll`
-  TRUNCATEs the 16 tables CASCADE; `seedBaseFixtures` upserts the profile/
+  TRUNCATEs the 18 tables CASCADE; `seedBaseFixtures` upserts the profile/
   provider/card/chat baseline **plus** an account+wallet (SEED_USER only — the
   SEED_OTHER user intentionally has none, powering 1:1 ownership 404s),
   chat messages, a PENDING transaction + approval, a threshold, a

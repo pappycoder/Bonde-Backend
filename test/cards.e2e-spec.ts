@@ -158,4 +158,120 @@ describe('Cards self-service (e2e)', () => {
       await ctx.http.delete(`/cards/${SEED_CARD_ID}/categories/${created.body.id}`).expect(200);
     });
   });
+
+  describe('create & patch', () => {
+    it('creates a virtual card, never exposing the PAN', async () => {
+      const res = await ctx.http
+        .post('/cards')
+        .send({ nickname: 'Delivery', maxSpendLimit: '5000', expirationType: 'yearly' })
+        .expect(201);
+      expect(res.body).toMatchObject({
+        userId: SEED_USER_ID,
+        cardType: 'virtual',
+        nickname: 'Delivery',
+        status: 'ACTIVE',
+        maxSpendLimit: '5000.00',
+      });
+      expect(res.body.cardNumberLast4).toMatch(/^\d{4}$/);
+      expect(res.body).not.toHaveProperty('cardNumberEncrypted');
+
+      const created = await ctx.prisma.card.findUnique({ where: { id: res.body.id } });
+      expect(created?.cardNumberEncrypted).toMatch(/^enc::/);
+      const hist = await ctx.prisma.cardHistory.findMany({
+        where: { cardId: res.body.id },
+        orderBy: { createdAt: 'asc' },
+      });
+      expect(hist).toHaveLength(1);
+      expect(hist[0].event).toBe('create');
+    });
+
+    it('rejects an unsupported card type', async () => {
+      await ctx.http.post('/cards').send({ cardType: 'physical' }).expect(400);
+    });
+
+    it('patches nickname and normalizes limits', async () => {
+      const patched = await ctx.http
+        .patch(`/cards/${SEED_CARD_ID}`)
+        .send({ nickname: 'Groceries', monthlyLimit: '25000' })
+        .expect(200);
+      expect(patched.body.nickname).toBe('Groceries');
+      expect(patched.body.monthlyLimit).toBe('25000.00');
+
+      const last = await ctx.prisma.cardHistory.findFirst({
+        where: { cardId: SEED_CARD_ID },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(last?.event).toBe('update');
+      expect(last?.changes).toMatchObject({
+        before: { nickname: null, monthlyLimit: null },
+        after: { nickname: 'Groceries', monthlyLimit: '25000.00' },
+      });
+    });
+
+    it('rejects an empty patch', async () => {
+      await ctx.http.patch(`/cards/${SEED_CARD_ID}`).send({}).expect(400);
+    });
+  });
+
+  describe('history', () => {
+    it('trails card events newest first', async () => {
+      await ctx.http.patch(`/cards/${SEED_CARD_ID}/pause`).expect(200);
+      await ctx.http.patch(`/cards/${SEED_CARD_ID}/resume`).expect(200);
+      await ctx.http
+        .post(`/cards/${SEED_CARD_ID}/locks`)
+        .send({ lockType: 'TIME', config: { days: 3 } })
+        .expect(201);
+
+      const res = await ctx.http.get(`/cards/${SEED_CARD_ID}/history`).expect(200);
+      const events = res.body.map((h: { event: string }) => h.event);
+      expect(events).toEqual(['lock.create', 'resume', 'pause']);
+    });
+
+    it('404s a foreign card’s history', async () => {
+      const foreign = await seedCardFor(SEED_OTHER_ID);
+      await ctx.http.get(`/cards/${foreign.id}/history`).expect(404);
+    });
+  });
+
+  describe('merchants (allowlist)', () => {
+    it('lists the seeded merchant and adds/removes another', async () => {
+      const list = await ctx.http.get(`/cards/${SEED_CARD_ID}/merchants`).expect(200);
+      expect(list.body).toEqual([
+        expect.objectContaining({ merchantName: 'Acme Stores', merchantCode: 'M-ACME-001' }),
+      ]);
+
+      const added = await ctx.http
+        .post(`/cards/${SEED_CARD_ID}/merchants`)
+        .send({ merchantName: 'Global Mart', merchantCode: 'M-GM-002' })
+        .expect(201);
+      expect(added.body).toMatchObject({ merchantName: 'Global Mart' });
+      expect(added.body).not.toHaveProperty('cardNumberEncrypted');
+
+      const removed = await ctx.http
+        .delete(`/cards/${SEED_CARD_ID}/merchants/${added.body.id}`)
+        .expect(200);
+      expect(removed.body).toEqual({ deleted: true, id: added.body.id });
+    });
+
+    it('409s duplicate merchants (by code and by name)', async () => {
+      await ctx.http
+        .post(`/cards/${SEED_CARD_ID}/merchants`)
+        .send({ merchantName: 'Acme Stores', merchantCode: 'M-ACME-001' })
+        .expect(409);
+      await ctx.http
+        .post(`/cards/${SEED_CARD_ID}/merchants`)
+        .send({ merchantName: 'acme stores' })
+        .expect(409);
+    });
+
+    it('404s merchant operations on a foreign card', async () => {
+      const foreign = await seedCardFor(SEED_OTHER_ID);
+      await ctx.http.get(`/cards/${foreign.id}/merchants`).expect(404);
+      await ctx.http
+        .post(`/cards/${foreign.id}/merchants`)
+        .send({ merchantName: 'Acme' })
+        .expect(404);
+      await ctx.http.delete(`/cards/${foreign.id}/merchants/${randomUUID()}`).expect(404);
+    });
+  });
 });

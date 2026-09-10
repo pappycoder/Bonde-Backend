@@ -214,6 +214,8 @@ model Card {
   provider              CardProvider @relation(fields: [providerId], references: [id])
   locks                 CardLock[]
   restrictedCategories  CardCategory[]
+  merchants             CardMerchant[]
+  history               CardHistory[]
   transactions          Transaction[]
 
   @@index([userId])
@@ -235,6 +237,39 @@ model CardLock {
 
   @@unique([cardId, lockType])
   @@map("card_locks")
+}
+
+/// Timeline of changes to a card (create, patch, pause/resume, limits,
+/// locks, categories, merchants). `changes` holds `{ before?, after? }` for
+/// patch-type events and `{}` otherwise.
+model CardHistory {
+  id        String   @id @db.Uuid
+  cardId    String   @map("card_id") @db.Uuid
+  event     String   @db.VarChar(50)
+  changes   Json?    @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId, createdAt])
+  @@map("card_history")
+}
+
+/// Merchant allowlist on a card (deny-by-default): the card may only be used
+/// to purchase from the merchants listed here. `merchantCode` is the provider
+/// identifier; when absent, the name is used for uniqueness.
+model CardMerchant {
+  id           String     @id @db.Uuid
+  cardId       String     @map("card_id") @db.Uuid
+  merchantName String     @map("merchant_name") @db.VarChar(200)
+  merchantCode String?    @map("merchant_code") @db.VarChar(100)
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([cardId, merchantCode])
+  @@index([cardId, merchantName])
+  @@map("card_merchants")
 }
 
 /// Restricted spending category on a card. Deny-by default (`isAllowed` = false).

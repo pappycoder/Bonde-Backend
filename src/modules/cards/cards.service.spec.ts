@@ -1,12 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { CardStatus, Prisma } from '@prisma/client';
+import { decrypt } from '../../common/crypto/aes-gcm.js';
+import { luhnCheckDigit } from '../accounts/account-number.js';
 import { CardsService } from './cards.service.js';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const CARD_ID = '44444444-4444-4444-8444-444444444444';
 const LOCK_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const CATEGORY_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const PROVIDER_ID = '33333333-3333-4333-8333-333333333333';
+const MERCHANT_ID = '99999999-9999-4999-8999-999999999999';
+const ENC_KEY = 'a'.repeat(64);
 
 const CARD = {
   id: CARD_ID,
@@ -35,6 +40,7 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     findMany: vi.fn(async () => [CARD]),
     count: vi.fn(async () => 1),
     findFirst: vi.fn(async () => CARD),
+    create: vi.fn(async (args) => ({ ...CARD, ...args.data })),
     update: vi.fn(async (args) => ({ ...CARD, ...args.data })),
     ...overrides.card,
   };
@@ -54,14 +60,34 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     delete: vi.fn(async () => ({ id: CATEGORY_ID })),
     ...overrides.category,
   };
+  const cardProvider = {
+    findFirst: vi.fn(async () => ({ id: PROVIDER_ID, isActive: true })),
+    ...overrides.provider,
+  };
+  const cardHistory = {
+    create: vi.fn(async (args) => ({ id: 'history-id', cardId: CARD_ID, ...args.data })),
+    findMany: vi.fn(async () => [{ id: 'history-id', cardId: CARD_ID, event: 'create' }]),
+    ...overrides.history,
+  };
+  const cardMerchant = {
+    findMany: vi.fn(async () => []),
+    findFirst: vi.fn(async () => null),
+    create: vi.fn(async (args) => ({ id: MERCHANT_ID, cardId: CARD_ID, ...args.data })),
+    delete: vi.fn(async () => ({ id: MERCHANT_ID })),
+    ...overrides.merchant,
+  };
   const prisma = {
     $transaction: vi.fn(async (ops: Array<Promise<unknown>>) => Promise.all(ops)),
     card,
     cardLock,
     cardCategory,
+    cardProvider,
+    cardHistory,
+    cardMerchant,
   };
-  const service = new CardsService(prisma as never);
-  return { service, card, cardLock, cardCategory };
+  const config = { get: vi.fn(() => ENC_KEY) };
+  const service = new CardsService(prisma as never, config as never);
+  return { service, card, cardLock, cardCategory, cardProvider, cardHistory, cardMerchant };
 }
 
 describe('CardsService.list', () => {
@@ -167,5 +193,159 @@ describe('CardsService categories', () => {
       deleted: true,
       id: CATEGORY_ID,
     });
+  });
+});
+
+describe('CardsService.create', () => {
+  it('creates a virtual card with an encrypted Luhn PAN and never returns it', async () => {
+    const { service, card, cardProvider, cardHistory } = makeService();
+    const result = await service.create(USER_ID, { cardType: 'virtual' });
+
+    expect(cardProvider.findFirst).toHaveBeenCalledWith({ where: { isActive: true } });
+    const createArgs = card.create.mock.calls[0][0];
+    expect(createArgs.data.cardType).toBe('virtual');
+    expect(createArgs.data.cardNumberLast4).toMatch(/^\d{4}$/);
+    expect(createArgs.data.cardNumberEncrypted).toMatch(/^enc::/);
+    const pan = decrypt(createArgs.data.cardNumberEncrypted, ENC_KEY);
+    expect(pan).toMatch(/^4\d{15}$/);
+    expect(luhnCheckDigit(Array.from(pan.slice(0, -1), Number))).toBe(Number(pan.slice(-1)));
+    expect(createArgs.data.cardNumberLast4).toBe(pan.slice(-4));
+
+    expect(result).not.toHaveProperty('cardNumberEncrypted');
+    expect(result.cardNumberLast4).toBe(pan.slice(-4));
+    expect(cardHistory.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ event: 'create' }) }),
+    );
+  });
+
+  it('derives the expiration date from the type when not provided', async () => {
+    const { service, card } = makeService();
+    await service.create(USER_ID, { expirationType: 'yearly' });
+    const created = card.create.mock.calls[0][0].data as { expirationDate: Date };
+    const diffDays = (created.expirationDate.getTime() - Date.now()) / 86_400_000;
+    expect(diffDays).toBeGreaterThan(364);
+    expect(diffDays).toBeLessThanOrEqual(365.1);
+  });
+
+  it('404s when no active card provider exists', async () => {
+    const { service, card, cardProvider } = makeService();
+    cardProvider.findFirst.mockResolvedValue(null);
+    await expect(service.create(USER_ID, {})).rejects.toThrow(NotFoundException);
+    expect(card.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('CardsService.update', () => {
+  it('requires at least one field', async () => {
+    const { service } = makeService();
+    await expect(service.update(USER_ID, CARD_ID, {})).rejects.toThrow(BadRequestException);
+  });
+
+  it('normalizes money and records a before/after diff', async () => {
+    const { service, card, cardHistory } = makeService();
+    const result = await service.update(USER_ID, CARD_ID, {
+      nickname: '  Weekend   ',
+      maxSpendLimit: '10000',
+    });
+    expect(result.nickname).toBe('Weekend');
+    expect(result.maxSpendLimit).toBe('10000.00');
+    expect(card.update).toHaveBeenCalledWith({
+      where: { id: CARD_ID },
+      data: { nickname: 'Weekend', maxSpendLimit: '10000.00' },
+    });
+    expect(cardHistory.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          event: 'update',
+          changes: expect.objectContaining({
+            before: { nickname: null, maxSpendLimit: null },
+            after: { nickname: 'Weekend', maxSpendLimit: '10000.00' },
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('rejects updating a cancelled card', async () => {
+    const { service, card } = makeService();
+    card.findFirst.mockResolvedValue({ ...CARD, status: CardStatus.CANCELLED });
+    await expect(service.update(USER_ID, CARD_ID, { nickname: 'Nope' })).rejects.toThrow(
+      BadRequestException,
+    );
+  });
+});
+
+describe('CardsService history', () => {
+  it('lists the timeline for an owned card, newest first', async () => {
+    const { service, cardHistory } = makeService();
+    const result = await service.listHistory(USER_ID, CARD_ID);
+    expect(result).toEqual([expect.objectContaining({ event: 'create' })]);
+    expect(cardHistory.findMany).toHaveBeenCalledWith({
+      where: { cardId: CARD_ID },
+      orderBy: { createdAt: 'desc' },
+    });
+  });
+
+  it('404s a foreign card’s history', async () => {
+    const { service, card, cardHistory } = makeService();
+    card.findFirst.mockResolvedValue(null);
+    await expect(service.listHistory(USER_ID, CARD_ID)).rejects.toThrow(NotFoundException);
+    expect(cardHistory.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('CardsService merchants', () => {
+  it('adds a merchant to the allowlist and records history', async () => {
+    const { service, cardMerchant, cardHistory } = makeService();
+    const result = await service.addMerchant(USER_ID, CARD_ID, {
+      merchantName: 'Acme',
+      merchantCode: 'M-1',
+    });
+    expect(result).toMatchObject({ merchantName: 'Acme', merchantCode: 'M-1' });
+    expect(cardMerchant.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ cardId: CARD_ID }) }),
+    );
+    expect(cardHistory.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ event: 'merchant.add' }) }),
+    );
+  });
+
+  it('409s a duplicate merchant by code', async () => {
+    const { service, cardMerchant } = makeService();
+    cardMerchant.create.mockRejectedValue(prismaError('P2002'));
+    await expect(
+      service.addMerchant(USER_ID, CARD_ID, { merchantName: 'Acme', merchantCode: 'M-1' }),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('409s a duplicate merchant by name when no code is given', async () => {
+    const { service, cardMerchant } = makeService();
+    cardMerchant.findFirst.mockResolvedValue({ id: MERCHANT_ID, cardId: CARD_ID });
+    await expect(service.addMerchant(USER_ID, CARD_ID, { merchantName: 'acme' })).rejects.toThrow(
+      ConflictException,
+    );
+  });
+
+  it('404s removing a merchant that is not on the card', async () => {
+    const { service, cardMerchant } = makeService();
+    cardMerchant.findFirst.mockResolvedValue(null);
+    await expect(service.removeMerchant(USER_ID, CARD_ID, MERCHANT_ID)).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+
+  it('removes an owned merchant and records history', async () => {
+    const { service, cardMerchant } = makeService();
+    cardMerchant.findFirst.mockResolvedValue({
+      id: MERCHANT_ID,
+      cardId: CARD_ID,
+      merchantName: 'Acme',
+      merchantCode: null,
+    });
+    await expect(service.removeMerchant(USER_ID, CARD_ID, MERCHANT_ID)).resolves.toEqual({
+      deleted: true,
+      id: MERCHANT_ID,
+    });
+    expect(cardMerchant.delete).toHaveBeenCalledWith({ where: { id: MERCHANT_ID } });
   });
 });

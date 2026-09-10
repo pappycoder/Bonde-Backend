@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **User card creation, patching, change history, and merchant allowlist**:
+  - `POST /api/cards` creates a **virtual** card (nickname, `maxSpendLimit`/
+    `monthlyLimit` as fixed 2-decimal strings, `expirationType` `monthly`|
+    `yearly`, derived `expirationDate`). The server generates a Luhn-valid
+    16-digit PAN, AES-256-GCM encrypts it (`src/common/crypto/aes-gcm.ts`;
+    `enc::iv::tag::cipher` payloads) and stores only `cardNumberEncrypted` +
+    plaintext `cardNumberLast4` — the PAN is never returned. Provider is the
+    first active `CardProvider` (503/404 if none).
+  - `PATCH /api/cards/:id` updates nickname / card type / limits (money
+    normalized on write) and records a `card.update` history diff; the existing
+    `PATCH .../limit` stays as a thin alias.
+  - **`card_history` table** (migration `20260910165003`): every card mutation
+    (create, update, pause, resume, limit, `lock.*`, `category.*`,
+    `merchant.add|remove`) appends a timeline row; `GET /api/cards/:id/history`
+    lists it newest first (owned-404).
+  - **Merchant allowlist**: `GET/POST/DELETE /api/cards/:id/merchants` — a card
+    may only be used to purchase from the listed merchants (deny-by-default;
+    enforcement belongs to the provider/purchase flow). `card_merchants` holds
+    `merchantName` + optional `merchantCode` (`@@unique([cardId, merchantCode])`,
+    name dedupe when code absent → 409). Audited `card.merchant.add|remove`.
+  - Tests: 5 new unit cases in `aes-gcm.spec.ts` (round-trip, fresh IV, bad-key/
+    malformed payload) + card create/update/history/merchant unit coverage
+    (Luhn PAN, encryption prefix, money normalization, before/after diffs, 409s)
+    and e2e (create-PAN-never-exposed, patch diffs, history ordering, merchant
+    add/dedupe/remove, foreign 404s).
+  - Docs: AGENTS.md cards + audit-action bullets updated.
+
 - **Eager provisioning on registration + `AccountType` enum**:
   - Email verification is now the registration-completion step: `verify-email`
     marks the profile verified **and** provisions the user's single checking

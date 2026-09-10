@@ -41,6 +41,8 @@ const PHYSICAL_TABLES = [
   'notifications',
   'messages',
   'chats',
+  'card_history',
+  'card_merchants',
   'card_categories',
   'card_locks',
   'cards',
@@ -101,6 +103,15 @@ export async function seedBaseFixtures(prisma: AnyPrisma): Promise<void> {
       cardType: 'virtual',
       expirationType: 'monthly',
       expirationDate: new Date('2030-01-01T00:00:00.000Z'),
+    },
+  });
+
+  await prisma.cardMerchant.create({
+    data: {
+      id: '00000000-0000-4000-8000-0000000000aa',
+      cardId: SEED_CARD_ID,
+      merchantName: 'Acme Stores',
+      merchantCode: 'M-ACME-001',
     },
   });
 

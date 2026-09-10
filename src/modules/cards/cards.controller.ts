@@ -26,22 +26,28 @@ import { ApiErrorResponse } from '../../common/errors/api-error-response.decorat
 import {
   CardCategoryDto,
   CardDto,
+  CardHistoryDto,
+  CardMerchantDto,
   CardsDeleteResponseDto,
   CardLockDto,
   CreateCardCategoryDto,
+  CreateCardDto,
   CreateCardLockDto,
+  CreateCardMerchantDto,
   ListCardsQueryDto,
   PagedCardsDto,
   UpdateCardCategoryDto,
+  UpdateCardDto,
   UpdateCardLimitDto,
   UpdateCardLockDto,
 } from './cards.dto.js';
 import { CardsService } from './cards.service.js';
 
 /**
- * Self-service cards surface: read-only listing/detail (the PAN is never
- * returned), plus lifecycle management — pause/resume, spending limits, and
- * the composable locks and restricted categories.
+ * Self-service cards surface: create/patch (the PAN is generated + encrypted
+ * and never returned), list/detail, lifecycle management (pause/resume,
+ * spending limits), the composable locks, restricted categories, the merchant
+ * allowlist, and the per-card change history.
  */
 @ApiTags('cards')
 @ApiBearerAuth('access-token')
@@ -60,6 +66,22 @@ export class CardsController {
     return this.cards.list(principal.userId, { page: query.page, pageSize: query.pageSize });
   }
 
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Create a virtual card (PAN never returned)' })
+  @ApiCreatedResponse({ type: CardDto })
+  @ApiErrorResponse()
+  async create(@CurrentUser() principal: AuthPrincipal, @Body() dto: CreateCardDto) {
+    const card = await this.cards.create(principal.userId, dto);
+    await this.audit.record({
+      userId: principal.userId,
+      action: 'card.create',
+      entityType: 'card',
+      entityId: card.id,
+    });
+    return card;
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get one of your cards (PAN never returned)' })
   @ApiParam({ name: 'id', format: 'uuid' })
@@ -70,6 +92,28 @@ export class CardsController {
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ) {
     return this.cards.get(principal.userId, id);
+  }
+
+  @Patch(':id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Update your card (nickname, limits, card type)' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: CardDto })
+  @ApiErrorResponse()
+  async update(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: UpdateCardDto,
+  ) {
+    const card = await this.cards.update(principal.userId, id, dto);
+    await this.audit.record({
+      userId: principal.userId,
+      action: 'card.update',
+      entityType: 'card',
+      entityId: id,
+      metadata: dto as never,
+    });
+    return card;
   }
 
   @Patch(':id/pause')
@@ -132,6 +176,79 @@ export class CardsController {
       metadata: dto as never,
     });
     return card;
+  }
+
+  // -- History --------------------------------------------------------------
+
+  @Get(':id/history')
+  @ApiOperation({ summary: 'Read the change history of one of your cards' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: [CardHistoryDto] })
+  @ApiErrorResponse()
+  history(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.cards.listHistory(principal.userId, id);
+  }
+
+  // -- Merchant allowlist ---------------------------------------------------
+
+  @Get(':id/merchants')
+  @ApiOperation({ summary: 'List the merchants a card is restricted to (allowlist)' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: [CardMerchantDto] })
+  @ApiErrorResponse()
+  listMerchants(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.cards.listMerchants(principal.userId, id);
+  }
+
+  @Post(':id/merchants')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Restrict a card to a merchant (409 if already on it)' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiCreatedResponse({ type: CardMerchantDto })
+  @ApiErrorResponse()
+  async addMerchant(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: CreateCardMerchantDto,
+  ) {
+    const merchant = await this.cards.addMerchant(principal.userId, id, dto);
+    await this.audit.record({
+      userId: principal.userId,
+      action: 'card.merchant.add',
+      entityType: 'card',
+      entityId: id,
+      metadata: { merchantId: merchant.id, merchantName: merchant.merchantName },
+    });
+    return merchant;
+  }
+
+  @Delete(':id/merchants/:merchantId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Remove a merchant from a card’s allowlist' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiParam({ name: 'merchantId', format: 'uuid' })
+  @ApiOkResponse({ type: CardsDeleteResponseDto })
+  @ApiErrorResponse()
+  async removeMerchant(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Param('merchantId', new ParseUUIDPipe({ version: '4' })) merchantId: string,
+  ) {
+    const result = await this.cards.removeMerchant(principal.userId, id, merchantId);
+    await this.audit.record({
+      userId: principal.userId,
+      action: 'card.merchant.remove',
+      entityType: 'card',
+      entityId: id,
+      metadata: { merchantId },
+    });
+    return result;
   }
 
   // -- Locks ----------------------------------------------------------------

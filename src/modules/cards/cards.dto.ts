@@ -1,9 +1,22 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CardRestrictedCategory, CardStatus, LockType } from '@prisma/client';
-import { Type } from 'class-transformer';
-import { IsBoolean, IsIn, IsInt, IsObject, IsOptional, Matches, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsISO8601,
+  IsObject,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 const DECIMAL_PATTERN = /^\d+(\.\d{1,2})?$/;
+const CARD_TYPES = ['virtual'];
 
 /** Query parameters for `GET /api/cards`. */
 export class ListCardsQueryDto {
@@ -66,6 +79,122 @@ export class CardDto {
 
   @ApiProperty({ type: String, format: 'date-time' })
   updatedAt: Date;
+}
+
+/** Body for `POST /api/cards`. */
+export class CreateCardDto {
+  @ApiPropertyOptional({ example: 'virtual', description: 'Only virtual cards can be created' })
+  @IsOptional()
+  @IsIn(CARD_TYPES)
+  cardType?: string;
+
+  @ApiPropertyOptional({ example: 'Weekend spending', maxLength: 100 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  @Transform(({ value }) => value?.trim())
+  nickname?: string;
+
+  @ApiPropertyOptional({ example: '10000.00', description: 'Single-transaction cap' })
+  @IsOptional()
+  @Matches(DECIMAL_PATTERN, { message: 'maxSpendLimit must be a decimal with up to 2 places' })
+  maxSpendLimit?: string;
+
+  @ApiPropertyOptional({ example: '20000.00', description: 'Per-month cap' })
+  @IsOptional()
+  @Matches(DECIMAL_PATTERN, { message: 'monthlyLimit must be a decimal with up to 2 places' })
+  monthlyLimit?: string;
+
+  @ApiPropertyOptional({ enum: ['monthly', 'yearly'], example: 'monthly' })
+  @IsOptional()
+  @IsIn(['monthly', 'yearly'])
+  expirationType?: string;
+
+  @ApiPropertyOptional({
+    type: String,
+    format: 'date-time',
+    description: 'Derived from expirationType when omitted',
+  })
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  expirationDate?: string;
+}
+
+/** Body for `PATCH /api/cards/:id`. */
+export class UpdateCardDto {
+  @ApiPropertyOptional({ example: 'Weekend spending', maxLength: 100 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  @Transform(({ value }) => value?.trim())
+  nickname?: string;
+
+  @ApiPropertyOptional({ example: 'virtual' })
+  @IsOptional()
+  @IsIn(CARD_TYPES)
+  cardType?: string;
+
+  @ApiPropertyOptional({ example: '10000.00', description: 'Single-transaction cap' })
+  @IsOptional()
+  @Matches(DECIMAL_PATTERN, { message: 'maxSpendLimit must be a decimal with up to 2 places' })
+  maxSpendLimit?: string;
+
+  @ApiPropertyOptional({ example: '20000.00', description: 'Per-month cap' })
+  @IsOptional()
+  @Matches(DECIMAL_PATTERN, { message: 'monthlyLimit must be a decimal with up to 2 places' })
+  monthlyLimit?: string;
+}
+
+/** Body for `POST /api/cards/:id/merchants`. */
+export class CreateCardMerchantDto {
+  @ApiProperty({ example: 'Acme Stores', maxLength: 200 })
+  @IsString()
+  @MaxLength(200)
+  @Transform(({ value }) => value?.trim())
+  merchantName: string;
+
+  @ApiPropertyOptional({ example: 'M-ACME-001', maxLength: 100 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  @Transform(({ value }) => value?.trim())
+  merchantCode?: string;
+}
+
+/** A merchant the card is restricted to (allowlist). */
+export class CardMerchantDto {
+  @ApiProperty({ format: 'uuid', example: '673bc257-9204-4acb-acf5-61f51e20a328' })
+  id: string;
+
+  @ApiProperty({ format: 'uuid', example: '673bc257-9204-4acb-acf5-61f51e20a328' })
+  cardId: string;
+
+  @ApiProperty({ example: 'Acme Stores' })
+  merchantName: string;
+
+  @ApiProperty({ type: String, nullable: true, example: 'M-ACME-001' })
+  merchantCode: string | null;
+
+  @ApiProperty({ type: String, format: 'date-time' })
+  createdAt: Date;
+}
+
+/** One entry in a card's change history. */
+export class CardHistoryDto {
+  @ApiProperty({ format: 'uuid', example: '673bc257-9204-4acb-acf5-61f51e20a328' })
+  id: string;
+
+  @ApiProperty({ format: 'uuid', example: '673bc257-9204-4acb-acf5-61f51e20a328' })
+  cardId: string;
+
+  @ApiProperty({ example: 'update' })
+  event: string;
+
+  @ApiProperty({ type: Object, additionalProperties: true })
+  changes: Record<string, unknown>;
+
+  @ApiProperty({ type: String, format: 'date-time' })
+  createdAt: Date;
 }
 
 /** Paged envelope for `GET /api/cards`. */
