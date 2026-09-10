@@ -11,7 +11,8 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
 - `pnpm lint` — oxlint (fast, type-aware)
 - `pnpm format` / `pnpm format:check` — Prettier
 - `pnpm test` — Vitest unit tests
-- `pnpm test:e2e` — Vitest e2e (requires configured `.env`)
+- `pnpm test:e2e` — Vitest e2e (requires configured `.env` **and**
+  `docker compose up -d redis postgres`; DB suites run against local Postgres)
 - `pnpm check` — full quality gate (format + lint + unit + e2e + build)
 - `pnpm prisma:generate` — generate Prisma client
 - `pnpm prisma:validate` — validate `prisma/schema.prisma`
@@ -42,9 +43,79 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   decorators are a shared contract — importing them from `common/` or other
   modules is intentional).
 - Password recovery emails are sent by **Supabase Auth** (its own SMTP
-  integration) — do not build a recovery endpoint. Our `otp_codes`
-  table + Resend/Termii keys are for app-level flows (e.g. phone
-  verification), which are a later phase.
+  integration) — do not build a recovery endpoint. App-level proof-of-control
+  (phone/email verification) goes through `POST /api/otp/send` /
+  `POST /api/otp/verify` instead (see `## Profiles, OTP & verification`).
+
+## Profiles, OTP & verification
+- **Profiles**: `profiles` extends Supabase `auth.users` 1:1 and is provisioned
+  by the auth flow — never created ad-hoc. Users mutate their own row through
+  `GET/PATCH /api/profile` (`src/modules/profiles/`). `phone` is unique (409 on
+  conflict); changing it resets `phoneVerified`. `onboardingCompleted: true`
+  stamps `onboardingCompletedAt`. Avatar paths must be under `u-<userId>/`;
+  URLs come from `StorageService.getPublicUrl('bonde-avatars', path)` — the API
+  never proxies bytes.
+- **OTP**: codes are 6-digit, stored as **SHA-256 digests** (never plaintext),
+  5-min TTL, single-use; sending a new code invalidates earlier ones (mark
+  prior `used=true` inside a transaction). Targets must be the caller's own
+  email (EMAIL) or principal/profile phone (PHONE). Delivery crosses the
+  `OTP_SENDER` token (`src/modules/otp/otp-sender.interface.ts`) — production
+  backs it with `RoutingOtpSender` (Termii SMS / Resend email). **Fail closed**:
+  a `OtpSendError` becomes a 503 *and* the just-created code is voided.
+- **Throttling**: `send`/`verify` are stamped `@StrictThrottle()` (strict
+  throttle, env-tuned). The response never includes the code; tests capture it
+  by overriding the `OTP_SENDER` provider.
+
+## Admin CRUD (registry-driven data-grid)
+- `src/modules/crud/` exposes `POST/GET/PATCH/DELETE /api/admin/:resource[/:id]`
+  — admin mutates most tables through a generic, field-safe layer. The **source
+  of truth is the registry** (`crud.registry.ts`): each resource declares its
+  field `kind` (`uuid|string|int|decimal|boolean|enum|json|datetime`),
+  required/writable/visible sets, and allowed methods (it asserts invariants at
+  boot). `CrudService` coerces/validates payloads and maps Prisma errors to the
+  uniform contract (P2002→409, P2025→404, P2003/P2011/P2012→400).
+- Query contract: `?page&pageSize` (pageSize ≤ 100), `filter=field:value`
+  (equality, on visible fields only), `orderBy=field:asc|desc`. Responses are
+  `{ items, total, page, pageSize, totalPages }`; responses/rows are projected
+  to **visible** fields and Date/Decimal are serialized (ISO / string).
+- **Exclusions are deliberate**: `profiles`, `accounts`, `wallets`, `cards`,
+  `transactions`, `transaction_approvals`, `otp_codes` are NOT in the registry
+  — they stay on dedicated, hardened flows. `card-providers.config` (API
+  secrets) is absent from the registry so it is never written to or read back.
+  `audit-logs` is read-only (POST/PATCH/DELETE → 405 `MethodNotAllowedException`).
+- Controller is `@Roles('ADMIN','SUPER_ADMIN')` (`@Controller('admin')`); the
+  route prefix is `/api/admin` under the global `api` prefix. Every write is
+  audited (`admin.crud.create/update/delete`) via `AuditLogService.record`.
+- Every model uses `String @id` with **no default** — creates must supply
+  `randomUUID()` client-side (CrudService/NotificationsService/OtpService/
+  AuditLogService all do).
+
+## Database & testing
+- Runtime DB is Supabase Postgres (`DATABASE_URL` pooled, `DIRECT_URL` direct)
+  via the `PrismaPg` driver adapter. **e2e DB suites instead run against a local
+  dockerized Postgres** (`postgres` service in `docker-compose.yml`, port
+  `5433`, `postgresql://bonde:bonde@localhost:5433/bonde`) — runtime env is
+  untouched.
+- `test/db.ts` owns the constants + fixtures: seeded profiles use **real UUIDs**
+  (`SEED_USER_ID` etc.) because `profiles.id` is `@db.Uuid`; `truncateAll`
+  TRUNCATEs the 16 tables CASCADE; `seedBaseFixtures` upserts the profile/
+  provider/card/chat baseline.
+- Vitest global setup (`test/global-setup.ts`, configured via
+  `vitest.config.e2e.ts` → `globalSetup`) applies `prisma migrate deploy` with
+  `DATABASE_URL`/`DIRECT_URL` pointed at local Postgres and seeds fixtures;
+  its `teardown` export truncates all tables. **Vitest 4 has no `globalTeardown`
+  config option** — use the named `setup`/`teardown` exports.
+- `test/e2e-app.ts` boots the full `AppModule` with the local DB env,
+  `ValidationPipe` parity with `main.ts`, a mockable `JwksService.verify`, an
+  authed `supertest` client (`ctx.http` injects a Bearer token; `ctx.raw` is
+  the bare client), and optional `overrideProvider` hooks (`BootE2EOptions.overrides`).
+- **Serial execution matters**: e2e files trunctate + reseed the SAME local
+  Postgres, so `vitest.config.e2e.ts` sets `fileParallelism: false`.
+- **Redis interplay**: throttler counters live in Redis. Suite/DB isolation is
+  done with distinct Redis DBs (e.g. OTP uses `:6379/15`, its 429 proof uses a
+  scratch `:6379/14`) and env overrides are restored in `afterAll`. The default
+  throttler only blocks when `THROTTLE_BLOCK_DURATION > 0` — the rate-limit e2e
+  sets it explicitly.
 
 ## Swagger / OpenAPI docs
 - Mounted by `configureSwagger` in `src/common/swagger.ts` at `/api/docs` (UI)
@@ -88,6 +159,11 @@ src/
       services/    feature services
     auth/          Supabase JWT verification + RBAC (global APP_GUARDs)
     health/        terminus health/readiness probes
+    profiles/      self-service profile (GET/PATCH /profile, avatar)
+    otp/           app-level phone/email verification (send/verify)
+    notifications/ mobile notification feed (list/read/read-all)
+    audit/         append-only AuditLogService.record
+    crud/          generic admin data-grid (registry + /admin/:resource)
   config/   typed AppConfig (configuration.ts + Joi env.validation.ts)
   prisma/   PrismaModule + PrismaService (pg driver adapter)
 ```
@@ -145,4 +221,4 @@ src/
 
 ## Verification
 Run `pnpm check` before finishing. If e2e fails due to missing Supabase credentials, note the requirement rather than disabling the test.
-`pnpm test:e2e` also requires Redis running (`docker compose up -d redis`).
+`pnpm test:e2e` requires Redis **and** local Postgres running (`docker compose up -d redis postgres`); e2e suites never use SaaS secrets (Redis throttling counters use the shared Docker Redis; DB suites use the local Postgres).

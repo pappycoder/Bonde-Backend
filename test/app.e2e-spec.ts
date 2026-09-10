@@ -183,6 +183,7 @@ describe('App (e2e) — rate limiting', () => {
 
   beforeEach(async () => {
     process.env.THROTTLE_LIMIT = '3';
+    process.env.THROTTLE_BLOCK_DURATION = '60000';
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -194,6 +195,7 @@ describe('App (e2e) — rate limiting', () => {
 
   afterEach(async () => {
     delete process.env.THROTTLE_LIMIT;
+    delete process.env.THROTTLE_BLOCK_DURATION;
     await app.close();
   });
 

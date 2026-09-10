@@ -38,7 +38,7 @@ src/
 - Node.js 22+
 - pnpm 11+
 - A Supabase project (or local via `supabase start`)
-- Docker (optional, for Redis / containerized API)
+- Docker (for Redis + the local test Postgres)
 
 ### 1. Install dependencies
 
@@ -92,15 +92,19 @@ See [`.env.example`](./.env.example) for the full reference. Key variables:
 | `pnpm lint` | Lint with oxlint |
 | `pnpm format` | Format with Prettier |
 | `pnpm test` | Run unit tests |
-| `pnpm test:e2e` | Run e2e tests (requires configured `.env`) |
+| `pnpm test:e2e` | Run e2e tests (requires configured `.env` **and** `docker compose up -d redis postgres`) |
 | `pnpm check` | Full quality gate: format + lint + tests + build |
 
 ## Docker
 
-The `docker-compose.yml` runs the API and its Redis dependency. PostgreSQL is **managed by Supabase** and is therefore not defined locally — point `DATABASE_URL` / `DIRECT_URL` at your Supabase database.
+The `docker-compose.yml` runs the API, its Redis dependency, and a **local
+Postgres** (`postgres` service, port `5433`, db/user/pass `bonde`) used by the
+DB-backed e2e suites. Production PostgreSQL remains **managed by Supabase** —
+point `DATABASE_URL` / `DIRECT_URL` at your Supabase database.
 
 ```bash
-docker compose up --build
+docker compose up -d          # redis + postgres (test deps)
+docker compose up --build     # full stack
 ```
 
 ## Project structure
@@ -121,7 +125,7 @@ src/
 - [x] Phase 4 — Swagger / OpenAPI documentation
 - [x] Phase 5 — Redis caching & rate limiting
 - [x] Phase 6 — Storage (Supabase)
-- [ ] Phase 7 — Shared admin + mobile features
+- [x] Phase 7 — Foundation + admin CRUD: profiles, OTP/verification, notifications, audit trail, generic admin data-grid
 - [ ] Phase 8 — Testing & delivery
 
 ## License

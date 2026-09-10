@@ -9,6 +9,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Foundation + Admin CRUD (Phase 7)**: Profiles/OTP/Notifications/Audit +
+  generic admin data-grid.
+  - **Profiles self-service** (`src/modules/profiles/`): `GET/PATCH
+    /api/profile`, `PATCH /api/profile/avatar`. A profile is a 1:1 mirror of
+    Supabase `auth.users` and is provisioned by the auth flow — never ad-hoc.
+    Updating `phone` (a unique key) resets `phoneVerified` (409 on conflict);
+    `onboardingCompleted: true` stamps `onboardingCompletedAt`; avatar paths
+    must live under `u-<userId>/` and resolve to stable public URLs via
+    `StorageService.getPublicUrl('bonde-avatars', path)`.
+  - **OTP / verification** (`src/modules/otp/`): `POST /api/otp/send`,
+    `POST /api/otp/verify` — app-level proof-of-control, distinct from Supabase
+    Auth password recovery. 6-digit codes, stored as SHA-256 digests
+    (never plaintext), 5-minute TTL, single-use, and sending a new code
+    invalidates earlier ones. Delivery goes through the `OTP_SENDER` boundary
+    (`RoutingOtpSender` → Termii SMS / Resend email via `fetch`) and **fails
+    closed**: a delivery failure is a 503 *and* voids the just-created code.
+    Targets are restricted to the caller's own email (EMAIL) or the
+    principal/profile phone (PHONE). Both routes carry `@StrictThrottle()`
+    (5/min with 5-min lockout by default).
+  - **Notifications** (`src/modules/notifications/`): mobile-facing
+    `GET /api/notifications` (paged, `status` filter), `PATCH
+    /api/notifications/:id/read`, `PATCH /api/notifications/read-all`; the
+    internal `NotificationsService.create` is the single write path (admin
+    listing lives under generic CRUD).
+  - **Audit trail** (`src/modules/audit/`): append-only `AuditLogService.record`
+    ({userId, action, entityType, entityId, metadata?, ipAddress?,
+    userAgent?}) wired into profile changes (`profile.update`,
+    `profile.avatar`) and every admin CRUD write (`admin.crud.create/update/
+    delete`). Reads are served exclusively via the read-only `audit-logs`
+    CRUD resource.
+  - **Generic Admin CRUD** (`src/modules/crud/`): registry-driven REST for the
+    admin dashboard over `card-locks`, `card-categories`, `chats`, `messages`,
+    `transaction-thresholds`, `biometric-devices`, `notifications`,
+    `card-providers`, and `audit-logs` (read-only). `@Roles('ADMIN',
+    'SUPER_ADMIN')`-protected under `/api/admin/:resource[:/:id]`, with:
+    required/unknown/non-writable field enforcement, per-kind coercion
+    (uuid/string/int/decimal/boolean/enum/json/datetime), Prisma error mapping
+    (409/404/400), projection to `visible` fields only, and paginated +
+    filterable + sortable lists (`?page&pageSize&filter=field:value&orderBy=
+    field:asc|desc`, pageSize capped at 100). **Excluded from generic writes/
+    deletes by design**: `profiles`, `accounts`, `wallets`, `cards`,
+    `transactions`, `transaction_approvals`, `otp_codes` — these stay on
+    dedicated, hardened flows. `card-providers.config` (API secrets) is absent
+    from the registry so it is never written or read back through the API;
+    `audit-logs` rejects writes with 405.
+  - **E2E database foundation**: `docker-compose` `postgres` service (port
+    5433, `bonde`/`bonde`/`bonde`); Vitest global setup applies `prisma
+    migrate deploy` + seeds fixtures; global teardown truncates all tables. New
+    DB-backed suites under `test/` (`crud`, `profiles`, `otp`, `notifications`,
+    `audit`) boot the full `AppModule` against the local Postgres with a
+    mockable JWKS verifier and an authed `supertest` client.
+  - Tests: Phase 7 adds ~50 unit + 46 e2e cases (incl. 403/405/409/429/503
+    paths, audit redaction, secret never returning `card-providers.config`).
+
 - **Storage (Phase 6)**: Supabase Storage foundation.
   - `StorageService` (`src/common/storage/`, `@Global()`) wrapping the Storage
     REST API with the server-only service-role key: signed upload URLs

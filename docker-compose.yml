@@ -1,11 +1,13 @@
 # =============================================================================
 # Bonde Backend - local development & orchestration
 # -----------------------------------------------------------------------------
-# Runs the NestJS API together with the Redis dependency.
+# Runs the NestJS API together with Redis and a local PostgreSQL.
 #
-# NOTE: PostgreSQL is managed by Supabase (remote project or local `supabase
-# start`), so it is NOT defined here. Point DATABASE_URL / DIRECT_URL at your
-# Supabase Postgres instance and run migrations via Prisma.
+# The deployed/runtime Postgres is hosted by Supabase — point DATABASE_URL /
+# DIRECT_URL there for `pnpm start:dev`. The `postgres` service here exists for
+# DB-backed e2e tests (`pnpm test:e2e` / `pnpm check`): the Vitest global
+# setup migrates and seeds this local instance (port 5433) and the e2e specs
+# point their Prisma client at it.
 # =============================================================================
 
 services:
@@ -53,5 +55,24 @@ services:
       timeout: 3s
       retries: 5
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: bonde-backend-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Luc4$d3nn1$
+      POSTGRES_DB: bonde
+    ports:
+      - '5433:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d bonde']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
 volumes:
   redis-data:
+  postgres-data:

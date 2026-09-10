@@ -14,6 +14,11 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
 import { CommonModule } from './common/common.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
+import { ProfilesModule } from './modules/profiles/profiles.module.js';
+import { OtpModule } from './modules/otp/otp.module.js';
+import { NotificationsModule } from './modules/notifications/notifications.module.js';
+import { AuditLogModule } from './modules/audit/audit-log.module.js';
+import { CrudModule } from './modules/crud/crud.module.js';
 import { SupabaseAuthGuard } from './modules/auth/guards/auth.guard.js';
 import { RolesGuard } from './modules/auth/guards/roles.guard.js';
 import configuration, { AppConfig } from './config/configuration.js';
@@ -88,6 +93,11 @@ import { RedisClient } from './common/redis/redis-client.interface.js';
     HealthModule,
     PrismaModule,
     AuthModule,
+    ProfilesModule,
+    OtpModule,
+    NotificationsModule,
+    AuditLogModule,
+    CrudModule,
     CommonModule,
   ],
   controllers: [AppController],
