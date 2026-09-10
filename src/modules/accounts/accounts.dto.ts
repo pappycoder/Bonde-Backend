@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsOptional, IsString, Matches } from 'class-validator';
+import { AccountType } from '@prisma/client';
+import { IsBoolean, IsEnum, IsOptional, Matches } from 'class-validator';
 
 const ACCOUNT_NUMBER_PATTERN = /^\d{10,20}$/;
 
@@ -14,8 +15,8 @@ export class AccountDto {
   @ApiProperty({ example: '0123456789' })
   accountNumber: string;
 
-  @ApiProperty({ example: 'checking' })
-  accountType: string;
+  @ApiProperty({ enum: AccountType, example: AccountType.CHECKING })
+  accountType: AccountType;
 
   @ApiProperty({ example: true })
   isActive: boolean;
@@ -37,10 +38,10 @@ export class CreateAccountDto {
   @Matches(ACCOUNT_NUMBER_PATTERN, { message: 'accountNumber must be 10-20 digits' })
   accountNumber?: string;
 
-  @ApiPropertyOptional({ example: 'checking' })
+  @ApiPropertyOptional({ enum: AccountType, example: AccountType.CHECKING })
   @IsOptional()
-  @IsString()
-  accountType?: string;
+  @IsEnum(AccountType)
+  accountType?: AccountType;
 
   @ApiPropertyOptional({ example: true })
   @IsOptional()
@@ -50,10 +51,10 @@ export class CreateAccountDto {
 
 /** Body for `PATCH /api/account`. */
 export class UpdateAccountDto {
-  @ApiPropertyOptional({ example: 'savings' })
+  @ApiPropertyOptional({ enum: AccountType, example: AccountType.SAVINGS })
   @IsOptional()
-  @IsString()
-  accountType?: string;
+  @IsEnum(AccountType)
+  accountType?: AccountType;
 
   @ApiPropertyOptional({ example: false })
   @IsOptional()

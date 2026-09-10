@@ -94,6 +94,12 @@ enum BiometricType {
   FINGERPRINT
 }
 
+enum AccountType {
+  CHECKING
+  SAVINGS
+  BUSINESS
+}
+
 // ---------------------------------------------------------------------------
 // Models — Auth / Identity
 // ---------------------------------------------------------------------------
@@ -136,9 +142,9 @@ model Account {
   id            String   @id @db.Uuid
   /// A user can hold exactly one account (and, via Wallet.accountId, one wallet).
   userId        String   @unique @map("user_id") @db.Uuid
-  accountNumber String   @unique @map("account_number") @db.VarChar(20)
-  accountType   String   @default("checking") @map("account_type") @db.VarChar(20)
-  isActive      Boolean  @default(true) @map("is_active")
+  accountNumber String      @unique @map("account_number") @db.VarChar(20)
+  accountType   AccountType @default(CHECKING) @map("account_type")
+  isActive      Boolean     @default(true) @map("is_active")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 

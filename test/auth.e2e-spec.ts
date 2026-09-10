@@ -171,6 +171,9 @@ describe('Auth endpoints (e2e)', () => {
     const profile = await ctx.prisma.profile.findUnique({ where: { email: EMAIL } });
     expect(profile?.emailVerified).toBe(false);
 
+    const pendingAccount = await ctx.prisma.account.findUnique({ where: { userId: profile!.id } });
+    expect(pendingAccount).toBeNull();
+
     const blocked = await ctx.raw
       .post('/auth/login')
       .send({ email: EMAIL, password: PASSWORD })
@@ -202,6 +205,16 @@ describe('Auth endpoints (e2e)', () => {
     expect(login.body.refreshToken).toBeTruthy();
     expect(login.body.expiresIn).toBeGreaterThan(0);
     expect(login.body.user.email).toBe(EMAIL);
+
+    const account = await ctx.prisma.account.findUnique({
+      where: { userId: login.body.user.id },
+    });
+    expect(account).not.toBeNull();
+    expect(account?.accountNumber).toMatch(/^\d{10}$/);
+    expect(account?.accountType).toBe('CHECKING');
+    const wallet = await ctx.prisma.wallet.findFirst({ where: { accountId: account!.id } });
+    expect(wallet).not.toBeNull();
+    expect(wallet?.currency).toBe('NGN');
 
     const refreshed = await ctx.raw
       .post('/auth/refresh')

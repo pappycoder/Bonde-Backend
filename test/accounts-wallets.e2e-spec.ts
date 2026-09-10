@@ -51,7 +51,7 @@ describe('Account + wallet (self-service e2e)', () => {
     ctx.setPrincipal({ userId: SEED_OTHER_ID });
     await ctx.http.get('/account').expect(404);
 
-    const account = await ctx.http.post('/account').send({ accountType: 'savings' }).expect(201);
+    const account = await ctx.http.post('/account').send({ accountType: 'SAVINGS' }).expect(201);
     expect(account.body.accountNumber).toMatch(/^\d{10}$/);
 
     const wallet = await ctx.http
@@ -77,9 +77,9 @@ describe('Account + wallet (self-service e2e)', () => {
   it('updates the account and wallet', async () => {
     const account = await ctx.http
       .patch('/account')
-      .send({ accountType: 'savings', isActive: false })
+      .send({ accountType: 'SAVINGS', isActive: false })
       .expect(200);
-    expect(account.body).toMatchObject({ accountType: 'savings', isActive: false });
+    expect(account.body).toMatchObject({ accountType: 'SAVINGS', isActive: false });
 
     const wallet = await ctx.http
       .patch('/wallet')

@@ -62,6 +62,15 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   `email_confirm:false` user (service-role `createUser`) and `login` returns
   403 until `verify-email` succeeds. `forgot-password` always answers 200 — no
   user enumeration. Emails are normalized to lowercase.
+- **Registration provisions only the `profiles` row** (1:1 mirror of
+  `auth.users`, `emailVerified: false`). **Email verification completes the
+  registration**: `verifyEmail` atomically marks the profile verified and
+  provisions the user's single account + wallet (`AccountType.CHECKING`, Luhn
+  account number, zero balance) in one `prisma.$transaction`
+  (`provisionAfterVerification` in `auth.service.ts`), so provisioning is
+  eager/automatic and never left to a later onboarding step. The provisioning
+  is idempotent and its failure rolls back before the single-use registration
+  token is consumed.
 - New authenticated routes are protected by default; opt out with `@Public()`.
   Roles are assigned in Supabase (dashboard / edge function), never in
   PostgreSQL.
@@ -124,8 +133,9 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
 - **Accounts & wallets are 1:1**: `Account.userId` is `@unique` (migration
   `20260910130000_add_account_user_unique`), so a user holds exactly one
   account and, via unique `Wallet.accountId`, one wallet. They are provisioned
-  by other services, but the self-service surface exposes **full CRUD** so those
-  services can drive them: `GET/POST/PATCH/DELETE /api/account` (POST `201`,
+  **automatically at email verification** (see Auth), but the self-service
+  surface still exposes **full CRUD** so other services can reconcile/drive
+  them: `GET/POST/PATCH/DELETE /api/account` (POST `201`,
   409 on unique `userId`/`accountNumber`; omitted `accountNumber` gets a
   Luhn-valid 10-digit one from `accounts/account-number.ts`; DELETE cascades
   the 1:1 wallet) and `GET/POST/PATCH/DELETE /api/wallet` (POST 404s until the

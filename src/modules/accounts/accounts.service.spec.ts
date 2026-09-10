@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ConflictException, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { AccountType, Prisma } from '@prisma/client';
 import { AccountsService } from './accounts.service.js';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
@@ -9,7 +9,7 @@ const ACCOUNT = {
   id: '66666666-6666-4666-8666-666666666666',
   userId: USER_ID,
   accountNumber: '0123456789',
-  accountType: 'checking',
+  accountType: AccountType.CHECKING as AccountType,
   isActive: true,
   createdAt: new Date(),
   updatedAt: new Date(),
@@ -55,7 +55,7 @@ describe('AccountsService.create', () => {
         data: expect.objectContaining({
           userId: USER_ID,
           accountNumber: '9876543210',
-          accountType: 'checking',
+          accountType: AccountType.CHECKING,
           isActive: true,
         }),
       }),
@@ -82,8 +82,10 @@ describe('AccountsService.update', () => {
     account.findUnique.mockResolvedValue(null);
     await expect(service.update(USER_ID, { isActive: false })).rejects.toThrow(NotFoundException);
     account.findUnique.mockResolvedValue(ACCOUNT);
-    await expect(service.update(USER_ID, { accountType: 'savings' })).resolves.toMatchObject({
-      accountType: 'savings',
+    await expect(
+      service.update(USER_ID, { accountType: AccountType.SAVINGS }),
+    ).resolves.toMatchObject({
+      accountType: AccountType.SAVINGS,
     });
   });
 });

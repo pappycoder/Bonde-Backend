@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { AccountType, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { generateLuhnAccountNumber } from './account-number.js';
@@ -22,7 +22,7 @@ export class AccountsService {
 
   async create(
     userId: string,
-    dto: { accountNumber?: string; accountType?: string; isActive?: boolean },
+    dto: { accountNumber?: string; accountType?: AccountType; isActive?: boolean },
   ) {
     try {
       return await this.prisma.account.create({
@@ -30,7 +30,7 @@ export class AccountsService {
           id: randomUUID(),
           userId,
           accountNumber: dto.accountNumber ?? generateLuhnAccountNumber(),
-          accountType: dto.accountType ?? 'checking',
+          accountType: dto.accountType ?? AccountType.CHECKING,
           isActive: dto.isActive ?? true,
         },
       });
@@ -44,7 +44,7 @@ export class AccountsService {
     }
   }
 
-  async update(userId: string, dto: { accountType?: string; isActive?: boolean }) {
+  async update(userId: string, dto: { accountType?: AccountType; isActive?: boolean }) {
     await this.get(userId);
     const data: Prisma.AccountUpdateInput = {};
     if (dto.accountType !== undefined) data.accountType = dto.accountType;

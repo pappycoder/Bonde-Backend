@@ -7,11 +7,13 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { OtpChannel, Prisma } from '@prisma/client';
+import { OtpChannel, Prisma, AccountType } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { OtpService } from '../../otp/otp.service.js';
 import { OTP_SENDER, OtpSendError, type OtpSender } from '../../otp/otp-sender.interface.js';
 import { AuditLogService } from '../../audit/audit-log.service.js';
+import { generateLuhnAccountNumber } from '../../accounts/account-number.js';
 import { AuthTokensService } from './auth-tokens.service.js';
 import {
   AuthProviderError,
@@ -101,10 +103,7 @@ export class AuthService {
     await this.provider.confirmEmail(userId).catch(() => {
       throw new ServiceUnavailableException('Identity provider unavailable');
     });
-    await this.prisma.profile.update({
-      where: { id: userId },
-      data: { emailVerified: true },
-    });
+    const provisioned = await this.provisionAfterVerification(userId);
     await this.tokens.consumeRegistrationToken(dto.token);
 
     await this.audit.record({
@@ -113,6 +112,20 @@ export class AuthService {
       entityType: 'auth',
       entityId: userId,
     });
+    if (provisioned) {
+      await this.audit.record({
+        userId,
+        action: 'account.create',
+        entityType: 'account',
+        entityId: provisioned.accountId,
+      });
+      await this.audit.record({
+        userId,
+        action: 'wallet.create',
+        entityType: 'wallet',
+        entityId: provisioned.walletId,
+      });
+    }
     return { verified: true as const };
   }
 
@@ -222,6 +235,47 @@ export class AuthService {
     });
     await this.tokens.consumeResetToken(dto.token);
     return { status: 'success' as const };
+  }
+
+  /**
+   * Registration completes at email verification: mark the profile verified and
+   * provision the user's single account + wallet (1:1) in the same transaction,
+   * then supply that account number going forward. Idempotent — a re-run (or an
+   * in-flight duplicate) resolves to an already-provisioned state.
+   */
+  private async provisionAfterVerification(userId: string) {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await tx.profile.update({
+          where: { id: userId },
+          data: { emailVerified: true },
+        });
+
+        const existing = await tx.account.findUnique({
+          where: { userId },
+          select: { id: true },
+        });
+        if (existing) return undefined;
+
+        const account = await tx.account.create({
+          data: {
+            id: randomUUID(),
+            userId,
+            accountNumber: generateLuhnAccountNumber(),
+            accountType: AccountType.CHECKING,
+          },
+        });
+        const wallet = await tx.wallet.create({
+          data: { id: randomUUID(), accountId: account.id },
+        });
+        return { accountId: account.id, walletId: wallet.id };
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        return undefined;
+      }
+      throw error;
+    }
   }
 
   // ---------------------------------------------------------------------------

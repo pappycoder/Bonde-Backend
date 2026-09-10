@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
+import { AccountType } from '@prisma/client';
 import type { PrismaService } from '../src/prisma/prisma.service.js';
 
 /**
@@ -132,7 +133,7 @@ export async function seedBaseFixtures(prisma: AnyPrisma): Promise<void> {
       id: SEED_ACCOUNT_ID,
       userId: SEED_USER_ID,
       accountNumber: '0123456789',
-      accountType: 'checking',
+      accountType: AccountType.CHECKING,
     },
   });
 

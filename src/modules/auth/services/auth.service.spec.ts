@@ -6,7 +6,7 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { OtpChannel, Prisma } from '@prisma/client';
+import { OtpChannel, AccountType, Prisma } from '@prisma/client';
 import { AuthService } from './auth.service.js';
 import { AuthProviderError, type SupabaseAuthGateway } from '../supabase/supabase-auth.client.js';
 import { OtpSendError, type OtpSendRequest } from '../../otp/otp-sender.interface.js';
@@ -113,6 +113,22 @@ function makeService(
         ...args.data,
       })),
     },
+    account: {
+      findUnique: vi.fn(async (): Promise<{ id: string; userId: string } | null> => null),
+      create: vi.fn(async (args: { data: Record<string, string> }) => ({
+        id: args.data.id,
+        userId: args.data.userId,
+        accountNumber: args.data.accountNumber,
+        accountType: args.data.accountType,
+      })),
+    },
+    wallet: {
+      create: vi.fn(async (args: { data: Record<string, string> }) => ({
+        id: args.data.id,
+        accountId: args.data.accountId,
+      })),
+    },
+    $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma)),
   };
 
   const audit = {
@@ -225,6 +241,52 @@ describe('AuthService.verifyEmail', () => {
     });
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'auth.email_verified' }),
+    );
+  });
+
+  it('provisions the account + wallet atomically on verification', async () => {
+    const { service, prisma, audit } = makeService();
+    seedProfile(prisma);
+
+    await expect(service.verifyEmail({ token: 'tok', code: '1234' })).resolves.toEqual({
+      verified: true,
+    });
+    expect(prisma.$transaction).toHaveBeenCalledOnce();
+    expect(prisma.account.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: USER_ID,
+          accountType: AccountType.CHECKING,
+          accountNumber: expect.stringMatching(/^\d{10}$/),
+        }),
+      }),
+    );
+    const accountData = prisma.account.create.mock.calls[0][0].data;
+    expect(prisma.wallet.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ accountId: accountData.id }),
+      }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'account.create', userId: USER_ID }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'wallet.create', userId: USER_ID }),
+    );
+  });
+
+  it('does not re-provision when the account already exists', async () => {
+    const { service, prisma, audit } = makeService();
+    seedProfile(prisma);
+    vi.mocked(prisma.account.findUnique).mockResolvedValueOnce({ id: 'acc', userId: USER_ID });
+
+    await expect(service.verifyEmail({ token: 'tok', code: '1234' })).resolves.toEqual({
+      verified: true,
+    });
+    expect(prisma.account.create).not.toHaveBeenCalled();
+    expect(prisma.wallet.create).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'account.create' }),
     );
   });
 

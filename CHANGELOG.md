@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Eager provisioning on registration + `AccountType` enum**:
+  - Email verification is now the registration-completion step: `verify-email`
+    marks the profile verified **and** provisions the user's single checking
+    account (Luhn account number) + zero-balance wallet in one
+    `prisma.$transaction` (`AuthService.provisionAfterVerification`), so account
+    + wallet exist immediately once registration goes through — never left to a
+    later onboarding call. A `P2002` race resolves to "already provisioned"
+    (idempotent), and the registration token is consumed last so a provisioning
+    failure rolls back and the user can retry. `account.create` / `wallet.create`
+    audit entries are recorded alongside `auth.email_verified`.
+  - `Account.accountType` is a **Prisma enum `AccountType`
+    (`CHECKING` | `SAVINGS` | `BUSINESS`)** instead of a free string
+    (migration `20260910150000_account_type_enum` uppercases + casts existing
+    rows). `POST/PATCH /api/account` validate with `@IsEnum` — lowercase
+    `"checking"`/`"savings"` bodies now 400; send `"CHECKING"`/`"SAVINGS"`.
+  - Tests: auth service unit coverage for atomic/no-reprovision provisioning;
+    auth e2e asserts no account pre-verification and a provisioned
+    Luhn-checking account + NGN wallet right after `verify-email`.
+
 - **Foundation + Admin CRUD (Phase 7)**: Profiles/OTP/Notifications/Audit +
   generic admin data-grid.
   - **Profiles self-service** (`src/modules/profiles/`): `GET/PATCH

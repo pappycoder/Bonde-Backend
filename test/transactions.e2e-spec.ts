@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { AccountType } from '@prisma/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   bootE2EApp,
@@ -31,7 +32,7 @@ describe('Transactions, approvals + thresholds (self-service e2e)', () => {
         id: randomUUID(),
         userId,
         accountNumber: `11${randomUUID().replace(/-/g, '').slice(0, 8)}`,
-        accountType: 'checking',
+        accountType: AccountType.CHECKING,
       },
     });
     const wallet = await ctx.prisma.wallet.create({
