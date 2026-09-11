@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   bootE2EApp,
   SEED_APPROVAL_ID,
+  SEED_CARD_ID,
   SEED_OTHER_ID,
   SEED_TRANSACTION_ID,
   SEED_USER_ID,
@@ -85,15 +86,27 @@ describe('Transactions, approvals + thresholds (self-service e2e)', () => {
   it('lists approvals on the current user’s transactions and filters by status', async () => {
     const list = await ctx.http.get('/approvals').expect(200);
     expect(list.body).toMatchObject({ total: 1 });
-    expect(list.body.items[0]).toMatchObject({ id: SEED_APPROVAL_ID, status: 'PENDING' });
+    expect(list.body.items[0]).toMatchObject({
+      id: SEED_APPROVAL_ID,
+      status: 'PENDING',
+      transaction: { id: SEED_TRANSACTION_ID, amount: '2500.00', type: 'PAYMENT' },
+      card: {
+        id: SEED_CARD_ID,
+        cardNumberLast4: '4242',
+        cardType: 'virtual',
+        totalSpent: '0.00',
+      },
+    });
 
     const declined = await ctx.http.get('/approvals').query({ status: 'DECLINED' }).expect(200);
     expect(declined.body.total).toBe(0);
   });
 
-  it('gets one approval on the current user’s transactions', async () => {
+  it('gets one approval with its transaction and card embedded', async () => {
     const res = await ctx.http.get(`/approvals/${SEED_APPROVAL_ID}`).expect(200);
     expect(res.body.id).toBe(SEED_APPROVAL_ID);
+    expect(res.body.transaction).toMatchObject({ id: SEED_TRANSACTION_ID, amount: '2500.00' });
+    expect(res.body.card).toMatchObject({ id: SEED_CARD_ID, totalSpent: '0.00' });
   });
 
   it('404s approvals belonging to a foreign transaction', async () => {
@@ -201,5 +214,35 @@ describe('Transactions, approvals + thresholds (self-service e2e)', () => {
   it('404s creating an approval on a foreign transaction', async () => {
     const foreign = await seedTxFor(SEED_OTHER_ID);
     await ctx.http.post('/approvals').send({ transactionId: foreign.id }).expect(404);
+  });
+
+  it('tracks cumulative card spend for successful PAYMENTs across create/update/delete', async () => {
+    const created = await ctx.http
+      .post('/transactions')
+      .send({
+        walletId: SEED_WALLET_ID,
+        type: 'PAYMENT',
+        amount: '1500.00',
+        status: 'SUCCESS',
+        cardId: SEED_CARD_ID,
+      })
+      .expect(201);
+
+    const card = await ctx.http.get(`/cards/${SEED_CARD_ID}`).expect(200);
+    expect(card.body.totalSpent).toBe('1500.00');
+
+    const approval = await ctx.http
+      .post('/approvals')
+      .send({ transactionId: created.body.id })
+      .expect(201);
+    expect(approval.body.card).toMatchObject({ id: SEED_CARD_ID, totalSpent: '1500.00' });
+
+    await ctx.http.patch(`/transactions/${created.body.id}`).send({ status: 'FAIL' }).expect(200);
+    const afterFail = await ctx.http.get(`/cards/${SEED_CARD_ID}`).expect(200);
+    expect(afterFail.body.totalSpent).toBe('0.00');
+
+    await ctx.http.delete(`/transactions/${created.body.id}`).expect(200);
+    const afterDelete = await ctx.http.get(`/cards/${SEED_CARD_ID}`).expect(200);
+    expect(afterDelete.body.totalSpent).toBe('0.00');
   });
 });

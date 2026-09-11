@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Approvals embed their transaction + card, and cards track cumulative spend**:
+  - `ApprovalDto` now nests the full `transaction` (fixed 2-decimal `amount`,
+    type, status, currency, description, ...) and a `card` summary — `id`,
+    `cardNumberLast4`, `cardType`, `createdAt`, `totalSpent` — or `null` when the
+    transaction uses no card. Applied to list/get/create/update approval paths.
+  - New `Card.totalSpent` (`Decimal(15,2)`, backfilled to `0`) exposed on card
+    responses; counted for `PAYMENT` transactions in `SUCCESS` status, adjusted
+    atomically on create, status/amount transitions, and delete.
+  - Unit + e2e coverage (approval shape, `card: null`, spend ticking across
+    create/update/delete).
+
 - **Audit + notifications for core mutations** (`src/modules/activity/`):
   - New `ActivityService.record(entry)` — one awaited call that writes the
     append-only audit entry **and** pushes an in-app `Notification` row to the

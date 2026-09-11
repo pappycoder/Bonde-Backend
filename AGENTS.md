@@ -194,12 +194,18 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   the listed merchants; supplier/provider flow enforces at purchase time).
   Each entry is `merchantName` + optional `merchantCode`
   (`@@unique([cardId, merchantCode])`, name-dedupe when code is absent → 409).
+  **Cumulative spend**: `Card.totalSpent` tracks spend for `PAYMENT`
+  transactions in `SUCCESS` status; the counter is adjusted on create,
+  status/amount transitions, and delete.
 - **Transactions & approvals expose full CRUD** for provisioning services:
   `GET/POST/PATCH/DELETE /api/transactions` (POST resolves `walletId` →
   `wallet.account.userId` and `cardId`/`chatId` ownership → 404; P2003 → 400),
   `GET /api/transactions/recent?limit=` (≤50, declared before `:id`),
   `GET/POST/PATCH/DELETE /api/approvals` (POST `approvedBy` is always the
-  caller, never client-supplied; the owning transaction must be the caller's).
+  caller, never client-supplied; the owning transaction must be the caller's;
+  every approval response now embeds the full transaction details and, when
+  present, a summary of the card used — last-4, type, created-at, and cumulative
+  spend).
   **Transaction writes never touch `wallet.balance`** — reconciliation happens
   through `PATCH /api/wallet`. Thresholds are user-CRUD (`/api/thresholds`,
   unique `userId+thresholdType` → 409).

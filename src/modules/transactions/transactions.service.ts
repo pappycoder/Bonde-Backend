@@ -107,28 +107,45 @@ export class TransactionsService {
     }
 
     try {
-      const transaction = await this.prisma.transaction.create({
-        data: {
-          id: randomUUID(),
-          userId,
-          walletId: dto.walletId,
-          cardId: dto.cardId ?? null,
-          chatId: dto.chatId ?? null,
-          type: dto.type,
-          status: dto.status ?? TransactionStatus.PENDING,
-          approvalStatus: dto.approvalStatus ?? ApprovalStatus.PENDING,
-          amount: dto.amount,
-          currency: dto.currency ?? 'NGN',
-          description: dto.description ?? null,
-          metadata: (dto.metadata ?? {}) as Prisma.InputJsonValue,
-          frequency: (dto.frequency ?? 'ONE_TIME') as never,
-          isRecurring: dto.isRecurring ?? false,
-          recurrenceEndDate: dto.recurrenceEndDate ?? null,
-          nextOccurrenceDate: dto.nextOccurrenceDate ?? null,
-          approvalNotes: dto.approvalNotes ?? null,
-        },
-      });
-      return this.toView(transaction);
+      const createTransaction = () =>
+        this.prisma.transaction.create({
+          data: {
+            id: randomUUID(),
+            userId,
+            walletId: dto.walletId,
+            cardId: dto.cardId ?? null,
+            chatId: dto.chatId ?? null,
+            type: dto.type,
+            status: dto.status ?? TransactionStatus.PENDING,
+            approvalStatus: dto.approvalStatus ?? ApprovalStatus.PENDING,
+            amount: dto.amount,
+            currency: dto.currency ?? 'NGN',
+            description: dto.description ?? null,
+            metadata: (dto.metadata ?? {}) as Prisma.InputJsonValue,
+            frequency: (dto.frequency ?? 'ONE_TIME') as never,
+            isRecurring: dto.isRecurring ?? false,
+            recurrenceEndDate: dto.recurrenceEndDate ?? null,
+            nextOccurrenceDate: dto.nextOccurrenceDate ?? null,
+            approvalNotes: dto.approvalNotes ?? null,
+          },
+        });
+
+      const status = dto.status ?? TransactionStatus.PENDING;
+      if (
+        dto.cardId &&
+        dto.type === TransactionType.PAYMENT &&
+        status === TransactionStatus.SUCCESS
+      ) {
+        const [transaction] = await this.prisma.$transaction([
+          createTransaction(),
+          this.prisma.card.update({
+            where: { id: dto.cardId },
+            data: { totalSpent: { increment: dto.amount } },
+          }),
+        ]);
+        return this.toView(transaction);
+      }
+      return this.toView(await createTransaction());
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
         throw new BadRequestException('Referenced wallet, card, or chat does not exist');
@@ -155,7 +172,10 @@ export class TransactionsService {
       thresholdWarning?: boolean;
     },
   ) {
-    await this.get(userId, transactionId);
+    const current = await this.prisma.transaction.findFirst({
+      where: { id: transactionId, userId },
+    });
+    if (!current) throw new NotFoundException('Transaction not found');
     const data: Prisma.TransactionUpdateInput = {};
     if (dto.status !== undefined) data.status = dto.status;
     if (dto.approvalStatus !== undefined) data.approvalStatus = dto.approvalStatus;
@@ -170,17 +190,68 @@ export class TransactionsService {
     if (dto.approvalNotes !== undefined) data.approvalNotes = dto.approvalNotes;
     if (dto.thresholdWarning !== undefined) data.thresholdWarning = dto.thresholdWarning;
 
-    const updated = await this.prisma.transaction.update({
-      where: { id: transactionId },
-      data,
-    });
+    const nextStatus = dto.status ?? current.status;
+    const nextAmount = dto.amount !== undefined ? new Prisma.Decimal(dto.amount) : current.amount;
+    const countedBefore = this.isSpendCounted(current);
+    const countedAfter =
+      current.type === TransactionType.PAYMENT && nextStatus === TransactionStatus.SUCCESS;
+    const delta = this.spendDelta(countedBefore, countedAfter, current.amount, nextAmount);
+
+    const updateTransaction = () =>
+      this.prisma.transaction.update({ where: { id: transactionId }, data });
+
+    let updated: Transaction;
+    if (current.cardId && !delta.isZero()) {
+      [updated] = await this.prisma.$transaction([
+        updateTransaction(),
+        this.prisma.card.update({
+          where: { id: current.cardId },
+          data: { totalSpent: { increment: delta } },
+        }),
+      ]);
+    } else {
+      updated = await updateTransaction();
+    }
     return this.toView(updated);
   }
 
   async remove(userId: string, transactionId: string) {
-    await this.get(userId, transactionId);
-    await this.prisma.transaction.delete({ where: { id: transactionId } });
+    const current = await this.prisma.transaction.findFirst({
+      where: { id: transactionId, userId },
+    });
+    if (!current) throw new NotFoundException('Transaction not found');
+    if (current.cardId && this.isSpendCounted(current)) {
+      await this.prisma.$transaction([
+        this.prisma.transaction.delete({ where: { id: transactionId } }),
+        this.prisma.card.update({
+          where: { id: current.cardId },
+          data: { totalSpent: { decrement: current.amount } },
+        }),
+      ]);
+    } else {
+      await this.prisma.transaction.delete({ where: { id: transactionId } });
+    }
     return { deleted: true as const, id: transactionId };
+  }
+
+  private isSpendCounted(transaction: Pick<Transaction, 'type' | 'status'>) {
+    return (
+      transaction.type === TransactionType.PAYMENT &&
+      transaction.status === TransactionStatus.SUCCESS
+    );
+  }
+
+  /** Signed delta for `card.totalSpent` between a pre- and post-update state. */
+  private spendDelta(
+    countedBefore: boolean,
+    countedAfter: boolean,
+    beforeAmount: Transaction['amount'],
+    afterAmount: Prisma.Decimal,
+  ) {
+    if (!countedBefore && !countedAfter) return new Prisma.Decimal(0);
+    if (countedBefore && !countedAfter) return new Prisma.Decimal(0).minus(beforeAmount);
+    if (!countedBefore && countedAfter) return new Prisma.Decimal(afterAmount);
+    return afterAmount.minus(beforeAmount);
   }
 
   private async assertOwnWallet(userId: string, walletId: string) {

@@ -8,6 +8,7 @@ const USER_ID = '11111111-1111-4111-8111-111111111111';
 const WALLET_ID = '77777777-7777-4777-8777-777777777777';
 const TX_ID = '66666666-6666-4666-8666-666666666666';
 const APPROVAL_ID = '77777777-7777-4777-8777-777777777777';
+const CARD_ID = '22222222-2222-4222-8222-222222222222';
 
 const TRANSACTION = {
   id: TX_ID,
@@ -40,6 +41,21 @@ const APPROVAL = {
   notes: null,
   createdAt: new Date(),
 };
+const CARD_ROW = {
+  id: CARD_ID,
+  cardNumberLast4: '4242',
+  cardType: 'virtual',
+  createdAt: new Date('2030-01-01T00:00:00.000Z'),
+  totalSpent: '0',
+};
+/** Approval rows fetched via the service always embed transaction + card. */
+const APPROVAL_ROW = { ...APPROVAL, transaction: { ...TRANSACTION, card: null } };
+const SUCCESS_TX_ON_CARD = {
+  ...TRANSACTION,
+  cardId: CARD_ID,
+  status: TransactionStatus.SUCCESS,
+  amount: new Prisma.Decimal('2500.00'),
+};
 
 function prismaError(code: string): Prisma.PrismaClientKnownRequestError {
   return new Prisma.PrismaClientKnownRequestError('boom', { code, clientVersion: '7' });
@@ -62,6 +78,7 @@ describe('TransactionsService', () => {
     };
     const card = {
       findFirst: vi.fn(async () => ({ id: TX_ID })),
+      update: vi.fn(async () => ({})),
       ...overrides.card,
     };
     const chat = {
@@ -155,6 +172,45 @@ describe('TransactionsService', () => {
     ).rejects.toThrow(NotFoundException);
   });
 
+  it('increments card.totalSpent for a successful PAYMENT on that card', async () => {
+    const { service, card } = makeTransactionsService();
+    await service.create(USER_ID, {
+      walletId: WALLET_ID,
+      type: TransactionType.PAYMENT,
+      amount: '2500',
+      status: TransactionStatus.SUCCESS,
+      cardId: CARD_ID,
+    });
+    expect(card.update).toHaveBeenCalledWith({
+      where: { id: CARD_ID },
+      data: { totalSpent: { increment: '2500' } },
+    });
+  });
+
+  it('does not tick totalSpent for pending or non-PAYMENT transactions', async () => {
+    const { service, card } = makeTransactionsService();
+    await service.create(USER_ID, {
+      walletId: WALLET_ID,
+      type: TransactionType.PAYMENT,
+      amount: '2500',
+      cardId: CARD_ID,
+    });
+    await service.create(USER_ID, {
+      walletId: WALLET_ID,
+      type: TransactionType.WITHDRAWAL,
+      amount: '100',
+      status: TransactionStatus.SUCCESS,
+      cardId: CARD_ID,
+    });
+    await service.create(USER_ID, {
+      walletId: WALLET_ID,
+      type: TransactionType.PAYMENT,
+      amount: '100',
+      status: TransactionStatus.SUCCESS,
+    });
+    expect(card.update).not.toHaveBeenCalled();
+  });
+
   it('404s when the chat is not the user’s', async () => {
     const { service, chat } = makeTransactionsService();
     chat.findFirst.mockResolvedValue(null);
@@ -187,6 +243,35 @@ describe('TransactionsService', () => {
     ).rejects.toThrow(NotFoundException);
   });
 
+  it('increments totalSpent when a card payment becomes SUCCESS', async () => {
+    const { service, transaction, card } = makeTransactionsService();
+    transaction.findFirst.mockResolvedValue({ ...TRANSACTION, cardId: CARD_ID });
+    await service.update(USER_ID, TX_ID, { status: TransactionStatus.SUCCESS });
+    const increment = card.update.mock.calls[0][0].data.totalSpent.increment as Prisma.Decimal;
+    expect(increment.toFixed(2)).toBe('2500.00');
+  });
+
+  it('decrements totalSpent when a successful card payment disappears (FAIL)', async () => {
+    const { service, transaction, card } = makeTransactionsService();
+    transaction.findFirst.mockResolvedValue(SUCCESS_TX_ON_CARD);
+    await service.update(USER_ID, TX_ID, { status: TransactionStatus.FAIL });
+    const increment = card.update.mock.calls[0][0].data.totalSpent.increment as Prisma.Decimal;
+    expect(increment.toFixed(2)).toBe('-2500.00');
+  });
+
+  it('adjusts totalSpent by the amount delta while both states are counted', async () => {
+    const { service, transaction, card } = makeTransactionsService();
+    transaction.findFirst.mockResolvedValue({
+      ...TRANSACTION,
+      cardId: CARD_ID,
+      status: TransactionStatus.SUCCESS,
+      amount: new Prisma.Decimal('1000.00'),
+    });
+    await service.update(USER_ID, TX_ID, { amount: '1200', status: TransactionStatus.SUCCESS });
+    const increment = card.update.mock.calls[0][0].data.totalSpent.increment as Prisma.Decimal;
+    expect(increment.toFixed(2)).toBe('200.00');
+  });
+
   it('deletes an owned transaction and reports it', async () => {
     const { service, transaction } = makeTransactionsService();
     await expect(service.remove(USER_ID, TX_ID)).resolves.toEqual({
@@ -195,16 +280,24 @@ describe('TransactionsService', () => {
     });
     expect(transaction.delete).toHaveBeenCalledWith({ where: { id: TX_ID } });
   });
+
+  it('decrements totalSpent when a successful card payment row is deleted', async () => {
+    const { service, transaction, card } = makeTransactionsService();
+    transaction.findFirst.mockResolvedValue(SUCCESS_TX_ON_CARD);
+    await service.remove(USER_ID, TX_ID);
+    const decrement = card.update.mock.calls[0][0].data.totalSpent.decrement as Prisma.Decimal;
+    expect(decrement.toFixed(2)).toBe('2500.00');
+  });
 });
 
 describe('ApprovalsService', () => {
   function makeApprovalsService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     const transactionApproval = {
-      findMany: vi.fn(async () => [APPROVAL]),
+      findMany: vi.fn(async () => [APPROVAL_ROW]),
       count: vi.fn(async () => 1),
-      findFirst: vi.fn(async () => APPROVAL),
-      create: vi.fn(async (args) => ({ ...APPROVAL, ...args.data })),
-      update: vi.fn(async (args) => ({ ...APPROVAL, ...args.data })),
+      findFirst: vi.fn(async () => APPROVAL_ROW),
+      create: vi.fn(async (args) => ({ ...APPROVAL_ROW, ...args.data })),
+      update: vi.fn(async (args) => ({ ...APPROVAL_ROW, ...args.data })),
       delete: vi.fn(async () => APPROVAL),
       ...overrides.approval,
     };
@@ -236,6 +329,33 @@ describe('ApprovalsService', () => {
     const { service, transactionApproval } = makeApprovalsService();
     transactionApproval.findFirst.mockResolvedValue(null);
     await expect(service.get(USER_ID, APPROVAL_ID)).rejects.toThrow(NotFoundException);
+  });
+
+  it('embeds the transaction details in the approval view', async () => {
+    const { service } = makeApprovalsService();
+    const result = await service.get(USER_ID, APPROVAL_ID);
+    expect(result.transaction).toMatchObject({
+      id: TX_ID,
+      amount: '2500.00',
+      type: TransactionType.PAYMENT,
+    });
+    expect(result.card).toBeNull();
+  });
+
+  it('embeds the card summary of the transaction’s card', async () => {
+    const { service, transactionApproval } = makeApprovalsService();
+    transactionApproval.findFirst.mockResolvedValue({
+      ...APPROVAL_ROW,
+      transaction: { ...TRANSACTION, cardId: CARD_ID, card: CARD_ROW },
+    });
+    const result = await service.get(USER_ID, APPROVAL_ID);
+    expect(result.card).toEqual({
+      id: CARD_ID,
+      cardNumberLast4: '4242',
+      cardType: 'virtual',
+      createdAt: CARD_ROW.createdAt,
+      totalSpent: '0.00',
+    });
   });
 
   it('creates an approval with the caller as the approver', async () => {

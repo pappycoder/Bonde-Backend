@@ -204,6 +204,7 @@ model Card {
   nickname              String?    @db.VarChar(100)
   maxSpendLimit         Decimal?   @map("max_spend_limit") @db.Decimal(15, 2)
   monthlyLimit          Decimal?   @map("monthly_limit") @db.Decimal(15, 2)
+  totalSpent            Decimal    @default(0) @map("total_spent") @db.Decimal(15, 2)
   expirationType        String     @map("expiration_type") @db.VarChar(20)
   expirationDate        DateTime   @map("expiration_date")
   externalReferenceId   String?    @map("external_reference_id") @db.VarChar(100)

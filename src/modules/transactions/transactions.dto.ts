@@ -175,6 +175,24 @@ export class ListApprovalsQueryDto {
   pageSize?: number;
 }
 
+/** The card used by an approval's transaction — the PAN is never exposed. */
+export class ApprovalCardDto {
+  @ApiProperty({ format: 'uuid', example: '673bc257-9204-4acb-acf5-61f51e20a328' })
+  id: string;
+
+  @ApiProperty({ example: '4242', description: 'Last 4 digits, shown for verification' })
+  cardNumberLast4: string;
+
+  @ApiProperty({ example: 'virtual' })
+  cardType: string;
+
+  @ApiProperty({ type: String, format: 'date-time' })
+  createdAt: Date;
+
+  @ApiProperty({ example: '2500.00', description: 'Cumulative spend via this card' })
+  totalSpent: string;
+}
+
 /** An approval decision on one of the user's transactions. */
 export class ApprovalDto {
   @ApiProperty({ format: 'uuid', example: '673bc257-9204-4acb-acf5-61f51e20a328' })
@@ -194,6 +212,16 @@ export class ApprovalDto {
 
   @ApiProperty({ type: String, format: 'date-time' })
   createdAt: Date;
+
+  @ApiProperty({ type: TransactionDto })
+  transaction: TransactionDto;
+
+  @ApiProperty({
+    type: ApprovalCardDto,
+    nullable: true,
+    description: 'The card used for the transaction, if any',
+  })
+  card: ApprovalCardDto | null;
 }
 
 /** Paged envelope for `GET /api/approvals`. */

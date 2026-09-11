@@ -417,6 +417,7 @@ export class CardsService {
       ...rest,
       maxSpendLimit: card.maxSpendLimit === null ? null : money(card.maxSpendLimit),
       monthlyLimit: card.monthlyLimit === null ? null : money(card.monthlyLimit),
+      totalSpent: money(card.totalSpent),
     };
   }
 }

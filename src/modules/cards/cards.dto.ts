@@ -65,6 +65,9 @@ export class CardDto {
   @ApiProperty({ type: String, nullable: true, example: '20000.00' })
   monthlyLimit: string | null;
 
+  @ApiProperty({ example: '2500.00', description: 'Cumulative spend through this card' })
+  totalSpent: string;
+
   @ApiProperty({ example: 'monthly' })
   expirationType: string;
 

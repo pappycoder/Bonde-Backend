@@ -24,6 +24,7 @@ const CARD = {
   nickname: null,
   maxSpendLimit: null,
   monthlyLimit: null,
+  totalSpent: 0,
   expirationType: 'monthly',
   expirationDate: new Date('2030-01-01T00:00:00.000Z'),
   externalReferenceId: null,
@@ -213,6 +214,7 @@ describe('CardsService.create', () => {
 
     expect(result).not.toHaveProperty('cardNumberEncrypted');
     expect(result.cardNumberLast4).toBe(pan.slice(-4));
+    expect(result.totalSpent).toBe('0.00');
     expect(cardHistory.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ event: 'create' }) }),
     );
