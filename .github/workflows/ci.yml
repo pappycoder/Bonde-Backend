@@ -1,0 +1,151 @@
+# =============================================================================
+# Bonde Backend - CI
+# -----------------------------------------------------------------------------
+# Quality gate: format, lint, unit, e2e, build. Every job is required; the
+# `check` gate summarises them so branch protection can require a single status.
+#
+# e2e runs against service containers (Postgres + Redis) with the credentials
+# from `test/db.ts` (TEST_DB_URL). All cloud providers (Supabase/Resend/Termii)
+# are mocked or overridden by the e2e harness, so the top-level env only needs
+# inert values that satisfy the Joi boot schema (src/config/env.validation.ts).
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # --- Joi boot validation (src/config/env.validation.ts) -------------------
+  # e2e mocks JWKS verification + OTP/mail senders, so these are placeholders.
+  SUPABASE_URL: http://localhost:54321
+  SUPABASE_ANON_KEY: anon-key-placeholder
+  SUPABASE_SERVICE_ROLE_KEY: service-role-placeholder
+  AUTH_TOKEN_SECRET: dummy-auth-token-secret-32-chars
+  RESEND_API_KEY: re_dummy
+  TERMII_API_KEY: termii-dummy
+  CARD_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  REDIS_URL: redis://localhost:6379
+  # --- Postgres used by e2e (matches test/db.ts TEST_DB_URL) ----------------
+  TEST_DATABASE_URL: postgresql://bonde:bonde@localhost:5433/bonde
+  # prisma.config.ts uses env('DIRECT_URL') for prisma generate; no .env in CI.
+  DIRECT_URL: postgresql://bonde:bonde@localhost:5433/bonde
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+
+  unit:
+    name: Unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm prisma:generate
+      - run: pnpm build
+
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: bonde
+          POSTGRES_PASSWORD: bonde
+          POSTGRES_DB: bonde
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U bonde -d bonde"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm prisma:generate
+      - run: pnpm test:e2e
+
+  check:
+    name: All checks passed
+    runs-on: ubuntu-latest
+    needs: [format, lint, unit, build, e2e]
+    steps:
+      - run: echo "All CI jobs passed."
