@@ -196,7 +196,9 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   (`@@unique([cardId, merchantCode])`, name-dedupe when code is absent → 409).
   **Cumulative spend**: `Card.totalSpent` tracks spend for `PAYMENT`
   transactions in `SUCCESS` status; the counter is adjusted on create,
-  status/amount transitions, and delete.
+  status/amount transitions, and delete. **Card transactions**:
+  `GET /api/cards/:id/transactions` lists the caller's transactions made with a
+  card (owned-404, paged envelope, `amount` as a fixed 2-decimal string).
 - **Transactions & approvals expose full CRUD** for provisioning services:
   `GET/POST/PATCH/DELETE /api/transactions` (POST resolves `walletId` →
   `wallet.account.userId` and `cardId`/`chatId` ownership → 404; P2003 → 400),
@@ -212,7 +214,9 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
 - **Chats**: `/api/chats` history + CRUD; `/api/chats/:id/messages` lists
   chronologically (secondary `id` sort makes seeded `createdAt` ties
   deterministic) and `POST` appends only `USER`-role messages (assistant
-  replies come from the AI pipeline).
+  replies come from the AI pipeline). A DB trigger stamps `chats.updated_at`
+  with the inserted message's `created_at`, so a chat's `updatedAt` always
+  reflects the most recent message — in-app or pipeline-write.
 - **Biometrics**: `/api/biometric-devices` CRUD stores only the verification
   `publicKey`; `unique(userId, deviceId)` → 409. **Audit**: `GET
   /api/audit-logs[/:id]` shows only the caller's entries and is read-only

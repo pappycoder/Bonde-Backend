@@ -11,6 +11,7 @@ const LOCK_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const CATEGORY_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const PROVIDER_ID = '33333333-3333-4333-8333-333333333333';
 const MERCHANT_ID = '99999999-9999-4999-8999-999999999999';
+const TX_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const ENC_KEY = 'a'.repeat(64);
 
 const CARD = {
@@ -28,6 +29,30 @@ const CARD = {
   expirationType: 'monthly',
   expirationDate: new Date('2030-01-01T00:00:00.000Z'),
   externalReferenceId: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
+const TRANSACTION_ROW = {
+  id: TX_ID,
+  userId: USER_ID,
+  walletId: '77777777-7777-4777-8777-777777777777',
+  cardId: CARD_ID,
+  chatId: null,
+  type: 'PAYMENT',
+  status: 'PENDING',
+  approvalStatus: 'PENDING',
+  amount: '2500.00',
+  currency: 'NGN',
+  description: 'Lunch',
+  metadata: {},
+  frequency: 'ONE_TIME',
+  isRecurring: false,
+  recurrenceEndDate: null,
+  nextOccurrenceDate: null,
+  thresholdWarning: false,
+  approvalNotes: null,
+  approvedAt: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -77,6 +102,11 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     delete: vi.fn(async () => ({ id: MERCHANT_ID })),
     ...overrides.merchant,
   };
+  const transaction = {
+    findMany: vi.fn(async () => [TRANSACTION_ROW]),
+    count: vi.fn(async () => 1),
+    ...overrides.transaction,
+  };
   const prisma = {
     $transaction: vi.fn(async (ops: Array<Promise<unknown>>) => Promise.all(ops)),
     card,
@@ -85,10 +115,20 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     cardProvider,
     cardHistory,
     cardMerchant,
+    transaction,
   };
   const config = { get: vi.fn(() => ENC_KEY) };
   const service = new CardsService(prisma as never, config as never);
-  return { service, card, cardLock, cardCategory, cardProvider, cardHistory, cardMerchant };
+  return {
+    service,
+    card,
+    cardLock,
+    cardCategory,
+    cardProvider,
+    cardHistory,
+    cardMerchant,
+    transaction,
+  };
 }
 
 describe('CardsService.list', () => {
@@ -293,6 +333,28 @@ describe('CardsService history', () => {
     card.findFirst.mockResolvedValue(null);
     await expect(service.listHistory(USER_ID, CARD_ID)).rejects.toThrow(NotFoundException);
     expect(cardHistory.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('CardsService.transactions', () => {
+  it('returns the paged history of transactions made with the card', async () => {
+    const { service, card, transaction } = makeService();
+    const result = await service.listTransactions(USER_ID, CARD_ID, { page: 2, pageSize: 10 });
+    expect(card.findFirst).toHaveBeenCalledWith({ where: { id: CARD_ID, userId: USER_ID } });
+    expect(result).toMatchObject({ total: 1, page: 2, pageSize: 10, totalPages: 1 });
+    expect(result.items[0]).toMatchObject({ id: TX_ID, amount: '2500.00', type: 'PAYMENT' });
+    expect(transaction.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: USER_ID, cardId: CARD_ID },
+        orderBy: { createdAt: 'desc' },
+      }),
+    );
+  });
+
+  it('404s a foreign card’s transactions', async () => {
+    const { service, card } = makeService();
+    card.findFirst.mockResolvedValue(null);
+    await expect(service.listTransactions(USER_ID, CARD_ID)).rejects.toThrow(NotFoundException);
   });
 });
 

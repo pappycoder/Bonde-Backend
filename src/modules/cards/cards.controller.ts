@@ -44,6 +44,7 @@ import {
   UpdateCardLockDto,
 } from './cards.dto.js';
 import { CardsService } from './cards.service.js';
+import { PagedTransactionsDto } from '../transactions/transactions.dto.js';
 import { MAIL_SENDER, type MailSender } from '../../common/mail/mail.types.js';
 import { cardRegisteredEmail } from '../../common/mail/templates/card-registered.js';
 
@@ -221,6 +222,22 @@ export class CardsController {
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ) {
     return this.cards.listHistory(principal.userId, id);
+  }
+
+  @Get(':id/transactions')
+  @ApiOperation({ summary: 'List the transactions made with one of your cards (paged)' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: PagedTransactionsDto })
+  @ApiErrorResponse()
+  listTransactions(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Query() query: ListCardsQueryDto,
+  ) {
+    return this.cards.listTransactions(principal.userId, id, {
+      page: query.page,
+      pageSize: query.pageSize,
+    });
   }
 
   // -- Merchant allowlist ---------------------------------------------------

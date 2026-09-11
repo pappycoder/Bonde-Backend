@@ -6,6 +6,7 @@ import {
   bootE2EApp,
   SEED_CARD_ID,
   SEED_OTHER_ID,
+  SEED_TRANSACTION_ID,
   SEED_USER_EMAIL,
   SEED_USER_ID,
   seedBaseFixtures,
@@ -68,6 +69,23 @@ describe('Cards self-service (e2e)', () => {
   it('404s a card the user does not own', async () => {
     const foreign = await seedCardFor(SEED_OTHER_ID);
     const res = await ctx.http.get(`/cards/${foreign.id}`).expect(404);
+    expect(res.body.statusCode).toBe(404);
+  });
+
+  it('lists the transactions made with one of the user’s cards (paged)', async () => {
+    const res = await ctx.http.get(`/cards/${SEED_CARD_ID}/transactions`).expect(200);
+    expect(res.body).toMatchObject({ total: 1, page: 1, pageSize: 20, totalPages: 1 });
+    expect(res.body.items[0]).toMatchObject({
+      id: SEED_TRANSACTION_ID,
+      cardId: SEED_CARD_ID,
+      amount: '2500.00',
+      type: 'PAYMENT',
+    });
+  });
+
+  it('404s a foreign card’s transactions', async () => {
+    const foreign = await seedCardFor(SEED_OTHER_ID);
+    const res = await ctx.http.get(`/cards/${foreign.id}/transactions`).expect(404);
     expect(res.body.statusCode).toBe(404);
   });
 

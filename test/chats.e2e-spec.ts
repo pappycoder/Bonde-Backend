@@ -80,4 +80,17 @@ describe('Chats self-service (e2e)', () => {
     await ctx.http.get(`/chats/${foreign.id}/messages`).expect(404);
     await ctx.http.post(`/chats/${foreign.id}/messages`).send({ content: 'hi' }).expect(404);
   });
+
+  it('bumps the chat updatedAt to the new message time when a message is sent', async () => {
+    const before = await ctx.http.get(`/chats/${SEED_CHAT_ID}`).expect(200);
+    const created = await ctx.http
+      .post(`/chats/${SEED_CHAT_ID}/messages`)
+      .send({ content: 'Ping' })
+      .expect(201);
+    const after = await ctx.http.get(`/chats/${SEED_CHAT_ID}`).expect(200);
+    expect(after.body.updatedAt).toBe(created.body.createdAt);
+    expect(new Date(after.body.updatedAt).getTime()).toBeGreaterThan(
+      new Date(before.body.updatedAt).getTime(),
+    );
+  });
 });

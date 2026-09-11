@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { Card } from '@prisma/client';
+import type { Card, Transaction } from '@prisma/client';
 import { CardStatus, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { encrypt } from '../../common/crypto/aes-gcm.js';
@@ -160,6 +160,31 @@ export class CardsService {
       where: { cardId },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  async listTransactions(userId: string, cardId: string, options: PagedOptions = {}) {
+    await this.assertOwnedCard(userId, cardId);
+    const page = options.page ?? 1;
+    const pageSize = Math.min(options.pageSize ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
+    const where: Prisma.TransactionWhereInput = { userId, cardId };
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.transaction.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.transaction.count({ where }),
+    ]);
+
+    return {
+      items: items.map((item) => this.toTransactionView(item)),
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -419,5 +444,9 @@ export class CardsService {
       monthlyLimit: card.monthlyLimit === null ? null : money(card.monthlyLimit),
       totalSpent: money(card.totalSpent),
     };
+  }
+
+  private toTransactionView(transaction: Transaction) {
+    return { ...transaction, amount: money(transaction.amount) };
   }
 }

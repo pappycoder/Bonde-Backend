@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Card transaction history + chat `updatedAt` tracking**:
+  - New `GET /api/cards/:id/transactions` lists the caller's transactions made
+    with a given card (paged envelope, owned-404, `amount` as fixed 2-decimal
+    string) — closes the loop between card detail (`totalSpent`) and the
+    underlying spend (`GET /api/cards/:id/transactions`).
+  - Chats now mirror the last message's timestamp: a DB trigger stamps
+    `chats.updated_at` with the inserted message's `created_at`, so `updatedAt`
+    reflects the most recent turn for in-app **and** AI-pipeline writes.
+  - Unit + e2e coverage for both.
+
 - **Approvals embed their transaction + card, and cards track cumulative spend**:
   - `ApprovalDto` now nests the full `transaction` (fixed 2-decimal `amount`,
     type, status, currency, description, ...) and a `card` summary — `id`,
