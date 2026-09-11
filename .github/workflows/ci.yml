@@ -37,6 +37,9 @@ env:
   TEST_DATABASE_URL: postgresql://bonde:bonde@localhost:5433/bonde
   # prisma.config.ts uses env('DIRECT_URL') for prisma generate; no .env in CI.
   DIRECT_URL: postgresql://bonde:bonde@localhost:5433/bonde
+  # ConfigModule validates process.env at app.module import time (before
+  # bootE2EApp re-points it at TEST_DB_URL) — no .env in CI, so supply it.
+  DATABASE_URL: postgresql://bonde:bonde@localhost:5433/bonde
 
 defaults:
   run:

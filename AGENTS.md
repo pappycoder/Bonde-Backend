@@ -269,8 +269,8 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   Postgres, so `vitest.config.e2e.ts` sets `fileParallelism: false`.
 - **Redis interplay**: throttler counters live in Redis. Suites pin **dedicated
   Redis DBs** (`:6379/12` rate-limit scratch, `/13` smoke, `/14` 429-proof,
-  `/15` OTP, `/16` auth) with env overrides restored in `afterAll`, and
-  `test/global-setup.ts` flushes `0,12,13,14,15,16` so counters never leak
+  `/15` OTP, `/10` auth) with env overrides restored in `afterAll`, and
+  `test/global-setup.ts` flushes `0,10,12,13,14,15` so counters never leak
   between runs. `bootE2EApp` awaits Redis `ready` before returning so every
   request of a suite counts on ONE store — a burst straddling the fail-open
   memory→Redis switch would otherwise split counters and 429/under-count

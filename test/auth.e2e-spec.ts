@@ -27,7 +27,7 @@ const ORIGINAL_ENV: Record<string, string | undefined> = {
   THROTTLE_STRICT_TTL: process.env.THROTTLE_STRICT_TTL,
   THROTTLE_STRICT_BLOCK_DURATION: process.env.THROTTLE_STRICT_BLOCK_DURATION,
 };
-process.env.REDIS_URL = 'redis://localhost:6379/16';
+process.env.REDIS_URL = 'redis://localhost:6379/10';
 process.env.THROTTLE_STRICT_LIMIT = '1000';
 process.env.THROTTLE_STRICT_TTL = '60000';
 process.env.THROTTLE_STRICT_BLOCK_DURATION = '60000';
