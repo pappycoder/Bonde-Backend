@@ -4,3 +4,4 @@ allowBuilds:
   msgpackr-extract: true
   prisma: true
   workerd: true
+  '@scarf/scarf': false
