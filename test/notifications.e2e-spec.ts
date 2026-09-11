@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { NotificationStatus, NotificationType } from '@prisma/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { MAIL_SENDER, type MailMessage, type MailSender } from '../src/common/mail/mail.types.js';
 import {
   bootE2EApp,
   SEED_OTHER_ID,
   SEED_USER_ID,
+  SEED_WALLET_ID,
   seedBaseFixtures,
   truncateAll,
   type BootedE2EApp,
@@ -12,9 +14,16 @@ import {
 
 describe('Notifications (self-service e2e)', () => {
   let ctx: BootedE2EApp;
+  const sentMails: MailMessage[] = [];
+  const mailSender: MailSender = {
+    send: async (message) => {
+      sentMails.push(message);
+    },
+  };
 
   beforeEach(async () => {
-    ctx = await bootE2EApp();
+    sentMails.length = 0;
+    ctx = await bootE2EApp({ overrides: [{ token: MAIL_SENDER, useValue: mailSender }] });
     await truncateAll(ctx.prisma);
     await seedBaseFixtures(ctx.prisma);
     await ctx.prisma.notification.deleteMany();
@@ -80,5 +89,60 @@ describe('Notifications (self-service e2e)', () => {
     await seedNotification(SEED_USER_ID);
     const res = await ctx.http.patch('/notifications/read-all').expect(200);
     expect(res.body.updated).toBe(2);
+  });
+
+  it('creates a SYSTEM notification when a threshold is created', async () => {
+    const created = await ctx.http
+      .post('/thresholds')
+      .send({ thresholdType: 'LARGE_AMOUNT', thresholdValue: '5000.00' })
+      .expect(201);
+
+    const res = await ctx.http.get('/notifications').expect(200);
+    const notification = res.body.items.find(
+      (n: { metadata: { entityId?: string }; type: NotificationType }) =>
+        n.metadata?.entityId === created.body.id,
+    );
+    expect(notification).toMatchObject({
+      type: NotificationType.SYSTEM,
+      title: 'Threshold created',
+    });
+    expect(notification.content).toContain('large amount threshold was set at 5000.00');
+  });
+
+  it('creates a TRANSACTION notification when a transaction is created', async () => {
+    const created = await ctx.http
+      .post('/transactions')
+      .send({ walletId: SEED_WALLET_ID, type: 'DEPOSIT', amount: '100.00' })
+      .expect(201);
+
+    const res = await ctx.http.get('/notifications').expect(200);
+    const notification = res.body.items.find(
+      (n: { metadata: { entityId?: string }; type: NotificationType }) =>
+        n.metadata?.entityId === created.body.id,
+    );
+    expect(notification).toMatchObject({
+      type: NotificationType.TRANSACTION,
+      title: 'Transaction recorded',
+    });
+    expect(notification.content).toContain('deposit of 100.00 NGN');
+  });
+
+  it('creates a CARD notification when a card is created', async () => {
+    const created = await ctx.http
+      .post('/cards')
+      .send({ cardType: 'virtual', nickname: 'Weekend spending' })
+      .expect(201);
+
+    const res = await ctx.http.get('/notifications').expect(200);
+    const notification = res.body.items.find(
+      (n: { metadata: { entityId?: string }; type: NotificationType }) =>
+        n.metadata?.entityId === created.body.id,
+    );
+    expect(notification).toMatchObject({
+      type: NotificationType.CARD,
+      title: 'Card created',
+    });
+    expect(notification.content).toContain('"Weekend spending" card ending in');
+    expect(notification.content).toContain('was created and is ready to use');
   });
 });

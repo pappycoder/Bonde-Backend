@@ -6,9 +6,10 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { NotificationType } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthPrincipal } from '../auth/principal/auth-principal.js';
-import { AuditLogService } from '../audit/audit-log.service.js';
+import { ActivityService } from '../activity/activity.service.js';
 import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
 import {
   CreateWalletDto,
@@ -29,7 +30,7 @@ import { WalletsService } from './wallets.service.js';
 export class WalletsController {
   constructor(
     private readonly wallets: WalletsService,
-    private readonly audit: AuditLogService,
+    private readonly activity: ActivityService,
   ) {}
 
   @Get()
@@ -47,11 +48,16 @@ export class WalletsController {
   @ApiErrorResponse()
   async create(@CurrentUser() principal: AuthPrincipal, @Body() dto: CreateWalletDto) {
     const wallet = await this.wallets.create(principal.userId, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'wallet.create',
       entityType: 'wallet',
       entityId: wallet.id,
+      notify: {
+        type: NotificationType.SYSTEM,
+        title: 'Wallet created',
+        content: `A ${wallet.currency} wallet was created and linked to your account to hold your balance.`,
+      },
     });
     return wallet;
   }
@@ -63,11 +69,16 @@ export class WalletsController {
   @ApiErrorResponse()
   async update(@CurrentUser() principal: AuthPrincipal, @Body() dto: UpdateWalletDto) {
     const wallet = await this.wallets.update(principal.userId, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'wallet.update',
       entityType: 'wallet',
       entityId: wallet.id,
+      notify: {
+        type: NotificationType.SYSTEM,
+        title: 'Wallet updated',
+        content: `Your wallet was reconciled — the balance is now ${wallet.balance} ${wallet.currency}.`,
+      },
     });
     return wallet;
   }
@@ -79,11 +90,17 @@ export class WalletsController {
   @ApiErrorResponse()
   async remove(@CurrentUser() principal: AuthPrincipal) {
     const result = await this.wallets.remove(principal.userId);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'wallet.delete',
       entityType: 'wallet',
       entityId: result.id,
+      notify: {
+        type: NotificationType.SYSTEM,
+        title: 'Wallet deleted',
+        content:
+          'Your wallet was deleted. Access to the wallet and its linked flow is no longer available.',
+      },
     });
     return result;
   }

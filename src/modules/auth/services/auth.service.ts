@@ -63,6 +63,14 @@ export class AuthService {
         USER_EXISTS: () => {
           throw new ConflictException('An account with this email already exists');
         },
+        VALIDATION: () => {
+          throw new BadRequestException(
+            'We could not create your account; please review your details',
+          );
+        },
+        CONFIG: () => {
+          throw new ServiceUnavailableException('Identity provider misconfigured');
+        },
       });
     }
 

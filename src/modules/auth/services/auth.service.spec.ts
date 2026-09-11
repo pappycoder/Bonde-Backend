@@ -203,6 +203,28 @@ describe('AuthService.register', () => {
     ).rejects.toThrow(ServiceUnavailableException);
   });
 
+  it('maps GoTrue payload rejection (validation) to 400', async () => {
+    const { service, provider } = makeService();
+    vi.mocked(provider.signUp).mockRejectedValueOnce(
+      new AuthProviderError('VALIDATION', 'GoTrue 400: Password should be at least 6 characters.'),
+    );
+
+    await expect(
+      service.register({ fullName: 'Amina', email: EMAIL, password: PASSWORD }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('maps a misconfigured identity provider (401 service role) to a clear 503', async () => {
+    const { service, provider } = makeService();
+    vi.mocked(provider.signUp).mockRejectedValueOnce(
+      new AuthProviderError('CONFIG', 'GoTrue 401: invalid_jwt'),
+    );
+
+    await expect(
+      service.register({ fullName: 'Amina', email: EMAIL, password: PASSWORD }),
+    ).rejects.toThrowError('Identity provider misconfigured');
+  });
+
   it('maps a duplicate local profile to 409', async () => {
     const { service, prisma } = makeService();
     const p2002 = new Prisma.PrismaClientKnownRequestError('unique', {

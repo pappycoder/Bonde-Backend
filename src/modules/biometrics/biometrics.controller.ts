@@ -21,7 +21,8 @@ import {
 } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthPrincipal } from '../auth/principal/auth-principal.js';
-import { AuditLogService } from '../audit/audit-log.service.js';
+import { NotificationType } from '@prisma/client';
+import { ActivityService } from '../activity/activity.service.js';
 import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
 import {
   BiometricDeviceDto,
@@ -43,7 +44,7 @@ import { BiometricsService } from './biometrics.service.js';
 export class BiometricsController {
   constructor(
     private readonly biometrics: BiometricsService,
-    private readonly audit: AuditLogService,
+    private readonly activity: ActivityService,
   ) {}
 
   @Get()
@@ -61,11 +62,16 @@ export class BiometricsController {
   @ApiErrorResponse()
   async create(@CurrentUser() principal: AuthPrincipal, @Body() dto: CreateBiometricDeviceDto) {
     const device = await this.biometrics.create(principal.userId, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'biometric.register',
       entityType: 'biometric_device',
       entityId: device.id,
+      notify: {
+        type: NotificationType.SYSTEM,
+        title: 'Biometric enrolled',
+        content: `You can now sign in using ${device.biometricType === 'FACE' ? 'Face ID' : 'your fingerprint'} on "${device.deviceName}".`,
+      },
     });
     return device;
   }
@@ -94,11 +100,16 @@ export class BiometricsController {
     @Body() dto: UpdateBiometricDeviceDto,
   ) {
     const device = await this.biometrics.update(principal.userId, id, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'biometric.update',
       entityType: 'biometric_device',
       entityId: id,
+      notify: {
+        type: NotificationType.SYSTEM,
+        title: 'Biometric updated',
+        content: `Your biometric device "${device.deviceName}" was updated${device.isActive === false ? ' and is now disabled' : ''}.`,
+      },
     });
     return device;
   }
@@ -114,11 +125,16 @@ export class BiometricsController {
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ) {
     const result = await this.biometrics.remove(principal.userId, id);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'biometric.delete',
       entityType: 'biometric_device',
       entityId: id,
+      notify: {
+        type: NotificationType.SYSTEM,
+        title: 'Biometric removed',
+        content: 'Your enrolled device was removed. Re-enroll to use biometric sign-in again.',
+      },
     });
     return result;
   }

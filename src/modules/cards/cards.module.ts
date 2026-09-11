@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { CardsController } from './cards.controller.js';
 import { CardsService } from './cards.service.js';
-import { AuditLogModule } from '../audit/audit-log.module.js';
+import { ActivityModule } from '../activity/activity.module.js';
 
 @Module({
-  imports: [AuditLogModule],
+  imports: [ActivityModule],
   controllers: [CardsController],
   providers: [CardsService],
   exports: [CardsService],

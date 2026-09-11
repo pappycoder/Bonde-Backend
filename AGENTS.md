@@ -46,7 +46,8 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
     `SupabaseAuthClient` (factory-injected via the `SUPABASE_AUTH_BODY` token so
     e2e can swap a fake; GoTrue calls carry a 10s timeout) + `AuthProviderError`
     with codes `USER_EXISTS`, `INVALID_CREDENTIALS`, `EMAIL_NOT_CONFIRMED`,
-    `NOT_FOUND`, `PROVIDER`.
+    `NOT_FOUND`, `VALIDATION` (GoTrue 4xx payload rejection),
+    `CONFIG` (service-role / project misconfigured), `PROVIDER` (network / unmapped).
   - `services/` (`auth.service.ts`, `auth-tokens.service.ts`): orchestration +
     short-lived HS256 `registration`/`reset` tickets (`AUTH_TOKEN_SECRET`,
     Redis nonce `auth:nonce:{purpose}:{jti}`). The `verify*` helpers only check
@@ -58,7 +59,7 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   /api/auth/refresh`, `POST /api/auth/forgot-password`, `POST
   /api/auth/verify-reset-otp`, `PATCH /api/auth/reset-password`. `GET
   /api/auth/me` stays authenticated.
-- **Login requires email verification**: registration creates an
+- Register surfaces GoTrue payload validation as 400, duplicate accounts as 409, and provider / service-role misconfiguration as 503.
   `email_confirm:false` user (service-role `createUser`) and `login` returns
   403 until `verify-email` succeeds. `forgot-password` always answers 200 — no
   user enumeration. Emails are normalized to lowercase.
@@ -103,9 +104,13 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
 
 ## Email (Resend + templates)
 - `src/common/mail/` is the **only** place that talks to Resend: `MailService`
-  (`MailSender`, `POST /api/emails`, 10s timeout, fail-closed `MailSendError`)
-  is provided under the `MAIL_SENDER` token in the `@Global()` `MailModule`
-  (`{ provide: MAIL_SENDER, useExisting: MailService }`). Feature code must
+  (`MailSender`, `POST /api/emails`, 10s timeout, fail-closed `MailSendError`
+  whose message includes the Resend status + response snippet for server-side
+  visibility) is provided under the `MAIL_SENDER` token in the `@Global()`
+  `MailModule` (`{ provide: MAIL_SENDER, useExisting: MailService }`). In
+  `development` only, a failed delivery is logged (recipient, subject, full body
+  — where an OTP code is visible) and treated as sent so local testing never
+  blocks on Resend; `test` and `production` stay fail-closed. Feature code must
   inject **`MAIL_SENDER`**, never Resend directly — e2e overrides the token
   with a capture stub to keep real email out of tests (auth + cards suites do).
 - Templates live in `src/common/mail/templates/` — pure TS renderers (no new
@@ -113,7 +118,10 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   preheader, **no CTA buttons**) and the `esc()` escaper in `parts.ts`. The logo
   is embedded as a base64 **data URI** (`templates/assets/logo.ts`, built from
   `logo-transparent-opt.png` — white background removed from `logo.jpeg`; keep
-  `logo-transparent.png` in the repo root as the full-quality artifact).
+  `logo-transparent.png` in the repo root as the full-quality artifact). When
+  `MAIL_LOGO_URL` is set (optional), `MailService` swaps the data URI for that
+  hosted URL at delivery — Gmail/Outlook strip `data:` images, so a public
+  object URL (e.g. Supabase Storage) is required for cross-client rendering.
 - **Two delivery policies**:
   - **Fail-closed (credentials)**: OTP code emails. `ResendOtpSender`
     (`src/modules/otp/`) delegates to `MAIL_SENDER` with the
@@ -213,6 +221,17 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   `transaction.create|update|delete`, `approval.create|update|delete`,
   `card.create|update|pause|resume|limit|lock.*|category.*|merchant.add|merchant.remove`,
   `chat.*[.message]*`, `threshold.*`, `biometric.*`).
+- **Core mutations notify the acting user**: feature controllers route their
+  create/update/delete writes through `ActivityService.record`
+  (`src/modules/activity/`) — one awaited call that writes the append-only
+  audit entry **and** creates an in-app `Notification` row for the caller
+  (type `CARD|TRANSACTION` where applicable, `SYSTEM` otherwise; `metadata`
+  carries `{action, entityType, entityId}` for client routing). Copy is inline
+  per handler (`activity-copy.ts` provides the `humanizeLabel()` enum
+  lower-caser). Wired for account, wallet, transaction, approval, threshold,
+  biometric, profile, and card **create/update/pause/resume/limit**.
+  **Audit-only** (plain `AuditLogService.record`, no notification): admin CRUD,
+  auth provisioning, chats, card lock/category/merchant sub-actions.
 
 ## Database & testing
 - Runtime DB is Supabase Postgres (`DATABASE_URL` pooled, `DIRECT_URL` direct)
@@ -300,6 +319,7 @@ src/
     otp/           app-level phone/email verification (send/verify)
     notifications/ mobile notification feed (list/read/read-all)
     audit/         append-only AuditLogService.record + self-service audit-logs
+    activity/      ActivityService.record — one-call audit + in-app notification
     crud/          generic admin data-grid (registry + /admin/:resource)
     accounts/      single account (CRUD /account, 1:1 via unique Account.userId)
     wallets/       single wallet (CRUD /wallet)

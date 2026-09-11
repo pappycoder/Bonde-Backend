@@ -9,9 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Audit + notifications for core mutations** (`src/modules/activity/`):
+  - New `ActivityService.record(entry)` — one awaited call that writes the
+    append-only audit entry **and** pushes an in-app `Notification` row to the
+    acting user (type `CARD|TRANSACTION` where applicable, `SYSTEM` otherwise;
+    metadata `{action, entityType, entityId}` for client routing).
+  - Wired across account, wallet, transaction, approval, threshold, biometric,
+    profile, and card create/update/pause/resume/limit handlers (previously the
+    notifications feed had **no writers**). Copy is descriptive and inline per
+    handler; `activity-copy.ts` exposes `humanizeLabel()` for enum values.
+  - Admin CRUD, auth provisioning, chats, and card lock/category/merchant
+    sub-actions stay audit-only (no notification).
+
 - **Transactional email system + templates** (`src/common/mail/`):
   - Global `MailModule` exposing the `MAIL_SENDER` token (`MailService` →
-    Resend `POST /api/emails`, 10s timeout, fail-closed `MailSendError`).
+    Resend `POST /api/emails`, 10s timeout, fail-closed `MailSendError` that
+    includes the Resend status + response snippet for server-side visibility).
+    In `development`, delivery failures are logged and treated as sent so local
+    registration never blocks on Resend.
     Feature code injects the token; e2e swaps a capture stub so real email is
     never sent in tests.
   - Branded, table-based templates (pure TS, no new runtime deps): shared
@@ -339,6 +354,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     validation for `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `TERMII_API_KEY`,
     `TERMII_SENDER_ID`, `CARD_ENCRYPTION_KEY` (64-char hex).
   - Updated `.env.example` with the new third-party + encryption variables.
+- **Improved integration error mapping + diagnostics**:
+  - `SupabaseAuthClient` now distinguishes `VALIDATION` (GoTrue 4xx payload) and
+    `CONFIG` (service-role / project misconfigured) alongside existing codes;
+    `MailService` includes the Resend status + response snippet in
+    `MailSendError` messages for server-side visibility.
+  - `register` maps `VALIDATION` → 400 and `CONFIG` → a clear 503
+    (`Identity provider misconfigured`) instead of the generic 503.
+  - Dev-only: Resend delivery failures are logged (recipient, subject, full
+    email body) and treated as sent, so local registration never blocks on
+    Resend. `test` and `production` remain fail-closed.
+  - Optional `MAIL_LOGO_URL`: when set, `MailService` swaps the embedded logo
+    data URI for the hosted URL at delivery (Gmail/Outlook strip `data:` images;
+    a public object URL is required for cross-client rendering).
 
 ## [0.1.0] - 2026-09-09
 

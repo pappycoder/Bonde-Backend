@@ -21,7 +21,9 @@ import {
 } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthPrincipal } from '../auth/principal/auth-principal.js';
-import { AuditLogService } from '../audit/audit-log.service.js';
+import { NotificationType } from '@prisma/client';
+import { ActivityService } from '../activity/activity.service.js';
+import { humanizeLabel } from '../activity/activity-copy.js';
 import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
 import {
   ApprovalDto,
@@ -44,7 +46,7 @@ import { ApprovalsService } from './approvals.service.js';
 export class ApprovalsController {
   constructor(
     private readonly approvals: ApprovalsService,
-    private readonly audit: AuditLogService,
+    private readonly activity: ActivityService,
   ) {}
 
   @Get()
@@ -66,12 +68,17 @@ export class ApprovalsController {
   @ApiErrorResponse()
   async create(@CurrentUser() principal: AuthPrincipal, @Body() dto: CreateApprovalDto) {
     const approval = await this.approvals.create(principal.userId, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'approval.create',
       entityType: 'transaction_approval',
       entityId: approval.id,
       metadata: { transactionId: approval.transactionId },
+      notify: {
+        type: NotificationType.TRANSACTION,
+        title: 'Approval recorded',
+        content: `An approval was added to one of your transactions and is currently ${humanizeLabel(approval.status)}.`,
+      },
     });
     return approval;
   }
@@ -100,11 +107,16 @@ export class ApprovalsController {
     @Body() dto: UpdateApprovalDto,
   ) {
     const approval = await this.approvals.update(principal.userId, id, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'approval.update',
       entityType: 'transaction_approval',
       entityId: id,
+      notify: {
+        type: NotificationType.TRANSACTION,
+        title: 'Approval updated',
+        content: `The approval on your transaction was updated — it is now ${humanizeLabel(approval.status)}.`,
+      },
     });
     return approval;
   }
@@ -120,11 +132,17 @@ export class ApprovalsController {
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ) {
     const result = await this.approvals.remove(principal.userId, id);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'approval.delete',
       entityType: 'transaction_approval',
       entityId: id,
+      notify: {
+        type: NotificationType.TRANSACTION,
+        title: 'Approval removed',
+        content:
+          'An approval was removed from one of your transactions. The transaction needs a fresh approval decision.',
+      },
     });
     return result;
   }

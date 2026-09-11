@@ -1,8 +1,9 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Patch } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { NotificationType } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthPrincipal } from '../auth/principal/auth-principal.js';
-import { AuditLogService } from '../audit/audit-log.service.js';
+import { ActivityService } from '../activity/activity.service.js';
 import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
 import { ProfileDto, UpdateAvatarDto, UpdateProfileDto } from './profiles.dto.js';
 import { ProfilesService } from './profiles.service.js';
@@ -13,7 +14,7 @@ import { ProfilesService } from './profiles.service.js';
 export class ProfilesController {
   constructor(
     private readonly profiles: ProfilesService,
-    private readonly audit: AuditLogService,
+    private readonly activity: ActivityService,
   ) {}
 
   @Get()
@@ -31,13 +32,19 @@ export class ProfilesController {
   @ApiErrorResponse()
   async update(@CurrentUser() principal: AuthPrincipal, @Body() dto: UpdateProfileDto) {
     const profile = await this.profiles.update(principal.userId, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'profile.update',
       entityType: 'profile',
       entityId: principal.userId,
       ipAddress: undefined,
       userAgent: undefined,
+      notify: {
+        type: NotificationType.SYSTEM,
+        title: 'Profile updated',
+        content:
+          "Your profile details were changed. If this wasn't you, contact support immediately.",
+      },
     });
     return profile;
   }
@@ -49,11 +56,17 @@ export class ProfilesController {
   @ApiErrorResponse()
   async updateAvatar(@CurrentUser() principal: AuthPrincipal, @Body() dto: UpdateAvatarDto) {
     const profile = await this.profiles.updateAvatar(principal.userId, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'profile.avatar',
       entityType: 'profile',
       entityId: principal.userId,
+      notify: {
+        type: NotificationType.SYSTEM,
+        title: 'Avatar updated',
+        content:
+          "Your profile picture was changed. If this wasn't you, contact support immediately.",
+      },
     });
     return profile;
   }

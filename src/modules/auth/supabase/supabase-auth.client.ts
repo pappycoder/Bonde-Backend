@@ -7,7 +7,13 @@ import type { AppConfig } from '../../../config/configuration.js';
  * these to HTTP semantics; unknown upsides degrade to `PROVIDER` (502).
  */
 export type AuthProviderErrorCode =
-  'USER_EXISTS' | 'INVALID_CREDENTIALS' | 'EMAIL_NOT_CONFIRMED' | 'NOT_FOUND' | 'PROVIDER';
+  | 'USER_EXISTS'
+  | 'INVALID_CREDENTIALS'
+  | 'EMAIL_NOT_CONFIRMED'
+  | 'NOT_FOUND'
+  | 'VALIDATION'
+  | 'CONFIG'
+  | 'PROVIDER';
 
 /** Identity-provider failure with a normalized, mappable code. */
 export class AuthProviderError extends Error {
@@ -52,13 +58,23 @@ export const SUPABASE_AUTH_BODY = Symbol('SUPABASE_AUTH_BODY');
 
 const REQUEST_TIMEOUT_MS = 10_000;
 
-const ERROR_CODE_MAP: Record<string, AuthProviderErrorCode> = {
+const ERROR_CODE_MAP: Partial<Record<string, AuthProviderErrorCode>> = {
   email_exists: 'USER_EXISTS',
   user_already_exists: 'USER_EXISTS',
   users_email_address_already_exist: 'USER_EXISTS',
   invalid_credentials: 'INVALID_CREDENTIALS',
+  invalid_grant: 'INVALID_CREDENTIALS',
   email_not_confirmed: 'EMAIL_NOT_CONFIRMED',
   user_not_found: 'NOT_FOUND',
+  validation_failed: 'VALIDATION',
+  weakpassworderror: 'VALIDATION',
+  weak_password: 'VALIDATION',
+  email_address_invalid: 'VALIDATION',
+  invalid_email: 'VALIDATION',
+  invalid_email_address: 'VALIDATION',
+  invalid_jwt: 'CONFIG',
+  signup_disabled: 'CONFIG',
+  signups_disabled: 'CONFIG',
 };
 
 interface GoTrueUser {
@@ -171,12 +187,17 @@ export class SupabaseAuthClient implements SupabaseAuthGateway {
 
       const body = (await this.parseBody(response)) as GoTrueUser | GoTrueTokenResponse | null;
       if (!response.ok) {
-        throw this.toProviderError(response.status, body as { code?: string; msg?: string });
+        throw this.toProviderError(
+          response.status,
+          body as { code?: string; msg?: string },
+          init.useServiceRole,
+        );
       }
       return body as T;
     } catch (error) {
       if (error instanceof AuthProviderError) throw error;
-      throw new AuthProviderError('PROVIDER', 'Identity provider unreachable');
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new AuthProviderError('PROVIDER', `Identity provider unreachable: ${detail}`);
     } finally {
       clearTimeout(timer);
     }
@@ -192,11 +213,29 @@ export class SupabaseAuthClient implements SupabaseAuthGateway {
 
   private toProviderError(
     status: number,
-    body: { code?: string; msg?: string } | null,
+    body: { code?: string; msg?: string; error?: string; error_description?: string } | null,
+    useServiceRole: boolean,
   ): AuthProviderError {
-    const code = ERROR_CODE_MAP[body?.code ?? ''];
-    const message = body?.msg ?? body?.code ?? `Provider returned ${status}`;
-    return new AuthProviderError(code ?? 'PROVIDER', message);
+    const message = this.messageOf(status, body);
+    const known = ERROR_CODE_MAP[(body?.code ?? body?.error ?? '').toLowerCase()];
+    if (known) return new AuthProviderError(known, message);
+
+    if (useServiceRole) {
+      if (status === 401) return new AuthProviderError('CONFIG', message);
+      if (status === 400 || status === 422) return new AuthProviderError('VALIDATION', message);
+    } else {
+      if (status === 400 || status === 401)
+        return new AuthProviderError('INVALID_CREDENTIALS', message);
+    }
+    return new AuthProviderError('PROVIDER', message);
+  }
+
+  private messageOf(
+    status: number,
+    body: { msg?: string; error_description?: string; error?: string; code?: string } | null,
+  ): string {
+    const detail = body?.msg ?? body?.error_description ?? body?.error ?? body?.code;
+    return detail ? `GoTrue ${status}: ${detail}` : `GoTrue returned ${status}`;
   }
 
   private toUser(user: GoTrueUser): SupabaseUser {

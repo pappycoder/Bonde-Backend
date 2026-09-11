@@ -39,6 +39,7 @@ export const envValidationSchema = Joi.object({
 
   RESEND_API_KEY: Joi.string().required(),
   RESEND_FROM_EMAIL: Joi.string().email().default('noreply@bonde.app'),
+  MAIL_LOGO_URL: Joi.string().uri().optional(),
 
   TERMII_API_KEY: Joi.string().required(),
   TERMII_SENDER_ID: Joi.string().max(11).default('Bonde'),

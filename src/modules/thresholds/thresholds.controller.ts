@@ -21,7 +21,9 @@ import {
 } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthPrincipal } from '../auth/principal/auth-principal.js';
-import { AuditLogService } from '../audit/audit-log.service.js';
+import { NotificationType } from '@prisma/client';
+import { ActivityService } from '../activity/activity.service.js';
+import { humanizeLabel } from '../activity/activity-copy.js';
 import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
 import {
   CreateThresholdDto,
@@ -43,7 +45,7 @@ import { ThresholdsService } from './thresholds.service.js';
 export class ThresholdsController {
   constructor(
     private readonly thresholds: ThresholdsService,
-    private readonly audit: AuditLogService,
+    private readonly activity: ActivityService,
   ) {}
 
   @Get()
@@ -61,12 +63,19 @@ export class ThresholdsController {
   @ApiErrorResponse()
   async create(@CurrentUser() principal: AuthPrincipal, @Body() dto: CreateThresholdDto) {
     const threshold = await this.thresholds.create(principal.userId, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'threshold.create',
       entityType: 'transaction_threshold',
       entityId: threshold.id,
       metadata: { thresholdType: threshold.thresholdType },
+      notify: {
+        type: NotificationType.SYSTEM,
+        title: 'Threshold created',
+        content: `A ${humanizeLabel(threshold.thresholdType)} threshold was set at ${threshold.thresholdValue}${
+          threshold.isActive ? ' and is active' : ''
+        }. You'll be alerted when qualified spending happens.`,
+      },
     });
     return threshold;
   }
@@ -95,11 +104,18 @@ export class ThresholdsController {
     @Body() dto: UpdateThresholdDto,
   ) {
     const threshold = await this.thresholds.update(principal.userId, id, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'threshold.update',
       entityType: 'transaction_threshold',
       entityId: id,
+      notify: {
+        type: NotificationType.SYSTEM,
+        title: 'Threshold updated',
+        content: `Your ${humanizeLabel(threshold.thresholdType)} threshold is now ${threshold.thresholdValue} and ${
+          threshold.isActive ? 'active' : 'disabled'
+        }.`,
+      },
     });
     return threshold;
   }
@@ -115,11 +131,16 @@ export class ThresholdsController {
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ) {
     const result = await this.thresholds.remove(principal.userId, id);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'threshold.delete',
       entityType: 'transaction_threshold',
       entityId: id,
+      notify: {
+        type: NotificationType.SYSTEM,
+        title: 'Threshold deleted',
+        content: 'Your threshold was removed and will no longer trigger spending alerts.',
+      },
     });
     return result;
   }

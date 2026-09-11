@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { BiometricsController } from './biometrics.controller.js';
 import { BiometricsService } from './biometrics.service.js';
-import { AuditLogModule } from '../audit/audit-log.module.js';
+import { ActivityModule } from '../activity/activity.module.js';
 
 @Module({
-  imports: [AuditLogModule],
+  imports: [ActivityModule],
   controllers: [BiometricsController],
   providers: [BiometricsService],
   exports: [BiometricsService],

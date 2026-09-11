@@ -20,9 +20,10 @@ import {
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
+import { NotificationType } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthPrincipal } from '../auth/principal/auth-principal.js';
-import { AuditLogService } from '../audit/audit-log.service.js';
+import { ActivityService } from '../activity/activity.service.js';
 import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
 import {
   CardCategoryDto,
@@ -58,7 +59,7 @@ import { cardRegisteredEmail } from '../../common/mail/templates/card-registered
 export class CardsController {
   constructor(
     private readonly cards: CardsService,
-    private readonly audit: AuditLogService,
+    private readonly activity: ActivityService,
     @Inject(MAIL_SENDER) private readonly mail: MailSender,
   ) {}
 
@@ -77,11 +78,16 @@ export class CardsController {
   @ApiErrorResponse()
   async create(@CurrentUser() principal: AuthPrincipal, @Body() dto: CreateCardDto) {
     const card = await this.cards.create(principal.userId, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'card.create',
       entityType: 'card',
       entityId: card.id,
+      notify: {
+        type: NotificationType.CARD,
+        title: 'Card created',
+        content: `Your${card.nickname ? ` "${card.nickname}"` : ''} card ending in ${card.cardNumberLast4} was created and is ready to use.`,
+      },
     });
     await this.sendCardRegisteredBestEffort(principal, card);
     return card;
@@ -111,12 +117,17 @@ export class CardsController {
     @Body() dto: UpdateCardDto,
   ) {
     const card = await this.cards.update(principal.userId, id, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'card.update',
       entityType: 'card',
       entityId: id,
       metadata: dto as never,
+      notify: {
+        type: NotificationType.CARD,
+        title: 'Card updated',
+        content: `Your card ending in ${card.cardNumberLast4} was updated. Check the card details to confirm the changes.`,
+      },
     });
     return card;
   }
@@ -132,11 +143,16 @@ export class CardsController {
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ) {
     const card = await this.cards.pause(principal.userId, id);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'card.pause',
       entityType: 'card',
       entityId: id,
+      notify: {
+        type: NotificationType.CARD,
+        title: 'Card paused',
+        content: `Your card ending in ${card.cardNumberLast4} is paused. Payments are blocked until you resume it.`,
+      },
     });
     return card;
   }
@@ -152,11 +168,16 @@ export class CardsController {
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ) {
     const card = await this.cards.resume(principal.userId, id);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'card.resume',
       entityType: 'card',
       entityId: id,
+      notify: {
+        type: NotificationType.CARD,
+        title: 'Card resumed',
+        content: `Your card ending in ${card.cardNumberLast4} is active again and can be used for payments.`,
+      },
     });
     return card;
   }
@@ -173,12 +194,17 @@ export class CardsController {
     @Body() dto: UpdateCardLimitDto,
   ) {
     const card = await this.cards.updateLimit(principal.userId, id, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'card.limit',
       entityType: 'card',
       entityId: id,
       metadata: dto as never,
+      notify: {
+        type: NotificationType.CARD,
+        title: 'Card limits updated',
+        content: `The spending limits on your card ending in ${card.cardNumberLast4} were changed and now apply to new transactions.`,
+      },
     });
     return card;
   }
@@ -223,7 +249,7 @@ export class CardsController {
     @Body() dto: CreateCardMerchantDto,
   ) {
     const merchant = await this.cards.addMerchant(principal.userId, id, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'card.merchant.add',
       entityType: 'card',
@@ -246,7 +272,7 @@ export class CardsController {
     @Param('merchantId', new ParseUUIDPipe({ version: '4' })) merchantId: string,
   ) {
     const result = await this.cards.removeMerchant(principal.userId, id, merchantId);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'card.merchant.remove',
       entityType: 'card',
@@ -282,7 +308,7 @@ export class CardsController {
     @Body() dto: CreateCardLockDto,
   ) {
     const lock = await this.cards.createLock(principal.userId, id, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'card.lock.create',
       entityType: 'card',
@@ -320,7 +346,7 @@ export class CardsController {
     @Body() dto: UpdateCardLockDto,
   ) {
     const lock = await this.cards.updateLock(principal.userId, id, lockId, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'card.lock.update',
       entityType: 'card',
@@ -343,7 +369,7 @@ export class CardsController {
     @Param('lockId', new ParseUUIDPipe({ version: '4' })) lockId: string,
   ) {
     const result = await this.cards.deleteLock(principal.userId, id, lockId);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'card.lock.delete',
       entityType: 'card',
@@ -379,7 +405,7 @@ export class CardsController {
     @Body() dto: CreateCardCategoryDto,
   ) {
     const category = await this.cards.createCategory(principal.userId, id, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'card.category.create',
       entityType: 'card',
@@ -417,7 +443,7 @@ export class CardsController {
     @Body() dto: UpdateCardCategoryDto,
   ) {
     const category = await this.cards.updateCategory(principal.userId, id, categoryId, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'card.category.update',
       entityType: 'card',
@@ -440,7 +466,7 @@ export class CardsController {
     @Param('categoryId', new ParseUUIDPipe({ version: '4' })) categoryId: string,
   ) {
     const result = await this.cards.deleteCategory(principal.userId, id, categoryId);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'card.category.delete',
       entityType: 'card',
@@ -477,7 +503,7 @@ export class CardsController {
     try {
       await this.mail.send({ to: principal.email, subject: email.subject, html: email.html });
     } catch {
-      await this.audit
+      await this.activity
         .record({
           userId: principal.userId,
           action: 'mail.card_registered',

@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ThresholdsController } from './thresholds.controller.js';
 import { ThresholdsService } from './thresholds.service.js';
-import { AuditLogModule } from '../audit/audit-log.module.js';
+import { ActivityModule } from '../activity/activity.module.js';
 
 @Module({
-  imports: [AuditLogModule],
+  imports: [ActivityModule],
   controllers: [ThresholdsController],
   providers: [ThresholdsService],
   exports: [ThresholdsService],

@@ -38,6 +38,7 @@ export interface AppConfig {
   resend: {
     apiKey: string;
     fromEmail: string;
+    logoUrl?: string;
   };
   termii: {
     apiKey: string;
@@ -84,6 +85,7 @@ export default (): AppConfig => ({
   resend: {
     apiKey: process.env.RESEND_API_KEY!,
     fromEmail: process.env.RESEND_FROM_EMAIL ?? 'noreply@bonde.app',
+    logoUrl: process.env.MAIL_LOGO_URL,
   },
   termii: {
     apiKey: process.env.TERMII_API_KEY!,

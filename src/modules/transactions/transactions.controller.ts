@@ -21,7 +21,9 @@ import {
 } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthPrincipal } from '../auth/principal/auth-principal.js';
-import { AuditLogService } from '../audit/audit-log.service.js';
+import { NotificationType } from '@prisma/client';
+import { ActivityService } from '../activity/activity.service.js';
+import { humanizeLabel } from '../activity/activity-copy.js';
 import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
 import {
   CreateTransactionDto,
@@ -44,7 +46,7 @@ import { TransactionsService } from './transactions.service.js';
 export class TransactionsController {
   constructor(
     private readonly transactions: TransactionsService,
-    private readonly audit: AuditLogService,
+    private readonly activity: ActivityService,
   ) {}
 
   @Get('recent')
@@ -78,12 +80,19 @@ export class TransactionsController {
   @ApiErrorResponse()
   async create(@CurrentUser() principal: AuthPrincipal, @Body() dto: CreateTransactionDto) {
     const transaction = await this.transactions.create(principal.userId, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'transaction.create',
       entityType: 'transaction',
       entityId: transaction.id,
       metadata: { type: transaction.type, amount: transaction.amount },
+      notify: {
+        type: NotificationType.TRANSACTION,
+        title: 'Transaction recorded',
+        content: `A ${humanizeLabel(transaction.type)} of ${transaction.amount} ${transaction.currency} was recorded${
+          transaction.status === 'PENDING' ? ' and is currently pending' : ''
+        }.`,
+      },
     });
     return transaction;
   }
@@ -112,11 +121,16 @@ export class TransactionsController {
     @Body() dto: UpdateTransactionDto,
   ) {
     const transaction = await this.transactions.update(principal.userId, id, dto);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'transaction.update',
       entityType: 'transaction',
       entityId: id,
+      notify: {
+        type: NotificationType.TRANSACTION,
+        title: 'Transaction updated',
+        content: `Your ${humanizeLabel(transaction.type)} transaction was updated — it is now ${humanizeLabel(transaction.status)}.`,
+      },
     });
     return transaction;
   }
@@ -132,11 +146,17 @@ export class TransactionsController {
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ) {
     const result = await this.transactions.remove(principal.userId, id);
-    await this.audit.record({
+    await this.activity.record({
       userId: principal.userId,
       action: 'transaction.delete',
       entityType: 'transaction',
       entityId: id,
+      notify: {
+        type: NotificationType.TRANSACTION,
+        title: 'Transaction removed',
+        content:
+          "A transaction was removed from your history. If you didn't do this, review your account.",
+      },
     });
     return result;
   }
