@@ -15,6 +15,23 @@ import {
 
 /** Query parameters for `GET /api/biometric-devices`. */
 export class ListBiometricsQueryDto {
+  @ApiPropertyOptional({
+    example: 'iPhone',
+    description: 'Free-text search across the device ID and device name',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
+
+  @ApiPropertyOptional({
+    example: 'biometricType:FACE',
+    description:
+      'Repeatable `field:value` or `field:op:value` filters (`biometricType`, `isActive`)',
+  })
+  @IsOptional()
+  filter?: string | string[];
+
   @ApiPropertyOptional({ example: 1, minimum: 1 })
   @IsOptional()
   @IsInt()

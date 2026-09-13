@@ -359,6 +359,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Uniform search + filter contract on all list endpoints (breaking)**:
+  - Every paged user list now supports free-text `q` (case-insensitive, `contains`
+    across declared string fields) alongside repeatable
+    `filter=field:value` / `filter=field:op:value` params. Ops:
+    `eq` (implied), `contains`, `startsWith`, `endsWith`, `gt`, `gte`, `lt`,
+    `lte` — numeric/date fields allow the range ops, enums/booleans strings
+    allow equality only. Unknown fields/operators/values → `400`.
+  - Covered endpoints — `?q=…`→fields, `filter=…`→fields:
+    - `GET /api/transactions` — `q`: description; `filter`: status, type,
+      approvalStatus, currency, frequency, isRecurring, thresholdWarning.
+    - `GET /api/cards/:id/transactions` — `q`: description; `filter`: status,
+      type, approvalStatus, currency.
+    - `GET /api/approvals` — `q`: transaction description + notes; `filter`: status.
+    - `GET /api/cards` — `q`: nickname, cardNumberLast4; `filter`: cardType,
+      status, expirationType.
+    - `GET /api/chats` — `q`: title (no filterable fields; `filter=` → `400`).
+    - `GET /api/chats/:id/messages` — `q`: content; `filter`: role.
+    - `GET /api/notifications` — `q`: title, content; `filter`: status, type.
+    - `GET /api/audit-logs` — `q`: action, entityType; `filter`: action, entityType.
+    - `GET /api/thresholds` — no `q` (`q` → `400`); `filter`: thresholdType, isActive.
+    - `GET /api/biometric-devices` — `q`: deviceName, deviceId; `filter`:
+      biometricType, isActive.
+  - **Breaking**: the typed shorthand params removed from the contracts above
+    (`status`, `type`, `approvalStatus`) are **dropped** — use `filter=…` instead.
+  - Admin CRUD (`/api/admin/:resource`) gains `q` (per-resource `searchable`
+    fields in `crud.registry.ts`, `q` on a resource with none → `400`) and the
+    same operator set on `filter=`; responses keep the
+    `{ items, total, page, pageSize, totalPages }` envelope everywhere.
+  - Shared helpers live in `src/common/paging/` (`paging.ts`, `filter.ts`,
+    `search.ts`); paging is `pageSize ≤ 100` (default 20) across all lists.
+
 - **Source reorganization (feature-module layout)**:
   - Feature modules moved under `src/modules/` (`auth/`, `health/`), with auth
     split into `principal/`, `guards/`, `decorators/`, and `services/`.

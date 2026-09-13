@@ -26,20 +26,22 @@ const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 
 /** Query parameters for `GET /api/transactions`. */
 export class ListTransactionsQueryDto {
-  @ApiPropertyOptional({ enum: TransactionStatus, example: TransactionStatus.SUCCESS })
+  @ApiPropertyOptional({
+    example: 'lunch',
+    description: 'Free-text search across the transaction description',
+  })
   @IsOptional()
-  @IsIn(Object.values(TransactionStatus))
-  status?: TransactionStatus;
+  @IsString()
+  @MaxLength(100)
+  q?: string;
 
-  @ApiPropertyOptional({ enum: TransactionType, example: TransactionType.PAYMENT })
+  @ApiPropertyOptional({
+    example: 'status:SUCCESS',
+    description:
+      'Repeatable `field:value` or `field:op:value` filters (eq, contains, startsWith, endsWith, gt, gte, lt, lte). Fields: status, type, approvalStatus, currency, frequency, isRecurring, thresholdWarning.',
+  })
   @IsOptional()
-  @IsIn(Object.values(TransactionType))
-  type?: TransactionType;
-
-  @ApiPropertyOptional({ enum: ApprovalStatus, example: ApprovalStatus.PENDING })
-  @IsOptional()
-  @IsIn(Object.values(ApprovalStatus))
-  approvalStatus?: ApprovalStatus;
+  filter?: string | string[];
 
   @ApiPropertyOptional({ example: 1, minimum: 1 })
   @IsOptional()
@@ -154,10 +156,21 @@ export class PagedTransactionsDto {
 
 /** Query parameters for `GET /api/approvals`. */
 export class ListApprovalsQueryDto {
-  @ApiPropertyOptional({ enum: ApprovalStatus, example: ApprovalStatus.PENDING })
+  @ApiPropertyOptional({
+    example: 'lunch',
+    description: 'Free-text search across the approval notes and transaction description',
+  })
   @IsOptional()
-  @IsIn(Object.values(ApprovalStatus))
-  status?: ApprovalStatus;
+  @IsString()
+  @MaxLength(100)
+  q?: string;
+
+  @ApiPropertyOptional({
+    example: 'status:PENDING',
+    description: 'Repeatable `field:value` or `field:op:value` filters (`status`)',
+  })
+  @IsOptional()
+  filter?: string | string[];
 
   @ApiPropertyOptional({ example: 1, minimum: 1 })
   @IsOptional()

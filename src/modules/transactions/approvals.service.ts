@@ -2,6 +2,12 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { ApprovalStatus, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { money } from '../../common/money/money.js';
+import { parsePaging, toPageResult } from '../../common/paging/paging.js';
+import {
+  buildFilterWhere,
+  type FilterFieldSpec,
+  parseFilterEntries,
+} from '../../common/paging/filter.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
 interface PagedOptions {
@@ -9,8 +15,9 @@ interface PagedOptions {
   pageSize?: number;
 }
 
-const DEFAULT_PAGE_SIZE = 20;
-const MAX_PAGE_SIZE = 100;
+const APPROVAL_FILTER_FIELDS: Record<string, FilterFieldSpec> = {
+  status: { kind: 'enum' },
+};
 
 /** Fetched approval rows always embed the transaction and its card (if any). */
 const APPROVAL_INCLUDE = {
@@ -29,32 +36,40 @@ type ApprovalRow = Prisma.TransactionApprovalGetPayload<{ include: typeof APPROV
 export class ApprovalsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(userId: string, options: PagedOptions & { status?: ApprovalStatus } = {}) {
-    const page = options.page ?? 1;
-    const pageSize = Math.min(options.pageSize ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
+  async list(
+    userId: string,
+    options: PagedOptions & { q?: string; filter?: string | string[] } = {},
+  ) {
+    const { page, pageSize, skip, take } = parsePaging(options.page, options.pageSize);
     const where: Prisma.TransactionApprovalWhereInput = {
       transaction: { userId },
-      ...(options.status ? { status: options.status } : {}),
+      ...buildFilterWhere(parseFilterEntries(options.filter), APPROVAL_FILTER_FIELDS),
     };
+    const term = options.q?.trim();
+    if (term) {
+      where.OR = [
+        { notes: { contains: term, mode: 'insensitive' } },
+        { transaction: { description: { contains: term, mode: 'insensitive' } } },
+      ];
+    }
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.transactionApproval.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        skip,
+        take,
         include: APPROVAL_INCLUDE,
       }),
       this.prisma.transactionApproval.count({ where }),
     ]);
 
-    return {
-      items: items.map((item) => this.toView(item)),
+    return toPageResult(
+      items.map((item) => this.toView(item)),
       total,
       page,
       pageSize,
-      totalPages: Math.ceil(total / pageSize),
-    };
+    );
   }
 
   async get(userId: string, approvalId: string) {

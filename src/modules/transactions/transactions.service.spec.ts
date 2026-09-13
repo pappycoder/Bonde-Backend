@@ -99,7 +99,7 @@ describe('TransactionsService', () => {
   it('lists a paged envelope scoped to the user with filters', async () => {
     const { service, transaction } = makeTransactionsService();
     const result = await service.list(USER_ID, {
-      status: TransactionStatus.SUCCESS,
+      filter: 'status:SUCCESS',
       page: 2,
       pageSize: 10,
     });
@@ -316,7 +316,7 @@ describe('ApprovalsService', () => {
 
   it('lists approvals resolved through the owning user’s transactions', async () => {
     const { service, transactionApproval } = makeApprovalsService();
-    const result = await service.list(USER_ID, { status: ApprovalStatus.PENDING });
+    const result = await service.list(USER_ID, { filter: 'status:PENDING' });
     expect(result.total).toBe(1);
     expect(transactionApproval.findMany).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -66,7 +66,7 @@ export class CrudController {
   }
 
   @Get(':resource')
-  @ApiOperation({ summary: 'List rows (paged, optional equality filters)' })
+  @ApiOperation({ summary: 'List rows (paged, `filter=field:op:value`, free-text `q`)' })
   @ApiParam({ name: 'resource', enum: CRUD_RESOURCES })
   @ApiOkResponse({ type: PagedCrudResponseDto })
   @ApiErrorResponse()
@@ -76,6 +76,7 @@ export class CrudController {
       pageSize: query.pageSize,
       filters: query.filter,
       orderBy: query.orderBy,
+      q: query.q,
     });
   }
 

@@ -50,7 +50,7 @@ describe('NotificationsService.list', () => {
     const findMany = vi.fn(async () => []);
     const count = vi.fn(async () => 1);
     const { service, prisma } = makeService({ findMany, count });
-    await service.list(USER_ID, { status: NotificationStatus.UNREAD, page: 2, pageSize: 10 });
+    await service.list(USER_ID, { filter: 'status:UNREAD', page: 2, pageSize: 10 });
 
     expect(findMany).toHaveBeenCalledWith({
       where: { userId: USER_ID, status: NotificationStatus.UNREAD },

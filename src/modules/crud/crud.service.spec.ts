@@ -251,4 +251,57 @@ describe('CrudService.list', () => {
       BadRequestException,
     );
   });
+
+  it('searches with q across the searchable fields', async () => {
+    const chats: FakeDelegate = { findMany: vi.fn(async () => []), count: vi.fn(async () => 0) };
+    const { service } = makeService({ Chat: chats });
+    await service.list('chats', { q: 'holiday', page: 1, pageSize: 20 });
+    expect(chats.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { OR: [{ title: { contains: 'holiday', mode: 'insensitive' } }] },
+      }),
+    );
+  });
+
+  it('combines q search with filter operators', async () => {
+    const messages: FakeDelegate = { findMany: vi.fn(async () => []), count: vi.fn(async () => 0) };
+    const { service } = makeService({ Message: messages });
+    await service.list('messages', {
+      q: 'hello',
+      filters: 'role:eq:USER',
+      page: 1,
+      pageSize: 20,
+    });
+    expect(messages.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          role: 'USER',
+          OR: [{ content: { contains: 'hello', mode: 'insensitive' } }],
+        },
+      }),
+    );
+  });
+
+  it('supports textual operators on string fields', async () => {
+    const chats: FakeDelegate = { findMany: vi.fn(async () => []), count: vi.fn(async () => 0) };
+    const { service } = makeService({ Chat: chats });
+    await service.list('chats', { filters: 'title:startsWith:vac', page: 1, pageSize: 20 });
+    expect(chats.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { title: { startsWith: 'vac', mode: 'insensitive' } },
+      }),
+    );
+  });
+
+  it('rejects operators not allowed on the field kind', async () => {
+    const { service } = makeService({ Chat: { findMany: vi.fn(), count: vi.fn() } });
+    await expect(service.list('chats', { filters: 'userId:contains:11' })).rejects.toThrow(
+      'Operator "contains" is not allowed',
+    );
+  });
+
+  it('rejects q on resources with no searchable fields', async () => {
+    const { service } = makeService({ CardLock: { findMany: vi.fn(), count: vi.fn() } });
+    await expect(service.list('card-locks', { q: 'x' })).rejects.toThrow(BadRequestException);
+  });
 });

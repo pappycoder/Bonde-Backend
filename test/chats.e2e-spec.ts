@@ -35,6 +35,16 @@ describe('Chats self-service (e2e)', () => {
     expect(res.body.items[0]).toMatchObject({ id: SEED_CHAT_ID, title: 'Onboarding chat' });
   });
 
+  it('searches chat history by title and rejects unknown filter fields', async () => {
+    const res = await ctx.http.get('/chats').query({ q: 'onboarding' }).expect(200);
+    expect(res.body).toMatchObject({ total: 1, items: [{ id: SEED_CHAT_ID }] });
+
+    const none = await ctx.http.get('/chats').query({ q: 'zzz-none' }).expect(200);
+    expect(none.body.total).toBe(0);
+
+    await ctx.http.get('/chats').query({ filter: 'title:x' }).expect(400);
+  });
+
   it('creates a chat with and without a title', async () => {
     const named = await ctx.http.post('/chats').send({ title: 'Travel' }).expect(201);
     expect(named.body).toMatchObject({ title: 'Travel' });

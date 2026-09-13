@@ -49,11 +49,16 @@ export class ThresholdsController {
   ) {}
 
   @Get()
-  @ApiOperation({ summary: 'List your transaction thresholds (paged)' })
+  @ApiOperation({ summary: 'List your transaction thresholds (paged, `filter=`, free-text `q`)' })
   @ApiOkResponse({ type: PagedThresholdsDto })
   @ApiErrorResponse()
   list(@CurrentUser() principal: AuthPrincipal, @Query() query: ListThresholdsQueryDto) {
-    return this.thresholds.list(principal.userId, { page: query.page, pageSize: query.pageSize });
+    return this.thresholds.list(principal.userId, {
+      q: query.q,
+      filter: query.filter,
+      page: query.page,
+      pageSize: query.pageSize,
+    });
   }
 
   @Post()

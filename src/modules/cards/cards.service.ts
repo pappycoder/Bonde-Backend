@@ -11,13 +11,35 @@ import { randomUUID } from 'node:crypto';
 import { encrypt } from '../../common/crypto/aes-gcm.js';
 import { AppConfig } from '../../config/configuration.js';
 import { money } from '../../common/money/money.js';
+import { parsePaging, toPageResult } from '../../common/paging/paging.js';
+import {
+  buildFilterWhere,
+  type FilterFieldSpec,
+  parseFilterEntries,
+} from '../../common/paging/filter.js';
+import { qWhere } from '../../common/paging/search.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { generateLuhnPan, last4 } from './card-number.js';
 
 interface PagedOptions {
   page?: number;
   pageSize?: number;
+  q?: string;
+  filter?: string | string[];
 }
+
+const CARD_FILTER_FIELDS: Record<string, FilterFieldSpec> = {
+  cardType: { kind: 'enum' },
+  status: { kind: 'enum' },
+  expirationType: { kind: 'enum' },
+};
+
+const CARD_TRANSACTION_FILTER_FIELDS: Record<string, FilterFieldSpec> = {
+  status: { kind: 'enum' },
+  type: { kind: 'enum' },
+  approvalStatus: { kind: 'enum' },
+  currency: { kind: 'string' },
+};
 
 interface WriteDto {
   nickname?: string;
@@ -25,9 +47,6 @@ interface WriteDto {
   maxSpendLimit?: string;
   monthlyLimit?: string;
 }
-
-const DEFAULT_PAGE_SIZE = 20;
-const MAX_PAGE_SIZE = 100;
 
 function defaultExpiration(expirationType: string, from: Date = new Date()): Date {
   const days = expirationType === 'yearly' ? 365 : 30;
@@ -48,27 +67,29 @@ export class CardsService {
   ) {}
 
   async list(userId: string, options: PagedOptions = {}) {
-    const page = options.page ?? 1;
-    const pageSize = Math.min(options.pageSize ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
-    const where: Prisma.CardWhereInput = { userId };
+    const { page, pageSize, skip, take } = parsePaging(options.page, options.pageSize);
+    const where = {
+      userId,
+      ...buildFilterWhere(parseFilterEntries(options.filter), CARD_FILTER_FIELDS),
+      ...qWhere(options.q, ['nickname', 'cardNumberLast4']),
+    } as Prisma.CardWhereInput;
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.card.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        skip,
+        take,
       }),
       this.prisma.card.count({ where }),
     ]);
 
-    return {
-      items: items.map((item) => this.toView(item)),
+    return toPageResult(
+      items.map((item) => this.toView(item)),
       total,
       page,
       pageSize,
-      totalPages: Math.ceil(total / pageSize),
-    };
+    );
   }
 
   async get(userId: string, cardId: string) {
@@ -164,27 +185,30 @@ export class CardsService {
 
   async listTransactions(userId: string, cardId: string, options: PagedOptions = {}) {
     await this.assertOwnedCard(userId, cardId);
-    const page = options.page ?? 1;
-    const pageSize = Math.min(options.pageSize ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
-    const where: Prisma.TransactionWhereInput = { userId, cardId };
+    const { page, pageSize, skip, take } = parsePaging(options.page, options.pageSize);
+    const where = {
+      userId,
+      cardId,
+      ...buildFilterWhere(parseFilterEntries(options.filter), CARD_TRANSACTION_FILTER_FIELDS),
+      ...qWhere(options.q, ['description']),
+    } as Prisma.TransactionWhereInput;
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.transaction.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        skip,
+        take,
       }),
       this.prisma.transaction.count({ where }),
     ]);
 
-    return {
-      items: items.map((item) => this.toTransactionView(item)),
+    return toPageResult(
+      items.map((item) => this.toTransactionView(item)),
       total,
       page,
       pageSize,
-      totalPages: Math.ceil(total / pageSize),
-    };
+    );
   }
 
   // -------------------------------------------------------------------------

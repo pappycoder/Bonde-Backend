@@ -36,6 +36,7 @@ import {
   CreateCardDto,
   CreateCardLockDto,
   CreateCardMerchantDto,
+  ListCardTransactionsQueryDto,
   ListCardsQueryDto,
   PagedCardsDto,
   UpdateCardCategoryDto,
@@ -65,11 +66,16 @@ export class CardsController {
   ) {}
 
   @Get()
-  @ApiOperation({ summary: 'List your cards (paged)' })
+  @ApiOperation({ summary: 'List your cards (paged, `filter=`, free-text `q`)' })
   @ApiOkResponse({ type: PagedCardsDto })
   @ApiErrorResponse()
   list(@CurrentUser() principal: AuthPrincipal, @Query() query: ListCardsQueryDto) {
-    return this.cards.list(principal.userId, { page: query.page, pageSize: query.pageSize });
+    return this.cards.list(principal.userId, {
+      q: query.q,
+      filter: query.filter,
+      page: query.page,
+      pageSize: query.pageSize,
+    });
   }
 
   @Post()
@@ -225,16 +231,20 @@ export class CardsController {
   }
 
   @Get(':id/transactions')
-  @ApiOperation({ summary: 'List the transactions made with one of your cards (paged)' })
+  @ApiOperation({
+    summary: 'List the transactions made with one of your cards (paged, `filter=`, free-text `q`)',
+  })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: PagedTransactionsDto })
   @ApiErrorResponse()
   listTransactions(
     @CurrentUser() principal: AuthPrincipal,
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
-    @Query() query: ListCardsQueryDto,
+    @Query() query: ListCardTransactionsQueryDto,
   ) {
     return this.cards.listTransactions(principal.userId, id, {
+      q: query.q,
+      filter: query.filter,
       page: query.page,
       pageSize: query.pageSize,
     });

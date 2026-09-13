@@ -1,12 +1,39 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ThresholdType } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsIn, IsInt, IsOptional, Matches, Max, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 const DECIMAL_PATTERN = /^\d+(\.\d{1,2})?$/;
 
 /** Query parameters for `GET /api/thresholds`. */
 export class ListThresholdsQueryDto {
+  @ApiPropertyOptional({
+    example: 'large',
+    description: 'Not supported on thresholds — passes `q` returns 400',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
+
+  @ApiPropertyOptional({
+    example: 'isActive:true',
+    description:
+      'Repeatable `field:value` or `field:op:value` filters (`thresholdType`, `isActive`)',
+  })
+  @IsOptional()
+  filter?: string | string[];
+
   @ApiPropertyOptional({ example: 1, minimum: 1 })
   @IsOptional()
   @IsInt()

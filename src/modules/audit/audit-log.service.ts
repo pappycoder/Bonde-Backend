@@ -1,6 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
+import { parsePaging, toPageResult } from '../../common/paging/paging.js';
+import {
+  buildFilterWhere,
+  type FilterFieldSpec,
+  parseFilterEntries,
+} from '../../common/paging/filter.js';
+import { qWhere } from '../../common/paging/search.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
 const ENTITY_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -8,10 +15,14 @@ const ENTITY_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 interface PagedOptions {
   page?: number;
   pageSize?: number;
+  q?: string;
+  filter?: string | string[];
 }
 
-const DEFAULT_PAGE_SIZE = 20;
-const MAX_PAGE_SIZE = 100;
+const AUDIT_LOG_FILTER_FIELDS: Record<string, FilterFieldSpec> = {
+  action: { kind: 'string' },
+  entityType: { kind: 'string' },
+};
 
 export interface AuditLogEntryInput {
   /** Actor. `null`/omitted for system actions. */
@@ -65,21 +76,24 @@ export class AuditLogService {
 
   /** Paged read of the caller's own entries (self-service surface). */
   async listForUser(userId: string, options: PagedOptions = {}) {
-    const page = options.page ?? 1;
-    const pageSize = Math.min(options.pageSize ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
-    const where: Prisma.AuditLogWhereInput = { userId };
+    const { page, pageSize, skip, take } = parsePaging(options.page, options.pageSize);
+    const where = {
+      userId,
+      ...buildFilterWhere(parseFilterEntries(options.filter), AUDIT_LOG_FILTER_FIELDS),
+      ...qWhere(options.q, ['action', 'entityType']),
+    } as Prisma.AuditLogWhereInput;
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.auditLog.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        skip,
+        take,
       }),
       this.prisma.auditLog.count({ where }),
     ]);
 
-    return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
+    return toPageResult(items, total, page, pageSize);
   }
 
   /** Read of one of the caller's own entries. */

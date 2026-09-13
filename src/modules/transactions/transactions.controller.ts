@@ -58,14 +58,13 @@ export class TransactionsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List all of your transactions (paged, optional filters)' })
+  @ApiOperation({ summary: 'List all of your transactions (paged, `filter=`, free-text `q`)' })
   @ApiOkResponse({ type: PagedTransactionsDto })
   @ApiErrorResponse()
   list(@CurrentUser() principal: AuthPrincipal, @Query() query: ListTransactionsQueryDto) {
     return this.transactions.list(principal.userId, {
-      status: query.status,
-      type: query.type,
-      approvalStatus: query.approvalStatus,
+      q: query.q,
+      filter: query.filter,
       page: query.page,
       pageSize: query.pageSize,
     });

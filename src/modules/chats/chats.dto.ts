@@ -5,6 +5,22 @@ import { IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'cla
 
 /** Query parameters for `GET /api/chats`. */
 export class ListChatsQueryDto {
+  @ApiPropertyOptional({
+    example: 'travel',
+    description: 'Free-text search across the chat title',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
+
+  @ApiPropertyOptional({
+    example: 'title:Travel',
+    description: 'No filterable fields on chats — passing any `filter=` returns 400',
+  })
+  @IsOptional()
+  filter?: string | string[];
+
   @ApiPropertyOptional({ example: 1, minimum: 1 })
   @IsOptional()
   @IsInt()
@@ -79,6 +95,22 @@ export class PagedChatsDto {
 
 /** Query parameters for `GET /api/chats/:id/messages`. */
 export class ListMessagesQueryDto {
+  @ApiPropertyOptional({
+    example: 'send 2000',
+    description: 'Free-text search across the message content',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  q?: string;
+
+  @ApiPropertyOptional({
+    example: 'role:USER',
+    description: 'Repeatable `field:value` or `field:op:value` filters (`role`)',
+  })
+  @IsOptional()
+  filter?: string | string[];
+
   @ApiPropertyOptional({ example: 1, minimum: 1 })
   @IsOptional()
   @IsInt()

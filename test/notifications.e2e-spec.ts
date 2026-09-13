@@ -65,7 +65,7 @@ describe('Notifications (self-service e2e)', () => {
 
     const res = await ctx.http
       .get('/notifications')
-      .query({ status: NotificationStatus.UNREAD })
+      .query({ filter: `status:${NotificationStatus.UNREAD}` })
       .expect(200);
     expect(res.body.items).toHaveLength(1);
     expect(res.body.items[0].status).toBe(NotificationStatus.UNREAD);

@@ -20,6 +20,58 @@ const CARD_TYPES = ['virtual'];
 
 /** Query parameters for `GET /api/cards`. */
 export class ListCardsQueryDto {
+  @ApiPropertyOptional({
+    example: 'weekend',
+    description: 'Free-text search across the card nickname and last-4 digits',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
+
+  @ApiPropertyOptional({
+    example: 'status:ACTIVE',
+    description:
+      'Repeatable `field:value` or `field:op:value` filters (eq, contains, startsWith, endsWith). Fields: cardType, status, expirationType.',
+  })
+  @IsOptional()
+  filter?: string | string[];
+
+  @ApiPropertyOptional({ example: 1, minimum: 1 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  page?: number;
+
+  @ApiPropertyOptional({ example: 20, minimum: 1, maximum: 100 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  @Type(() => Number)
+  pageSize?: number;
+}
+
+/** Query parameters for `GET /api/cards/:id/transactions`. */
+export class ListCardTransactionsQueryDto {
+  @ApiPropertyOptional({
+    example: 'lunch',
+    description: 'Free-text search across the transaction description',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
+
+  @ApiPropertyOptional({
+    example: 'status:SUCCESS',
+    description:
+      'Repeatable `field:value` or `field:op:value` filters (eq, contains, startsWith, endsWith). Fields: status, type, approvalStatus, currency.',
+  })
+  @IsOptional()
+  filter?: string | string[];
+
   @ApiPropertyOptional({ example: 1, minimum: 1 })
   @IsOptional()
   @IsInt()

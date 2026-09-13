@@ -1,9 +1,26 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 /** Query parameters for `GET /api/audit-logs`. */
 export class ListAuditLogsQueryDto {
+  @ApiPropertyOptional({
+    example: 'card.pause',
+    description: 'Free-text search across the action and entity type',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
+
+  @ApiPropertyOptional({
+    example: 'action:card.pause',
+    description:
+      'Repeatable `field:value` or `field:op:value` filters (eq, contains, startsWith, endsWith). Fields: action, entityType.',
+  })
+  @IsOptional()
+  filter?: string | string[];
+
   @ApiPropertyOptional({ example: 1, minimum: 1 })
   @IsOptional()
   @IsInt()

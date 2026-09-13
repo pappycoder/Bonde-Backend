@@ -1,15 +1,26 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
+import { parsePaging, toPageResult } from '../../common/paging/paging.js';
+import {
+  buildFilterWhere,
+  type FilterFieldSpec,
+  parseFilterEntries,
+} from '../../common/paging/filter.js';
+import { qWhere } from '../../common/paging/search.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
 interface PagedOptions {
   page?: number;
   pageSize?: number;
+  q?: string;
+  filter?: string | string[];
 }
 
-const DEFAULT_PAGE_SIZE = 20;
-const MAX_PAGE_SIZE = 100;
+const BIOMETRIC_FILTER_FIELDS: Record<string, FilterFieldSpec> = {
+  biometricType: { kind: 'enum' },
+  isActive: { kind: 'boolean' },
+};
 
 /**
  * Self-service biometric enrollments. Only the verification public key is
@@ -21,21 +32,24 @@ export class BiometricsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(userId: string, options: PagedOptions = {}) {
-    const page = options.page ?? 1;
-    const pageSize = Math.min(options.pageSize ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
-    const where: Prisma.BiometricDeviceWhereInput = { userId };
+    const { page, pageSize, skip, take } = parsePaging(options.page, options.pageSize);
+    const where = {
+      userId,
+      ...buildFilterWhere(parseFilterEntries(options.filter), BIOMETRIC_FILTER_FIELDS),
+      ...qWhere(options.q, ['deviceName', 'deviceId']),
+    } as Prisma.BiometricDeviceWhereInput;
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.biometricDevice.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        skip,
+        take,
       }),
       this.prisma.biometricDevice.count({ where }),
     ]);
 
-    return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
+    return toPageResult(items, total, page, pageSize);
   }
 
   async get(userId: string, deviceId: string) {

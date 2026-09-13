@@ -29,6 +29,8 @@ export interface CrudModelDef {
   label: string;
   /** Allowed verbs. `audit-logs` is read-only (`list`,`get`). */
   methods: CrudMethod[];
+  /** Visible string fields searched by the free-text `q` query param. */
+  searchable: readonly string[];
   fields: Record<string, CrudModelField>;
 }
 
@@ -78,6 +80,7 @@ export const CRUD_REGISTRY: readonly CrudModelDef[] = [
     resource: 'card-locks',
     label: 'Card lock',
     methods: ['create', 'list', 'get', 'update', 'delete'],
+    searchable: [],
     fields: {
       id: idField(),
       cardId: f('uuid', { required: true }),
@@ -95,6 +98,7 @@ export const CRUD_REGISTRY: readonly CrudModelDef[] = [
     resource: 'card-categories',
     label: 'Card restricted category',
     methods: ['create', 'list', 'get', 'update', 'delete'],
+    searchable: [],
     fields: {
       id: idField(),
       cardId: f('uuid', { required: true }),
@@ -108,6 +112,7 @@ export const CRUD_REGISTRY: readonly CrudModelDef[] = [
     resource: 'chats',
     label: 'AI chat session',
     methods: ['create', 'list', 'get', 'update', 'delete'],
+    searchable: ['title'],
     fields: {
       id: idField(),
       userId: f('uuid', { required: true }),
@@ -121,6 +126,7 @@ export const CRUD_REGISTRY: readonly CrudModelDef[] = [
     resource: 'messages',
     label: 'Chat message',
     methods: ['create', 'list', 'get', 'delete'],
+    searchable: ['content'],
     fields: {
       id: idField(),
       chatId: f('uuid', { required: true }),
@@ -134,6 +140,7 @@ export const CRUD_REGISTRY: readonly CrudModelDef[] = [
     resource: 'transaction-thresholds',
     label: 'Transaction threshold',
     methods: ['create', 'list', 'get', 'update', 'delete'],
+    searchable: [],
     fields: {
       id: idField(),
       userId: f('uuid', { required: true }),
@@ -149,6 +156,7 @@ export const CRUD_REGISTRY: readonly CrudModelDef[] = [
     resource: 'biometric-devices',
     label: 'Biometric device',
     methods: ['create', 'list', 'get', 'update', 'delete'],
+    searchable: ['deviceId', 'deviceName'],
     fields: {
       id: idField(),
       userId: f('uuid', { required: true }),
@@ -167,6 +175,7 @@ export const CRUD_REGISTRY: readonly CrudModelDef[] = [
     resource: 'notifications',
     label: 'Notification',
     methods: ['create', 'list', 'get', 'update', 'delete'],
+    searchable: ['title', 'content'],
     fields: {
       id: idField(),
       userId: f('uuid', { required: true }),
@@ -184,6 +193,7 @@ export const CRUD_REGISTRY: readonly CrudModelDef[] = [
     resource: 'card-providers',
     label: 'Card provider',
     methods: ['create', 'list', 'get', 'update', 'delete'],
+    searchable: ['name', 'baseUrl'],
     fields: {
       id: idField(),
       name: f('string', { required: true }),
@@ -199,6 +209,7 @@ export const CRUD_REGISTRY: readonly CrudModelDef[] = [
     resource: 'audit-logs',
     label: 'Audit log',
     methods: ['list', 'get'],
+    searchable: ['action', 'entityType'],
     fields: {
       id: idField(),
       userId: serverField('uuid'),
@@ -236,6 +247,19 @@ export function assertCrudRegistryInvariants(): void {
     seenModels.add(def.modelName);
     if (def.methods.length === 0) {
       throw new Error(`CRUD registry: "${def.resource}" declares no methods`);
+    }
+    for (const name of def.searchable) {
+      const field = def.fields[name];
+      if (!field) {
+        throw new Error(
+          `CRUD registry: "${def.resource}.searchable" references unknown field "${name}"`,
+        );
+      }
+      if (field.kind !== 'string' || !field.visible) {
+        throw new Error(
+          `CRUD registry: "${def.resource}.searchable" field "${name}" must be a visible string field`,
+        );
+      }
     }
     for (const [name, field] of Object.entries(def.fields)) {
       if (field.required && !field.writable) {

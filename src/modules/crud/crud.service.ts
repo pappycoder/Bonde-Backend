@@ -7,6 +7,13 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
+import { parsePaging, toPageResult } from '../../common/paging/paging.js';
+import {
+  filterFragment,
+  type FilterOperator,
+  parseFilterEntries,
+} from '../../common/paging/filter.js';
+import { qWhere } from '../../common/paging/search.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import {
   assertCrudRegistryInvariants,
@@ -25,6 +32,7 @@ export interface CrudListOptions {
   pageSize?: number;
   filters?: string[] | string;
   orderBy?: string;
+  q?: string;
 }
 
 interface CrudDelegate {
@@ -72,31 +80,24 @@ export class CrudService {
 
   async list(resource: string, options: CrudListOptions = {}): Promise<unknown> {
     const def = this.defFor(resource, 'list');
-    const page =
-      typeof options.page === 'number' && options.page >= 1 ? Math.floor(options.page) : 1;
-    const pageSize =
-      typeof options.pageSize === 'number'
-        ? Math.min(Math.max(Math.floor(options.pageSize), 1), 100)
-        : 20;
+    const { page, pageSize, skip, take } = parsePaging(options.page, options.pageSize);
 
-    const where = this.buildFilters(def, options.filters);
+    const where = this.buildFilters(def, options.filters, options.q);
     const orderBy = this.buildOrderBy(def, options.orderBy ?? 'createdAt:desc');
     const select = this.select(def);
-    const skip = (page - 1) * pageSize;
 
     try {
       const [items, total] = await Promise.all([
-        this.delegate(def).findMany({ where, select, orderBy, skip, take: pageSize }),
+        this.delegate(def).findMany({ where, select, orderBy, skip, take }),
         this.delegate(def).count({ where }),
       ]);
       const arrayItems = Array.isArray(items) ? items : [];
-      return {
-        items: arrayItems.map((item) => this.serialize(def, item)),
+      return toPageResult(
+        arrayItems.map((item) => this.serialize(def, item)),
         total,
         page,
         pageSize,
-        totalPages: Math.ceil(total / pageSize),
-      };
+      );
     } catch (error) {
       this.rethrowPrisma(error);
     }
@@ -230,27 +231,45 @@ export class CrudService {
   private buildFilters(
     def: CrudModelDef,
     filters: CrudListOptions['filters'],
+    q?: string,
   ): Record<string, unknown> {
-    const rawFilters = Array.isArray(filters)
-      ? filters
-      : typeof filters === 'string' && filters.length > 0
-        ? [filters]
-        : [];
-    const where: Record<string, unknown> = {};
-    for (const entry of rawFilters) {
-      const separatorIndex = entry.indexOf(':');
-      if (separatorIndex <= 0) {
-        throw new BadRequestException('filter must be "field:value"');
-      }
-      const fieldName = entry.slice(0, separatorIndex);
-      const rawValue = entry.slice(separatorIndex + 1);
-      const field = def.fields[fieldName];
-      if (!field || !field.visible) {
-        throw new BadRequestException(`Unknown filter field "${fieldName}"`);
-      }
-      where[fieldName] = this.coerce(field, fieldName, rawValue);
+    if (q?.trim() && def.searchable.length === 0) {
+      throw new BadRequestException(`Free-text search is not supported on "${def.resource}"`);
     }
+    const where: Record<string, unknown> = {};
+    for (const entry of parseFilterEntries(filters)) {
+      const field = def.fields[entry.field];
+      if (!field || !field.visible) {
+        throw new BadRequestException(`Unknown filter field "${entry.field}"`);
+      }
+      const ops = this.opsFor(field.kind);
+      if (!ops.includes(entry.op)) {
+        throw new BadRequestException(
+          `Operator "${entry.op}" is not allowed on field "${entry.field}"`,
+        );
+      }
+      where[entry.field] = filterFragment(entry.op, this.coerce(field, entry.field, entry.value));
+    }
+    const search = qWhere(q, def.searchable);
+    if (search) Object.assign(where, search);
     return where;
+  }
+
+  private opsFor(kind: CrudModelField['kind']): FilterOperator[] {
+    switch (kind) {
+      case 'string':
+        return ['eq', 'contains', 'startsWith', 'endsWith'];
+      case 'int':
+      case 'decimal':
+      case 'datetime':
+        return ['eq', 'gt', 'gte', 'lt', 'lte'];
+      case 'uuid':
+      case 'boolean':
+      case 'enum':
+        return ['eq'];
+      case 'json':
+        return [];
+    }
   }
 
   private buildOrderBy(def: CrudModelDef, orderBy: string): Record<string, string> {

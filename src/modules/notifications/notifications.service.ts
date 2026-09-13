@@ -1,6 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { NotificationStatus, NotificationType, Prisma } from '@prisma/client';
+import { parsePaging, toPageResult } from '../../common/paging/paging.js';
+import {
+  buildFilterWhere,
+  type FilterFieldSpec,
+  parseFilterEntries,
+} from '../../common/paging/filter.js';
+import { qWhere } from '../../common/paging/search.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
 export interface CreateNotificationInput {
@@ -12,10 +19,16 @@ export interface CreateNotificationInput {
 }
 
 export interface ListNotificationsOptions {
-  status?: NotificationStatus;
+  q?: string;
+  filter?: string | string[];
   page?: number;
   pageSize?: number;
 }
+
+const NOTIFICATION_FILTER_FIELDS: Record<string, FilterFieldSpec> = {
+  status: { kind: 'enum' },
+  type: { kind: 'enum' },
+};
 
 /**
  * In-app notifications for the authenticated user. `create` is the internal
@@ -41,30 +54,24 @@ export class NotificationsService {
   }
 
   async list(userId: string, options: ListNotificationsOptions = {}) {
-    const page = options.page ?? 1;
-    const pageSize = options.pageSize ?? 20;
-    const where: Prisma.NotificationWhereInput = {
+    const { page, pageSize, skip, take } = parsePaging(options.page, options.pageSize);
+    const where = {
       userId,
-      ...(options.status ? { status: options.status } : {}),
-    };
+      ...buildFilterWhere(parseFilterEntries(options.filter), NOTIFICATION_FILTER_FIELDS),
+      ...qWhere(options.q, ['title', 'content']),
+    } as Prisma.NotificationWhereInput;
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.notification.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        skip,
+        take,
       }),
       this.prisma.notification.count({ where }),
     ]);
 
-    return {
-      items,
-      total,
-      page,
-      pageSize,
-      totalPages: Math.ceil(total / pageSize),
-    };
+    return toPageResult(items, total, page, pageSize);
   }
 
   async markRead(userId: string, notificationId: string): Promise<unknown> {

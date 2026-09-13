@@ -3,6 +3,13 @@ import type { Transaction } from '@prisma/client';
 import { ApprovalStatus, Prisma, TransactionStatus, TransactionType } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { money } from '../../common/money/money.js';
+import { parsePaging, toPageResult } from '../../common/paging/paging.js';
+import {
+  buildFilterWhere,
+  type FilterFieldSpec,
+  parseFilterEntries,
+} from '../../common/paging/filter.js';
+import { qWhere } from '../../common/paging/search.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
 interface PagedOptions {
@@ -11,13 +18,20 @@ interface PagedOptions {
 }
 
 interface ListTransactionsOptions extends PagedOptions {
-  status?: TransactionStatus;
-  type?: TransactionType;
-  approvalStatus?: ApprovalStatus;
+  q?: string;
+  filter?: string | string[];
 }
 
-const DEFAULT_PAGE_SIZE = 20;
-const MAX_PAGE_SIZE = 100;
+const TRANSACTION_FILTER_FIELDS: Record<string, FilterFieldSpec> = {
+  status: { kind: 'enum' },
+  type: { kind: 'enum' },
+  approvalStatus: { kind: 'enum' },
+  currency: { kind: 'string' },
+  frequency: { kind: 'enum' },
+  isRecurring: { kind: 'boolean' },
+  thresholdWarning: { kind: 'boolean' },
+};
+
 const RECENT_LIMIT = 10;
 const RECENT_LIMIT_MAX = 50;
 
@@ -32,32 +46,29 @@ export class TransactionsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(userId: string, options: ListTransactionsOptions = {}) {
-    const page = options.page ?? 1;
-    const pageSize = Math.min(options.pageSize ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
-    const where: Prisma.TransactionWhereInput = {
+    const { page, pageSize, skip, take } = parsePaging(options.page, options.pageSize);
+    const where = {
       userId,
-      ...(options.status ? { status: options.status } : {}),
-      ...(options.type ? { type: options.type } : {}),
-      ...(options.approvalStatus ? { approvalStatus: options.approvalStatus } : {}),
-    };
+      ...buildFilterWhere(parseFilterEntries(options.filter), TRANSACTION_FILTER_FIELDS),
+      ...qWhere(options.q, ['description']),
+    } as Prisma.TransactionWhereInput;
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.transaction.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        skip,
+        take,
       }),
       this.prisma.transaction.count({ where }),
     ]);
 
-    return {
-      items: items.map((item) => this.toView(item)),
+    return toPageResult(
+      items.map((item) => this.toView(item)),
       total,
       page,
       pageSize,
-      totalPages: Math.ceil(total / pageSize),
-    };
+    );
   }
 
   async recent(userId: string, limit: number = RECENT_LIMIT) {

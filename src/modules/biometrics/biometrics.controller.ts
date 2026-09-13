@@ -48,11 +48,18 @@ export class BiometricsController {
   ) {}
 
   @Get()
-  @ApiOperation({ summary: 'List your enrolled biometric devices (paged)' })
+  @ApiOperation({
+    summary: 'List your enrolled biometric devices (paged, `filter=`, free-text `q`)',
+  })
   @ApiOkResponse({ type: PagedBiometricsDto })
   @ApiErrorResponse()
   list(@CurrentUser() principal: AuthPrincipal, @Query() query: ListBiometricsQueryDto) {
-    return this.biometrics.list(principal.userId, { page: query.page, pageSize: query.pageSize });
+    return this.biometrics.list(principal.userId, {
+      q: query.q,
+      filter: query.filter,
+      page: query.page,
+      pageSize: query.pageSize,
+    });
   }
 
   @Post()

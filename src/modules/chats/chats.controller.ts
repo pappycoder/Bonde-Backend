@@ -51,11 +51,16 @@ export class ChatsController {
   ) {}
 
   @Get()
-  @ApiOperation({ summary: 'List your chat history (paged)' })
+  @ApiOperation({ summary: 'List your chat history (paged, free-text `q`)' })
   @ApiOkResponse({ type: PagedChatsDto })
   @ApiErrorResponse()
   list(@CurrentUser() principal: AuthPrincipal, @Query() query: ListChatsQueryDto) {
-    return this.chats.list(principal.userId, { page: query.page, pageSize: query.pageSize });
+    return this.chats.list(principal.userId, {
+      q: query.q,
+      filter: query.filter,
+      page: query.page,
+      pageSize: query.pageSize,
+    });
   }
 
   @Post()
@@ -87,7 +92,10 @@ export class ChatsController {
   }
 
   @Get(':id/messages')
-  @ApiOperation({ summary: 'List the messages in one of your chats (paged, chronological)' })
+  @ApiOperation({
+    summary:
+      'List the messages in one of your chats (paged, chronological, `filter=`, free-text `q`)',
+  })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: PagedMessagesDto })
   @ApiErrorResponse()
@@ -97,6 +105,8 @@ export class ChatsController {
     @Query() query: ListMessagesQueryDto,
   ) {
     return this.chats.listMessages(principal.userId, id, {
+      q: query.q,
+      filter: query.filter,
       page: query.page,
       pageSize: query.pageSize,
     });

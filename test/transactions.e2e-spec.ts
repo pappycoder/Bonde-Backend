@@ -61,10 +61,25 @@ describe('Transactions, approvals + thresholds (self-service e2e)', () => {
   });
 
   it('filters transactions by status', async () => {
-    const pending = await ctx.http.get('/transactions').query({ status: 'PENDING' }).expect(200);
+    const pending = await ctx.http
+      .get('/transactions')
+      .query({ filter: 'status:PENDING' })
+      .expect(200);
     expect(pending.body.total).toBe(1);
-    const success = await ctx.http.get('/transactions').query({ status: 'SUCCESS' }).expect(200);
+    const success = await ctx.http
+      .get('/transactions')
+      .query({ filter: 'status:SUCCESS' })
+      .expect(200);
     expect(success.body.total).toBe(0);
+  });
+
+  it('searches transactions by description and rejects bad filters', async () => {
+    const res = await ctx.http.get('/transactions').query({ q: 'amina' }).expect(200);
+    expect(res.body).toMatchObject({ total: 1, items: [{ id: SEED_TRANSACTION_ID }] });
+
+    await ctx.http.get('/transactions').query({ q: 'na' }).expect(200);
+    await ctx.http.get('/transactions').query({ filter: 'nope:x' }).expect(400);
+    await ctx.http.get('/transactions').query({ filter: 'status:contains:EN' }).expect(400);
   });
 
   it('returns recent transactions as a bounded array', async () => {
@@ -98,7 +113,10 @@ describe('Transactions, approvals + thresholds (self-service e2e)', () => {
       },
     });
 
-    const declined = await ctx.http.get('/approvals').query({ status: 'DECLINED' }).expect(200);
+    const declined = await ctx.http
+      .get('/approvals')
+      .query({ filter: 'status:DECLINED' })
+      .expect(200);
     expect(declined.body.total).toBe(0);
   });
 
@@ -170,7 +188,10 @@ describe('Transactions, approvals + thresholds (self-service e2e)', () => {
       approvalStatus: 'PENDING',
     });
 
-    const list = await ctx.http.get('/transactions').query({ status: 'PENDING' }).expect(200);
+    const list = await ctx.http
+      .get('/transactions')
+      .query({ filter: 'status:PENDING' })
+      .expect(200);
     expect(list.body.total).toBe(2);
   });
 

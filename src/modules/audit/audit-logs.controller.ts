@@ -18,11 +18,16 @@ export class AuditLogsController {
   constructor(private readonly audit: AuditLogService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List your audit trail (paged)' })
+  @ApiOperation({ summary: 'List your audit trail (paged, `filter=`, free-text `q`)' })
   @ApiOkResponse({ type: PagedAuditLogsDto })
   @ApiErrorResponse()
   list(@CurrentUser() principal: AuthPrincipal, @Query() query: ListAuditLogsQueryDto) {
-    return this.audit.listForUser(principal.userId, { page: query.page, pageSize: query.pageSize });
+    return this.audit.listForUser(principal.userId, {
+      q: query.q,
+      filter: query.filter,
+      page: query.page,
+      pageSize: query.pageSize,
+    });
   }
 
   @Get(':id')

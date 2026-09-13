@@ -19,13 +19,22 @@ export class CrudListQueryDto {
   @Type(() => Number)
   pageSize?: number;
 
-  /** Repeatable: `?filter=status:UNREAD&filter=userId:<uuid>`. Equality on visible fields. */
+  /** Repeatable: `?filter=status:UNREAD&filter=userId:<uuid>`. Field equality, or `field:op:value`. */
   @ApiPropertyOptional({
     example: 'status:UNREAD',
-    description: 'Repeatable `field:value` equality filters',
+    description:
+      'Repeatable `field:value` or `field:op:value` filters. Operators: eq (default), contains, startsWith, endsWith, gt, gte, lt, lte.',
   })
   @IsOptional()
   filter?: string | string[];
+
+  @ApiPropertyOptional({
+    example: 'lunch',
+    description: 'Free-text search across the searchable string fields of the resource',
+  })
+  @IsOptional()
+  @IsString()
+  q?: string;
 
   @ApiPropertyOptional({
     example: 'createdAt:desc',

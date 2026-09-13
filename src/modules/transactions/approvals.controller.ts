@@ -50,12 +50,15 @@ export class ApprovalsController {
   ) {}
 
   @Get()
-  @ApiOperation({ summary: 'List approvals on your transactions (paged, optional status filter)' })
+  @ApiOperation({
+    summary: 'List approvals on your transactions (paged, `filter=`, free-text `q`)',
+  })
   @ApiOkResponse({ type: PagedApprovalsDto })
   @ApiErrorResponse()
   list(@CurrentUser() principal: AuthPrincipal, @Query() query: ListApprovalsQueryDto) {
     return this.approvals.list(principal.userId, {
-      status: query.status,
+      q: query.q,
+      filter: query.filter,
       page: query.page,
       pageSize: query.pageSize,
     });

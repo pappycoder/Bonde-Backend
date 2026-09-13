@@ -1,17 +1,32 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import type { TransactionThreshold } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { money } from '../../common/money/money.js';
+import { parsePaging, toPageResult } from '../../common/paging/paging.js';
+import {
+  buildFilterWhere,
+  type FilterFieldSpec,
+  parseFilterEntries,
+} from '../../common/paging/filter.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
 interface PagedOptions {
   page?: number;
   pageSize?: number;
+  q?: string;
+  filter?: string | string[];
 }
 
-const DEFAULT_PAGE_SIZE = 20;
-const MAX_PAGE_SIZE = 100;
+const THRESHOLD_FILTER_FIELDS: Record<string, FilterFieldSpec> = {
+  thresholdType: { kind: 'enum' },
+  isActive: { kind: 'boolean' },
+};
 
 /**
  * Self-service transaction thresholds. A user may configure one threshold per
@@ -23,27 +38,31 @@ export class ThresholdsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(userId: string, options: PagedOptions = {}) {
-    const page = options.page ?? 1;
-    const pageSize = Math.min(options.pageSize ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
-    const where: Prisma.TransactionThresholdWhereInput = { userId };
+    if (options.q?.trim()) {
+      throw new BadRequestException('Free-text search is not supported on thresholds');
+    }
+    const { page, pageSize, skip, take } = parsePaging(options.page, options.pageSize);
+    const where = {
+      userId,
+      ...buildFilterWhere(parseFilterEntries(options.filter), THRESHOLD_FILTER_FIELDS),
+    } as Prisma.TransactionThresholdWhereInput;
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.transactionThreshold.findMany({
         where,
         orderBy: { createdAt: 'asc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        skip,
+        take,
       }),
       this.prisma.transactionThreshold.count({ where }),
     ]);
 
-    return {
-      items: items.map((item) => this.toView(item)),
+    return toPageResult(
+      items.map((item) => this.toView(item)),
       total,
       page,
       pageSize,
-      totalPages: Math.ceil(total / pageSize),
-    };
+    );
   }
 
   async get(userId: string, thresholdId: string) {

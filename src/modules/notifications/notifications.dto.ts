@@ -1,14 +1,25 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { NotificationStatus, NotificationType } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 /** Query parameters for `GET /api/notifications`. */
 export class ListNotificationsQueryDto {
-  @ApiPropertyOptional({ enum: NotificationStatus, example: NotificationStatus.UNREAD })
+  @ApiPropertyOptional({
+    example: 'card',
+    description: 'Free-text search across the notification title and content',
+  })
   @IsOptional()
-  @IsIn(Object.values(NotificationStatus))
-  status?: NotificationStatus;
+  @IsString()
+  @MaxLength(100)
+  q?: string;
+
+  @ApiPropertyOptional({
+    example: 'status:UNREAD',
+    description: 'Repeatable `field:value` or `field:op:value` filters (`status`, `type`)',
+  })
+  @IsOptional()
+  filter?: string | string[];
 
   @ApiPropertyOptional({ example: 1, minimum: 1 })
   @IsOptional()

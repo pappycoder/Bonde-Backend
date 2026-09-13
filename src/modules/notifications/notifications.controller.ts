@@ -31,12 +31,13 @@ export class NotificationsController {
   constructor(private readonly notifications: NotificationsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List your notifications (paged, optional status filter)' })
+  @ApiOperation({ summary: 'List your notifications (paged, `filter=`, free-text `q`)' })
   @ApiOkResponse({ type: PagedNotificationsDto })
   @ApiErrorResponse()
   list(@CurrentUser() principal: AuthPrincipal, @Query() query: ListNotificationsQueryDto) {
     return this.notifications.list(principal.userId, {
-      status: query.status,
+      q: query.q,
+      filter: query.filter,
       page: query.page,
       pageSize: query.pageSize,
     });

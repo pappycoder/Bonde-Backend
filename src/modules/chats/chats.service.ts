@@ -1,15 +1,27 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { MessageRole, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
+import { parsePaging, toPageResult } from '../../common/paging/paging.js';
+import {
+  buildFilterWhere,
+  type FilterFieldSpec,
+  parseFilterEntries,
+} from '../../common/paging/filter.js';
+import { qWhere } from '../../common/paging/search.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
 interface PagedOptions {
   page?: number;
   pageSize?: number;
+  q?: string;
+  filter?: string | string[];
 }
 
-const DEFAULT_PAGE_SIZE = 20;
-const MAX_PAGE_SIZE = 100;
+const CHAT_FILTER_FIELDS: Record<string, FilterFieldSpec> = {};
+
+const MESSAGE_FILTER_FIELDS: Record<string, FilterFieldSpec> = {
+  role: { kind: 'enum' },
+};
 
 /**
  * Self-service chat surface. Users own their chats; messages are written by
@@ -20,21 +32,24 @@ export class ChatsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(userId: string, options: PagedOptions = {}) {
-    const page = options.page ?? 1;
-    const pageSize = Math.min(options.pageSize ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
-    const where: Prisma.ChatWhereInput = { userId };
+    const { page, pageSize, skip, take } = parsePaging(options.page, options.pageSize);
+    const where = {
+      userId,
+      ...buildFilterWhere(parseFilterEntries(options.filter), CHAT_FILTER_FIELDS),
+      ...qWhere(options.q, ['title']),
+    } as Prisma.ChatWhereInput;
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.chat.findMany({
         where,
         orderBy: { updatedAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        skip,
+        take,
       }),
       this.prisma.chat.count({ where }),
     ]);
 
-    return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
+    return toPageResult(items, total, page, pageSize);
   }
 
   async create(userId: string, dto: { title?: string }) {
@@ -62,21 +77,24 @@ export class ChatsService {
 
   async listMessages(userId: string, chatId: string, options: PagedOptions = {}) {
     await this.get(userId, chatId);
-    const page = options.page ?? 1;
-    const pageSize = Math.min(options.pageSize ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
-    const where: Prisma.MessageWhereInput = { chatId };
+    const { page, pageSize, skip, take } = parsePaging(options.page, options.pageSize);
+    const where = {
+      chatId,
+      ...buildFilterWhere(parseFilterEntries(options.filter), MESSAGE_FILTER_FIELDS),
+      ...qWhere(options.q, ['content']),
+    } as Prisma.MessageWhereInput;
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.message.findMany({
         where,
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        skip,
+        take,
       }),
       this.prisma.message.count({ where }),
     ]);
 
-    return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
+    return toPageResult(items, total, page, pageSize);
   }
 
   async createMessage(userId: string, chatId: string, dto: { content: string }) {
