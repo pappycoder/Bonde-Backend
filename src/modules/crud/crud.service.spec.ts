@@ -224,14 +224,19 @@ describe('CrudService.list', () => {
     );
   });
 
-  it('accepts repeated filter params', async () => {
+  it('accepts repeated filter params (string fields partial-match by default)', async () => {
     const chats: FakeDelegate = { findMany: vi.fn(async () => []), count: vi.fn(async () => 0) };
     const { service } = makeService({ Chat: chats });
     await service.list('chats', {
       filters: ['userId:11111111-1111-4111-8111-111111111111', 'title:Hello'],
     });
     expect(chats.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { userId: UUID, title: 'Hello' } }),
+      expect.objectContaining({
+        where: {
+          userId: UUID,
+          title: { contains: 'Hello', mode: 'insensitive' },
+        },
+      }),
     );
   });
 

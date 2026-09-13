@@ -23,7 +23,7 @@ export class CrudListQueryDto {
   @ApiPropertyOptional({
     example: 'status:UNREAD',
     description:
-      'Repeatable `field:value` or `field:op:value` filters. Operators: eq (default), contains, startsWith, endsWith, gt, gte, lt, lte.',
+      'Repeatable `field:value` or `field:op:value` filters. Operators: eq (default), contains, startsWith, endsWith, gt, gte, lt, lte. Text fields partial-match (case-insensitive) by default; use `eq:` for exact match.',
   })
   @IsOptional()
   filter?: string | string[];

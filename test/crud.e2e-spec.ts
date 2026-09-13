@@ -70,6 +70,20 @@ describe('Admin CRUD (e2e)', () => {
     expect(res.body).toHaveProperty('totalPages');
   });
 
+  it('partial-matches string filters and requires eq for exact', async () => {
+    const contains = await ctx.http
+      .get('/admin/chats')
+      .query({ filter: 'title:oardin' })
+      .expect(200);
+    expect(contains.body.total).toBeGreaterThanOrEqual(1);
+
+    const exact = await ctx.http
+      .get('/admin/chats')
+      .query({ filter: 'title:eq:oardin' })
+      .expect(200);
+    expect(exact.body.total).toBe(0);
+  });
+
   it('rejects filters on hidden fields', async () => {
     const res = await ctx.http
       .get('/admin/card-providers')

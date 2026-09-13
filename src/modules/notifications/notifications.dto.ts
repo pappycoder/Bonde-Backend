@@ -16,7 +16,8 @@ export class ListNotificationsQueryDto {
 
   @ApiPropertyOptional({
     example: 'status:UNREAD',
-    description: 'Repeatable `field:value` or `field:op:value` filters (`status`, `type`)',
+    description:
+      'Repeatable `field:value` (equality on enums/numbers) or `field:op:value` filters (`status`, `type`)',
   })
   @IsOptional()
   filter?: string | string[];

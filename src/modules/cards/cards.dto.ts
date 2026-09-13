@@ -32,7 +32,7 @@ export class ListCardsQueryDto {
   @ApiPropertyOptional({
     example: 'status:ACTIVE',
     description:
-      'Repeatable `field:value` or `field:op:value` filters (eq, contains, startsWith, endsWith). Fields: cardType, status, expirationType.',
+      'Repeatable `field:value` (equality on enums/numbers) or `field:op:value` filters. Fields: cardType, status, expirationType.',
   })
   @IsOptional()
   filter?: string | string[];
@@ -67,7 +67,7 @@ export class ListCardTransactionsQueryDto {
   @ApiPropertyOptional({
     example: 'status:SUCCESS',
     description:
-      'Repeatable `field:value` or `field:op:value` filters (eq, contains, startsWith, endsWith). Fields: status, type, approvalStatus, currency.',
+      'Repeatable `field:value` (equality on enums/numbers) or `field:op:value` filters. Fields: status, type, approvalStatus, currency.',
   })
   @IsOptional()
   filter?: string | string[];

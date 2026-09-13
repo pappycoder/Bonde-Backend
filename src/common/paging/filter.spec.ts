@@ -16,30 +16,30 @@ const FIELDS: Record<string, FilterFieldSpec> = {
 };
 
 describe('parseFilterEntries', () => {
-  it('defaults to equality for bare field:value', () => {
+  it('defaults to an implicit op for bare field:value', () => {
     expect(parseFilterEntries('status:PENDING')).toEqual([
-      { field: 'status', op: 'eq', value: 'PENDING' },
+      { field: 'status', op: 'eq', value: 'PENDING', opExplicit: false },
     ]);
     expect(parseFilterEntries(undefined)).toEqual([]);
   });
 
   it('keeps the operator when a full field:op:value is given', () => {
     expect(parseFilterEntries('title:startsWith:card,')).toEqual([
-      { field: 'title', op: 'startsWith', value: 'card,' },
+      { field: 'title', op: 'startsWith', value: 'card,', opExplicit: true },
     ]);
   });
 
   it('preserves colons inside datetime values', () => {
     const raw = 'createdAt:gte:2026-09-13T10:30:00.000Z';
     expect(parseFilterEntries(raw)).toEqual([
-      { field: 'createdAt', op: 'gte', value: '2026-09-13T10:30:00.000Z' },
+      { field: 'createdAt', op: 'gte', value: '2026-09-13T10:30:00.000Z', opExplicit: true },
     ]);
   });
 
   it('accepts repeated params', () => {
     expect(parseFilterEntries(['status:PENDING', 'amount:gt:100'])).toEqual([
-      { field: 'status', op: 'eq', value: 'PENDING' },
-      { field: 'amount', op: 'gt', value: '100' },
+      { field: 'status', op: 'eq', value: 'PENDING', opExplicit: false },
+      { field: 'amount', op: 'gt', value: '100', opExplicit: true },
     ]);
   });
 
@@ -91,6 +91,21 @@ describe('buildFilterWhere', () => {
     expect(() => buildFilterWhere(parseFilterEntries('status:contains:EN'), FIELDS)).toThrow(
       'Operator "contains" is not allowed on field "status"',
     );
+  });
+
+  it('defaults string fields to a contains match and explicit eq to equality', () => {
+    expect(buildFilterWhere(parseFilterEntries('title:Hel'), FIELDS)).toEqual({
+      title: { contains: 'Hel', mode: 'insensitive' },
+    });
+    expect(buildFilterWhere(parseFilterEntries('title:eq:Hel'), FIELDS)).toEqual({
+      title: 'Hel',
+    });
+  });
+
+  it('defaults non-string fields to equality', () => {
+    expect(buildFilterWhere(parseFilterEntries('status:PENDING'), FIELDS)).toEqual({
+      status: 'PENDING',
+    });
   });
 
   it('builds typed where fragments', () => {

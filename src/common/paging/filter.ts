@@ -11,6 +11,12 @@ export interface FilterEntry {
   field: string;
   op: FilterOperator;
   value: string;
+  /**
+   * `true` when the `field:op:value` form was used. Implicit entries
+   * (`field:value`) resolve their operator per field kind — `contains` for
+   * strings, `eq` for everything else.
+   */
+  opExplicit: boolean;
 }
 
 export type FilterFieldKind = 'string' | 'boolean' | 'int' | 'decimal' | 'datetime' | 'enum';
@@ -63,7 +69,8 @@ const DEFAULT_OPS: Record<FilterFieldKind, readonly FilterOperator[]> = {
  * Parse the repeatable `filter` query param into structured entries.
  *
  * Accepted forms:
- * - `field:value`      → eq
+ * - `field:value`      → implicit op (resolved per field kind at build time:
+ *                        `contains` for strings, `eq` otherwise)
  * - `field:op:value`   → explicit operator (the raw value may itself contain `:`)
  *
  * Throws `BadRequestException` on invalid syntax.
@@ -81,11 +88,11 @@ function parseFilterEntry(entry: string): FilterEntry {
 
   for (const op of FILTER_OPERATORS) {
     if (rest.startsWith(`${op}:`)) {
-      return { field, op, value: rest.slice(op.length + 1) };
+      return { field, op, value: rest.slice(op.length + 1), opExplicit: true };
     }
   }
 
-  return { field, op: 'eq', value: rest };
+  return { field, op: 'eq', value: rest, opExplicit: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -171,15 +178,22 @@ export function buildFilterWhere(
     const spec = fields[entry.field];
     if (!spec) throw new BadRequestException(`Unknown filter field "${entry.field}"`);
     const ops = spec.ops ?? DEFAULT_OPS[spec.kind];
-    if (!ops.includes(entry.op)) {
-      throw new BadRequestException(
-        `Operator "${entry.op}" is not allowed on field "${entry.field}"`,
-      );
+    const op = entry.opExplicit ? entry.op : defaultOpFor(spec.kind);
+    if (!ops.includes(op)) {
+      throw new BadRequestException(`Operator "${op}" is not allowed on field "${entry.field}"`);
     }
     const coercedValue = spec.coerce
       ? spec.coerce(entry.value)
       : coerceFilterValue(spec.kind, entry.value);
-    where[entry.field] = filterFragment(entry.op, coercedValue);
+    where[entry.field] = filterFragment(op, coercedValue);
   }
   return where;
+}
+
+/**
+ * The operator an implicit `field:value` entry resolves to: `contains` for
+ * strings (flexible partial match), equality for everything else.
+ */
+function defaultOpFor(kind: FilterFieldKind): FilterOperator {
+  return kind === 'string' ? 'contains' : 'eq';
 }

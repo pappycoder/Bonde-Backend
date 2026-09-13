@@ -38,7 +38,7 @@ export class ListTransactionsQueryDto {
   @ApiPropertyOptional({
     example: 'status:SUCCESS',
     description:
-      'Repeatable `field:value` or `field:op:value` filters (eq, contains, startsWith, endsWith, gt, gte, lt, lte). Fields: status, type, approvalStatus, currency, frequency, isRecurring, thresholdWarning.',
+      'Repeatable `field:value` (equality on enums/numbers) or `field:op:value`. Fields: status, type, approvalStatus, currency, frequency, isRecurring, thresholdWarning.',
   })
   @IsOptional()
   filter?: string | string[];
@@ -167,7 +167,8 @@ export class ListApprovalsQueryDto {
 
   @ApiPropertyOptional({
     example: 'status:PENDING',
-    description: 'Repeatable `field:value` or `field:op:value` filters (`status`)',
+    description:
+      'Repeatable `field:value` (equality on enums/numbers) or `field:op:value` filters (`status`)',
   })
   @IsOptional()
   filter?: string | string[];

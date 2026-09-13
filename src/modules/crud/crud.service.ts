@@ -243,12 +243,11 @@ export class CrudService {
         throw new BadRequestException(`Unknown filter field "${entry.field}"`);
       }
       const ops = this.opsFor(field.kind);
-      if (!ops.includes(entry.op)) {
-        throw new BadRequestException(
-          `Operator "${entry.op}" is not allowed on field "${entry.field}"`,
-        );
+      const op = entry.opExplicit ? entry.op : field.kind === 'string' ? 'contains' : 'eq';
+      if (!ops.includes(op)) {
+        throw new BadRequestException(`Operator "${op}" is not allowed on field "${entry.field}"`);
       }
-      where[entry.field] = filterFragment(entry.op, this.coerce(field, entry.field, entry.value));
+      where[entry.field] = filterFragment(op, this.coerce(field, entry.field, entry.value));
     }
     const search = qWhere(q, def.searchable);
     if (search) Object.assign(where, search);

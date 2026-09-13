@@ -27,7 +27,7 @@ export class ListBiometricsQueryDto {
   @ApiPropertyOptional({
     example: 'biometricType:FACE',
     description:
-      'Repeatable `field:value` or `field:op:value` filters (`biometricType`, `isActive`)',
+      'Repeatable `field:value` (equality on enums/numbers) or `field:op:value` filters (`biometricType`, `isActive`)',
   })
   @IsOptional()
   filter?: string | string[];

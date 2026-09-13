@@ -363,9 +363,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Every paged user list now supports free-text `q` (case-insensitive, `contains`
     across declared string fields) alongside repeatable
     `filter=field:value` / `filter=field:op:value` params. Ops:
-    `eq` (implied), `contains`, `startsWith`, `endsWith`, `gt`, `gte`, `lt`,
-    `lte` — numeric/date fields allow the range ops, enums/booleans strings
-    allow equality only. Unknown fields/operators/values → `400`.
+    `eq`, `contains`, `startsWith`, `endsWith`, `gt`, `gte`, `lt`,
+    `lte`. Operator-omitted `field:value` is flexible by default: **string
+    fields partial-match (case-insensitive `contains`)** while enum/uuid/
+    boolean/number/date fields use equality — use `field:eq:value` to force
+    exact. Unknown fields/operators/values → `400`.
   - Covered endpoints — `?q=…`→fields, `filter=…`→fields:
     - `GET /api/transactions` — `q`: description; `filter`: status, type,
       approvalStatus, currency, frequency, isRecurring, thresholdWarning.

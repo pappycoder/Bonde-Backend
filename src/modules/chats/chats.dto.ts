@@ -106,7 +106,8 @@ export class ListMessagesQueryDto {
 
   @ApiPropertyOptional({
     example: 'role:USER',
-    description: 'Repeatable `field:value` or `field:op:value` filters (`role`)',
+    description:
+      'Repeatable `field:value` (equality on enums/numbers) or `field:op:value` filters (`role`)',
   })
   @IsOptional()
   filter?: string | string[];

@@ -143,10 +143,16 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   required/writable/visible sets, and allowed methods (it asserts invariants at
   boot). `CrudService` coerces/validates payloads and maps Prisma errors to the
   uniform contract (P2002→409, P2025→404, P2003/P2011/P2012→400).
-- Query contract: `?page&pageSize` (pageSize ≤ 100), `filter=field:value`
-  (equality, on visible fields only), `orderBy=field:asc|desc`. Responses are
-  `{ items, total, page, pageSize, totalPages }`; responses/rows are projected
-  to **visible** fields and Date/Decimal are serialized (ISO / string).
+- Query contract: `?page&pageSize` (pageSize ≤ 100), `q=<text>` (case-insensitive
+  `contains` over the resource's `searchable` fields; `q` on a resource with none
+  → 400), `filter=field:value` / `filter=field:op:value` on visible fields only
+  (ops `eq`, `contains`, `startsWith`, `endsWith`, `gt`, `gte`, `lt`, `lte`).
+  Operator-less `field:value` is flexible: **string fields partial-match
+  (case-insensitive `contains`)** while enum/uuid/boolean/number/date fields use
+  equality — use `field:eq:value` to force exact. `orderBy=field:asc|desc`.
+  Responses are `{ items, total, page, pageSize, totalPages }`; responses/rows
+  are projected to **visible** fields and Date/Decimal are serialized (ISO /
+  string).
 - **Exclusions are deliberate**: `profiles`, `accounts`, `wallets`, `cards`,
   `transactions`, `transaction_approvals`, `otp_codes` are NOT in the registry
   — they stay on dedicated, hardened flows. `card-providers.config` (API

@@ -16,7 +16,7 @@ export class ListAuditLogsQueryDto {
   @ApiPropertyOptional({
     example: 'action:card.pause',
     description:
-      'Repeatable `field:value` or `field:op:value` filters (eq, contains, startsWith, endsWith). Fields: action, entityType.',
+      'Repeatable `field:value` or `field:op:value` filters. Text fields (action, entityType) partial-match (case-insensitive) by default; use `eq:` for exact match.',
   })
   @IsOptional()
   filter?: string | string[];

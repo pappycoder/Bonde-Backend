@@ -29,7 +29,7 @@ export class ListThresholdsQueryDto {
   @ApiPropertyOptional({
     example: 'isActive:true',
     description:
-      'Repeatable `field:value` or `field:op:value` filters (`thresholdType`, `isActive`)',
+      'Repeatable `field:value` (equality on enums/numbers) or `field:op:value` filters (`thresholdType`, `isActive`)',
   })
   @IsOptional()
   filter?: string | string[];
