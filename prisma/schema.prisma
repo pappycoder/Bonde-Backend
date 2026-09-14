@@ -100,6 +100,19 @@ enum AccountType {
   BUSINESS
 }
 
+enum VirtualAccountStatus {
+  ACTIVE
+  EXPIRED
+  INACTIVE
+}
+
+enum ProviderEventStatus {
+  RECEIVED
+  PROCESSED
+  DUPLICATE
+  FAILED
+}
+
 // ---------------------------------------------------------------------------
 // Models — Auth / Identity
 // ---------------------------------------------------------------------------
@@ -119,16 +132,17 @@ model Profile {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  accounts          Account[]
-  cards             Card[]
-  chats             Chat[]
-  transactions      Transaction[]
-  notifications     Notification[]
-  otpCodes          OtpCode[]
-  biometricDevices  BiometricDevice[]
-  thresholds        TransactionThreshold[]
-  auditLogs         AuditLog[]
+  accounts            Account[]
+  cards               Card[]
+  chats               Chat[]
+  transactions        Transaction[]
+  notifications       Notification[]
+  otpCodes            OtpCode[]
+  biometricDevices    BiometricDevice[]
+  thresholds          TransactionThreshold[]
+  auditLogs           AuditLog[]
   transactionApprovals TransactionApproval[]
+  virtualAccounts     VirtualAccount[]
 
   @@map("profiles")
 }
@@ -190,24 +204,33 @@ model CardProvider {
   @@map("card_providers")
 }
 
-/// Virtual or physical card. `cardNumberEncrypted` is AES-256-GCM encrypted;
-/// `cardNumberLast4` is plaintext for display. Balance is synced from provider
-/// (display-only cache, not authoritative).
+/// Virtual or physical card. `cardNumberEncrypted` (and, for provider-issued
+/// cards, `cardCvvEncrypted`) is AES-256-GCM encrypted; `cardNumberLast4` is
+/// plaintext for display. `issuer` discriminates locally generated cards
+/// (`bonde`) from provider-issued cards (`flutterwave`); `balance` is the
+/// funded-balance cache on issued cards (provider authoritative), and
+/// `totalSpent` is synced from provider card transactions.
 model Card {
   id                    String     @id @db.Uuid
   userId                String     @map("user_id") @db.Uuid
   providerId            String     @map("provider_id") @db.Uuid
   cardNumberEncrypted   String     @map("card_number_encrypted")
   cardNumberLast4       String     @map("card_number_last4") @db.VarChar(4)
+  cardCvvEncrypted      String?    @map("card_cvv_encrypted")
   cardType              String     @default("virtual") @map("card_type") @db.VarChar(20)
+  issuer                String     @default("bonde") @db.VarChar(20)
+  currency              String     @default("NGN") @db.VarChar(3)
+  nameOnCard            String?    @map("name_on_card") @db.VarChar(100)
   status                CardStatus @default(ACTIVE)
   nickname              String?    @db.VarChar(100)
   maxSpendLimit         Decimal?   @map("max_spend_limit") @db.Decimal(15, 2)
   monthlyLimit          Decimal?   @map("monthly_limit") @db.Decimal(15, 2)
   totalSpent            Decimal    @default(0) @map("total_spent") @db.Decimal(15, 2)
+  balance               Decimal    @default(0) @db.Decimal(15, 2)
   expirationType        String     @map("expiration_type") @db.VarChar(20)
   expirationDate        DateTime   @map("expiration_date")
   externalReferenceId   String?    @map("external_reference_id") @db.VarChar(100)
+  lastSyncAt            DateTime?  @map("last_sync_at")
   createdAt             DateTime   @default(now()) @map("created_at")
   updatedAt             DateTime   @updatedAt @map("updated_at")
 
@@ -357,6 +380,7 @@ model Transaction {
   chat    Chat?    @relation(fields: [chatId], references: [id], onDelete: SetNull)
 
   approvals TransactionApproval[]
+  providerEvents ProviderEvent[]
 
   @@index([userId, status])
   @@index([walletId])
@@ -480,4 +504,56 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Payment provider (Flutterwave) integration
+// ---------------------------------------------------------------------------
+
+/// Per-user Flutterwave virtual account used to receive wallet deposits.
+/// `isPermanent` (static) VAs require the customer's BVN/NIN; until the app
+/// collects one, only dynamic (expiring) VAs are provisioned.
+model VirtualAccount {
+  id                String               @id @db.Uuid
+  userId            String               @unique @map("user_id") @db.Uuid
+  provider          String               @default("flutterwave") @db.VarChar(50)
+  providerReference String               @map("provider_reference") @db.VarChar(255)
+  txRef             String               @unique @map("tx_ref") @db.VarChar(100)
+  accountNumber     String               @map("account_number") @db.VarChar(20)
+  bankName          String               @map("bank_name") @db.VarChar(100)
+  accountName       String?              @map("account_name") @db.VarChar(100)
+  currency          String               @default("NGN") @db.VarChar(3)
+  status            VirtualAccountStatus @default(ACTIVE)
+  isPermanent       Boolean              @default(false) @map("is_permanent")
+  expiresAt         DateTime?            @map("expires_at")
+  meta              Json                 @default("{}")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([txRef])
+  @@map("virtual_accounts")
+}
+
+/// Idempotency + webhook-audit sink for provider events (deposits, transfer
+/// statuses, card actions). `@@unique([provider, reference])` makes replays
+/// detectable: a second insert violates the constraint and the request is
+/// treated as a duplicate instead of double-applied.
+model ProviderEvent {
+  id            String              @id @db.Uuid
+  provider      String              @db.VarChar(50)
+  reference     String              @db.VarChar(255)
+  eventType     String              @map("event_type") @db.VarChar(100)
+  status        ProviderEventStatus @default(RECEIVED)
+  payload       Json                @default("{}")
+  transactionId String?             @map("transaction_id") @db.Uuid
+  processedAt   DateTime?           @map("processed_at")
+  createdAt     DateTime            @default(now()) @map("created_at")
+
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, reference])
+  @@index([transactionId])
+  @@map("provider_events")
 }

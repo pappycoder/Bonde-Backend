@@ -108,7 +108,9 @@ export async function bootE2EApp(options: BootE2EOptions = {}): Promise<BootedE2
   }
   const moduleFixture: TestingModule = await builder.compile();
 
-  const app = moduleFixture.createNestApplication();
+  const app = moduleFixture.createNestApplication({
+    rawBody: true,
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

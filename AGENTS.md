@@ -20,7 +20,7 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
 - `pnpm prisma:deploy` — apply migrations in CI/prod (`prisma migrate deploy`)
 
 ## Database (Prisma 7)
-- Schema lives in `prisma/schema.prisma` (18 tables, datasource has NO `url`).
+- Schema lives in `prisma/schema.prisma` (20 tables, datasource has NO `url`).
 - CLI connection config lives in `prisma.config.ts` — Migrate uses `DIRECT_URL`;
   the app runtime uses pooled `DATABASE_URL` via the `@prisma/adapter-pg`
   (`PrismaPg`) driver adapter inside `src/prisma/prisma.service.ts`.
@@ -157,7 +157,9 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   `transactions`, `transaction_approvals`, `otp_codes` are NOT in the registry
   — they stay on dedicated, hardened flows. `card-providers.config` (API
   secrets) is absent from the registry so it is never written to or read back.
-  `audit-logs` is read-only (POST/PATCH/DELETE → 405 `MethodNotAllowedException`).
+  `virtual_accounts` and `provider_events` (provider money-movement sinks) are
+  also excluded — funding/issued-card flows own them. `audit-logs` is read-only
+  (POST/PATCH/DELETE → 405 `MethodNotAllowedException`).
 - Controller is `@Roles('ADMIN','SUPER_ADMIN')` (`@Controller('admin')`); the
   route prefix is `/api/admin` under the global `api` prefix. Every write is
   audited (`admin.crud.create/update/delete`) via `AuditLogService.record`.
@@ -249,6 +251,61 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   **Audit-only** (plain `AuditLogService.record`, no notification): admin CRUD,
   auth provisioning, chats, card lock/category/merchant sub-actions.
 
+## Flutterwave funding & issued cards
+- `src/modules/flutterwave/` is a **reusable, feature-free** package: v3 bearer
+  REST client (`POST /v3/virtual-account-numbers`, `/v3/virtual-cards`,
+  `/v3/virtual-cards/{id}/fund|withdraw|terminate|transactions`,
+  `/v3/transfers`), AES-256-GCM credential encryptor (`encryption.cardKey`,
+  values stored as `enc::<iv>:<tag>:<ciphertext>`), webhook verifier
+  (`flutterwave-signature` HMAC-SHA256 base64 + legacy `verif-hash` header),
+  typed DTOs, and domain services. Feature modules inject
+  `FLUTTERWAVE_CLIENT` / the services — never the raw `fetch`.
+- `src/modules/funding/` owns the money movement:
+  - `GET /api/wallet/deposit-account` — dynamic VA minted via
+    `VirtualAccountsService.getOrMint(userId)` (reused across calls, closed/
+    expired VAs mint once via `findOrCreateVA`).
+  - `POST /api/wallet/withdrawals` (201, `@StrictThrottle()`) — reserves the
+    amount **at initiate** with a guarded `wallet.updateMany({ balance: {
+    gte } })` count check inside an interactive `$transaction` (409 while
+    another withdrawal is in flight, 400 if uncovered); the reservation is
+    refunded on `FAIL` and on webhook reversal.
+  - `POST /api/flutterwave/webhook` (`@Public()`, `@ApiExcludeController()`,
+    `rawBody: true`) — verifies signature, dispatches `charge.completed` →
+    `DepositsService.record` (credits the VA wallet, idempotent), `transfer.
+    disburse` → `WithdrawalsService.handleTransferDisburse`, `transfer.reversal`
+    → refund; unknown events (incl. `card_transaction`) ack `200
+    { received: true }` per Flutterwave contract.
+- **Money/idempotency contract**: every movement is identified by a
+  `provider_events` row (`provider` + unique `reference`: `bonde_va_*`,
+  `bonde_wd_*`, `bonde_card_*`, `flutterwave:card.txn:<id>`). A `P2002`
+  duplicate means "already handled" → 200 ack / 409. Wallet debits are guarded
+  (`gte`) and enforced inside the same `$transaction` as the write they fund —
+  never via a `.then()` after an array-form `$transaction` (that throws post-
+  commit and leaks rows). Provider-first calls (issuance pre-check, withdraw)
+  recredit the wallet when the provider error carries a `code`.
+- **Issued cards** (`src/modules/cards/issued-cards.service.ts`): `POST
+  /api/cards/issued` (201, NGN, prefund debited atomically; a `< wallet`
+  pre-check runs before the provider call so an unaffordable issue never
+  ghosts a provider card), `POST /api/cards/:id/fund|withdraw|cancel`, `PATCH
+  /:id/pause|resume` (controller fans issued cards to this service; response
+  uses the **updated** card, not the pre-mutation read), `POST
+  /api/cards/:id/transactions/sync` (deduped; writes `PAYMENT` transactions +
+  `totalSpent`, refreshes `balance` + `lastSyncAt`). **PAN/CVV never appear in
+  any API response** (`toView` strips `cardNumberEncrypted`/`cardCvvEncrypted`;
+  `CardsService.toView` also strips CVV).
+- Config keys (typed `AppConfig`, Joi-validated): `FLUTTERWAVE_BASE_URL`,
+  `FLUTTERWAVE_SECRET_KEY`, `FLUTTERWAVE_WEBHOOK_SECRET_HASH`,
+  `FLUTTERWAVE_VA_BANK_CODE` (090567), `CARD_ENCRYPTION_KEY`.
+  **`ConfigService` typing gotcha**: `config.get('a').b` for nested blocks,
+  `{ infer: true }` for a deep single key — dotted paths (`'flutterwave.
+  webhookSecretHash'`) **do not** typecheck under `ConfigService<AppConfig,
+  true>`.
+- e2e fakes the provider with `test/flutterwave-stub.ts`
+  (`makeFlutterwaveStub` → plain in-memory gateway with `vi.fn` methods) injected
+  via `FLUTTERWAVE_CLIENT`; webhooks are sent through `ctx.raw` (no auth) with a
+  `verif-hash` header (supertest re-encodes Buffer bodies, so sign the string,
+  not a Buffer).
+
 ## Database & testing
 - Runtime DB is Supabase Postgres (`DATABASE_URL` pooled, `DIRECT_URL` direct)
   via the `PrismaPg` driver adapter. **e2e DB suites instead run against a local
@@ -257,7 +314,7 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   untouched.
 - `test/db.ts` owns the constants + fixtures: seeded profiles use **real UUIDs**
   (`SEED_USER_ID` etc.) because `profiles.id` is `@db.Uuid`; `truncateAll`
-  TRUNCATEs the 18 tables CASCADE; `seedBaseFixtures` upserts the profile/
+  TRUNCATEs the 20 tables CASCADE; `seedBaseFixtures` upserts the profile/
   provider/card/chat baseline **plus** an account+wallet (SEED_USER only — the
   SEED_OTHER user intentionally has none, powering 1:1 ownership 404s),
   chat messages, a PENDING transaction + approval, a threshold, a
@@ -339,7 +396,11 @@ src/
     crud/          generic admin data-grid (registry + /admin/:resource)
     accounts/      single account (CRUD /account, 1:1 via unique Account.userId)
     wallets/       single wallet (CRUD /wallet)
-    cards/         cards (list/detail, pause/resume/limit, locks, categories)
+    flutterwave/   reusable Flutterwave v3 client, cards domain, credential
+                   crypto, webhook verifier, types (feature-free package)
+    funding/       dynamic virtual accounts, deposits/withdrawals + webhook
+    cards/         cards (list/detail, pause/resume/limit, locks, categories,
+                   issued-card orchestration)
     chats/         chat history + messages (+USER message append)
     transactions/  transactions + approvals CRUD
     thresholds/    user transaction thresholds (CRUD)

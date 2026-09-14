@@ -47,6 +47,12 @@ export interface AppConfig {
   encryption: {
     cardKey: string;
   };
+  flutterwave: {
+    baseUrl: string;
+    secretKey: string;
+    webhookSecretHash: string;
+    vaBankCode: string;
+  };
 }
 
 export default (): AppConfig => ({
@@ -93,5 +99,11 @@ export default (): AppConfig => ({
   },
   encryption: {
     cardKey: process.env.CARD_ENCRYPTION_KEY!,
+  },
+  flutterwave: {
+    baseUrl: process.env.FLUTTERWAVE_BASE_URL ?? 'https://api.flutterwave.com/v3',
+    secretKey: process.env.FLUTTERWAVE_SECRET_KEY!,
+    webhookSecretHash: process.env.FLUTTERWAVE_WEBHOOK_SECRET_HASH!,
+    vaBankCode: process.env.FLUTTERWAVE_VA_BANK_CODE ?? '090567',
   },
 });

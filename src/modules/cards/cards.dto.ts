@@ -6,6 +6,7 @@ import {
   IsIn,
   IsInt,
   IsISO8601,
+  IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
@@ -119,6 +120,9 @@ export class CardDto {
 
   @ApiProperty({ example: '2500.00', description: 'Cumulative spend through this card' })
   totalSpent: string;
+
+  @ApiProperty({ example: '5000.00', description: 'Funded balance cache (provider-issued cards)' })
+  balance: string;
 
   @ApiProperty({ example: 'monthly' })
   expirationType: string;
@@ -378,4 +382,100 @@ export class CardsDeleteResponseDto {
 
   @ApiProperty({ format: 'uuid', example: '673bc257-9204-4acb-acf5-61f51e20a328' })
   id: string;
+}
+
+/** Body for `POST /api/cards/issued`. */
+export class IssueVirtualCardDto {
+  @ApiProperty({ example: '5000.00', description: 'Amount to prefund from wallet' })
+  @IsNotEmpty()
+  @Matches(DECIMAL_PATTERN, { message: 'amount must be a decimal with up to 2 places' })
+  amount: string;
+
+  @ApiPropertyOptional({ example: 'Travel card', maxLength: 100 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  nickname?: string;
+
+  @ApiPropertyOptional({ example: 'Bonde User', description: 'Defaults to profile full name' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  billingName?: string;
+
+  @ApiPropertyOptional({
+    example: '12 Adeola Odeku Street',
+    description: 'Required for Flutterwave KYC',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  billingAddress?: string;
+
+  @ApiPropertyOptional({ example: 'Lagos', description: 'Required for Flutterwave KYC' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  billingCity?: string;
+
+  @ApiPropertyOptional({ example: 'Lagos', description: 'Required for Flutterwave KYC' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  billingState?: string;
+
+  @ApiPropertyOptional({ example: '101245', description: 'Required for Flutterwave KYC' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  billingPostalCode?: string;
+
+  @ApiPropertyOptional({ example: '1990-01-01', description: 'Required for Flutterwave KYC' })
+  @IsOptional()
+  @IsString()
+  dateOfBirth?: string;
+
+  @ApiPropertyOptional({ example: 'M' })
+  @IsOptional()
+  @IsString()
+  gender?: string;
+
+  @ApiPropertyOptional({ example: 'Mr' })
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @ApiPropertyOptional({ example: 'BONDE USER', description: 'Name to appear on the virtual card' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  nameOnCard?: string;
+}
+
+/** Body for `POST /api/cards/:id/fund`. */
+export class FundVirtualCardDto {
+  @ApiProperty({ example: '2000.00', description: 'Amount to load from wallet' })
+  @IsNotEmpty()
+  @Matches(DECIMAL_PATTERN, { message: 'amount must be a decimal with up to 2 places' })
+  amount: string;
+}
+
+/** Body for `POST /api/cards/:id/withdraw`. */
+export class WithdrawVirtualCardDto {
+  @ApiProperty({ example: '1500.00', description: 'Amount to withdraw back into wallet' })
+  @IsNotEmpty()
+  @Matches(DECIMAL_PATTERN, { message: 'amount must be a decimal with up to 2 places' })
+  amount: string;
+}
+
+/** Response for `POST /api/cards/:id/transactions/sync`. */
+export class SyncCardTransactionsResponseDto {
+  @ApiProperty({ type: String, format: 'date-time' })
+  lastSyncAt: Date;
+
+  @ApiProperty({ example: 3 })
+  newSpends: number;
+
+  @ApiProperty({ example: '5000.00' })
+  balance: string;
 }

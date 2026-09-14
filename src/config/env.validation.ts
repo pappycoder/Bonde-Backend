@@ -45,4 +45,9 @@ export const envValidationSchema = Joi.object({
   TERMII_SENDER_ID: Joi.string().max(11).default('Bonde'),
 
   CARD_ENCRYPTION_KEY: Joi.string().hex().length(64).required(),
+
+  FLUTTERWAVE_BASE_URL: Joi.string().uri().default('https://api.flutterwave.com/v3'),
+  FLUTTERWAVE_SECRET_KEY: Joi.string().required(),
+  FLUTTERWAVE_WEBHOOK_SECRET_HASH: Joi.string().required(),
+  FLUTTERWAVE_VA_BANK_CODE: Joi.string().max(10).default('090567'),
 });
