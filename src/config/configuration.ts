@@ -48,6 +48,10 @@ export interface AppConfig {
     /// Path to the FCM service-account JSON. Empty/absent disables push
     /// delivery (dev-local apps still get in-app notifications).
     fcmServiceAccountPath?: string;
+    /// Inline content of the FCM service-account JSON. Preferred on hosts
+    /// with no persistent filesystem (e.g. Vercel serverless functions, which
+    /// cannot read a service-account file). Takes precedence over the path.
+    fcmServiceAccountJson?: string;
     /// Firebase project id used when initializing the FCM app (also present
     /// inside the service-account JSON).
     fcmProjectId?: string;
@@ -116,6 +120,7 @@ export default (): AppConfig => ({
   },
   push: {
     fcmServiceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
+    fcmServiceAccountJson: process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
     fcmProjectId: process.env.FIREBASE_PROJECT_ID,
   },
 });

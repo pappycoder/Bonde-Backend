@@ -18,6 +18,13 @@ import type { PushDispatcher, PushMessage } from './push-dispatcher.interface.js
  *
  * The Firebase app is initialized **lazily** on first enablement and cached;
  * `initializeApp` is idempotent per name so a global restart never collides.
+ *
+ * Credentials can be supplied two ways (either enables push):
+ *   - `FIREBASE_SERVICE_ACCOUNT_JSON`  — inline service-account JSON. This is
+ *     the shape for serverless hosts (Vercel) with no persistent filesystem.
+ *   - `FIREBASE_SERVICE_ACCOUNT_PATH`  — filesystem path to the JSON, for
+ *     local dev and hosts that mount secrets (K8s volumes, Render disks).
+ * When both are absent, `isEnabled()` is false and dispatch is a no-op.
  */
 @Injectable()
 export class FirebasePushDispatcher implements PushDispatcher {
@@ -28,7 +35,8 @@ export class FirebasePushDispatcher implements PushDispatcher {
   constructor(private readonly config: ConfigService<AppConfig, true>) {}
 
   isEnabled(): boolean {
-    return Boolean(this.config.get('push').fcmServiceAccountPath);
+    const push = this.config.get('push');
+    return Boolean(push.fcmServiceAccountJson ?? push.fcmServiceAccountPath);
   }
 
   async send(message: PushMessage): Promise<void> {
@@ -56,8 +64,19 @@ export class FirebasePushDispatcher implements PushDispatcher {
     if (this.bootAttempted) return this.app;
     this.bootAttempted = true;
 
-    const path = this.config.get('push').fcmServiceAccountPath;
-    if (!path) return undefined;
+    const push = this.config.get('push');
+    const path = push.fcmServiceAccountPath;
+    const json = push.fcmServiceAccountJson;
+
+    // Inline JSON wins on hosts with no persistent filesystem (Vercel
+    // serverless); a path fallback covers local dev and mounted-secret prod.
+    const credential = json
+      ? cert(JSON.parse(json as string))
+      : path
+        ? cert(path)
+        : undefined;
+
+    if (!credential) return undefined;
 
     // Reuse a running Firebase app if something already booted one under the
     // default name (e.g. another module), else initialize (lazy, best-effort).
@@ -69,7 +88,7 @@ export class FirebasePushDispatcher implements PushDispatcher {
 
     try {
       this.app = initializeApp(
-        { credential: cert(path), projectId: this.config.get('push').fcmProjectId },
+        { credential, projectId: push.fcmProjectId },
         'bonde-push',
       );
       this.logger.log('[push] FCM app initialised');

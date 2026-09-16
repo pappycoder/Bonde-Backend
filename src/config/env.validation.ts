@@ -47,8 +47,14 @@ export const envValidationSchema = Joi.object({
   // FCM push delivery. Optional — when unset, `registerDevice` endpoints keep
   // working but `NotificationsService.create` skips push dispatch (in-app
   // notifications still record normally).
-  FIREBASE_SERVICE_ACCOUNT_PATH: Joi.string().optional(),
-  FIREBASE_PROJECT_ID: Joi.string().optional(),
+  //
+  // Inline service-account JSON is the **primary** shape (works on stateless
+  // hosts like Vercel serverless with no filesystem). The path forms are a
+  // fallback for local dev and hosts that mount secrets. All three may be
+  // empty — empty PATH/PROJECT_ID simply means "rely on the inline JSON".
+  FIREBASE_SERVICE_ACCOUNT_JSON: Joi.string().optional().allow(''),
+  FIREBASE_SERVICE_ACCOUNT_PATH: Joi.string().optional().allow(''),
+  FIREBASE_PROJECT_ID: Joi.string().optional().allow(''),
 
   CARD_ENCRYPTION_KEY: Joi.string().hex().length(64).required(),
 
