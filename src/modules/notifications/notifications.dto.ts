@@ -1,7 +1,17 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { NotificationStatus, NotificationType } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
+import { PushPlatform } from '@prisma/client';
 
 /** Query parameters for `GET /api/notifications`. */
 export class ListNotificationsQueryDto {
@@ -90,4 +100,43 @@ export class PagedNotificationsDto {
 export class MarkAllReadResponseDto {
   @ApiProperty({ example: 7 })
   updated: number;
+}
+
+/** Request body for `POST /api/notifications/devices` (FCM device enrollment). */
+export class RegisterDeviceDto {
+  @ApiProperty({
+    example: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]',
+    description: 'FCM-compatible device token to associate with the caller',
+  })
+  @IsString()
+  @MinLength(20)
+  @MaxLength(512)
+  token: string;
+
+  @ApiPropertyOptional({
+    enum: PushPlatform,
+    default: PushPlatform.ANDROID,
+    description: 'Device OS. Used for FCM routing afterwards.',
+  })
+  @IsOptional()
+  @IsEnum(PushPlatform)
+  platform?: PushPlatform;
+}
+
+/** Request body for `DELETE /api/notifications/devices`. */
+export class UnregisterDeviceDto {
+  @ApiProperty({
+    example: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]',
+    description: 'Device token to disassociate from the caller',
+  })
+  @IsString()
+  @MinLength(20)
+  @MaxLength(512)
+  token: string;
+}
+
+/** Response for `DELETE /api/notifications/devices`. */
+export class UnregisterDeviceResponseDto {
+  @ApiProperty({ example: 1 })
+  removed: number;
 }

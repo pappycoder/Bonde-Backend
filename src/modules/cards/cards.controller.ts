@@ -36,15 +36,20 @@ import {
   CreateCardDto,
   CreateCardLockDto,
   CreateCardMerchantDto,
+  FundVirtualCardDto,
+  IssueVirtualCardDto,
   ListCardTransactionsQueryDto,
   ListCardsQueryDto,
   PagedCardsDto,
+  SyncCardTransactionsResponseDto,
   UpdateCardCategoryDto,
   UpdateCardDto,
   UpdateCardLimitDto,
   UpdateCardLockDto,
+  WithdrawVirtualCardDto,
 } from './cards.dto.js';
 import { CardsService } from './cards.service.js';
+import { IssuedCardsService } from './issued-cards.service.js';
 import { PagedTransactionsDto } from '../transactions/transactions.dto.js';
 import { MAIL_SENDER, type MailSender } from '../../common/mail/mail.types.js';
 import { cardRegisteredEmail } from '../../common/mail/templates/card-registered.js';
@@ -61,6 +66,7 @@ import { cardRegisteredEmail } from '../../common/mail/templates/card-registered
 export class CardsController {
   constructor(
     private readonly cards: CardsService,
+    private readonly issuedCards: IssuedCardsService,
     private readonly activity: ActivityService,
     @Inject(MAIL_SENDER) private readonly mail: MailSender,
   ) {}
@@ -149,7 +155,11 @@ export class CardsController {
     @CurrentUser() principal: AuthPrincipal,
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ) {
-    const card = await this.cards.pause(principal.userId, id);
+    const card = await this.cards.get(principal.userId, id);
+    const paused =
+      card.issuer === 'flutterwave'
+        ? await this.issuedCards.pause(principal.userId, id)
+        : await this.cards.pause(principal.userId, id);
     await this.activity.record({
       userId: principal.userId,
       action: 'card.pause',
@@ -158,10 +168,10 @@ export class CardsController {
       notify: {
         type: NotificationType.CARD,
         title: 'Card paused',
-        content: `Your card ending in ${card.cardNumberLast4} is paused. Payments are blocked until you resume it.`,
+        content: `Your card ending in ${paused.cardNumberLast4} is paused. Payments are blocked until you resume it.`,
       },
     });
-    return card;
+    return paused;
   }
 
   @Patch(':id/resume')
@@ -174,7 +184,11 @@ export class CardsController {
     @CurrentUser() principal: AuthPrincipal,
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ) {
-    const card = await this.cards.resume(principal.userId, id);
+    const card = await this.cards.get(principal.userId, id);
+    const resumed =
+      card.issuer === 'flutterwave'
+        ? await this.issuedCards.resume(principal.userId, id)
+        : await this.cards.resume(principal.userId, id);
     await this.activity.record({
       userId: principal.userId,
       action: 'card.resume',
@@ -183,10 +197,10 @@ export class CardsController {
       notify: {
         type: NotificationType.CARD,
         title: 'Card resumed',
-        content: `Your card ending in ${card.cardNumberLast4} is active again and can be used for payments.`,
+        content: `Your card ending in ${resumed.cardNumberLast4} is active again and can be used for payments.`,
       },
     });
-    return card;
+    return resumed;
   }
 
   @Patch(':id/limit')
@@ -501,6 +515,71 @@ export class CardsController {
       metadata: { categoryId },
     });
     return result;
+  }
+
+  // -- Flutterwave-issued cards -----------------------------------------------
+
+  @Post('issued')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Issue a new Flutterwave virtual card (NGN, prefunded from wallet)' })
+  @ApiCreatedResponse({ type: CardDto })
+  @ApiErrorResponse()
+  issueCard(@CurrentUser() principal: AuthPrincipal, @Body() dto: IssueVirtualCardDto) {
+    return this.issuedCards.issue(principal.userId, dto);
+  }
+
+  @Post(':id/fund')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Fund a Flutterwave-issued card from your wallet' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: CardDto })
+  @ApiErrorResponse()
+  fundCard(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: FundVirtualCardDto,
+  ) {
+    return this.issuedCards.fund(principal.userId, id, dto.amount);
+  }
+
+  @Post(':id/withdraw')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Withdraw from a Flutterwave-issued card back to your wallet' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: CardDto })
+  @ApiErrorResponse()
+  withdrawFromCard(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: WithdrawVirtualCardDto,
+  ) {
+    return this.issuedCards.withdraw(principal.userId, id, dto.amount);
+  }
+
+  @Post(':id/cancel')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Terminate a Flutterwave-issued card (balance must be zero)' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: CardDto })
+  @ApiErrorResponse()
+  cancelCard(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.issuedCards.cancel(principal.userId, id);
+  }
+
+  @Post(':id/transactions/sync')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Sync card transactions from Flutterwave' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: SyncCardTransactionsResponseDto })
+  @ApiErrorResponse()
+  syncCardTransactions(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.issuedCards.syncTransactions(principal.userId, id);
   }
 
   /**

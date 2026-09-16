@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Flutterwave funding + issued virtual cards**:
+  - New reusable `src/modules/flutterwave/` package (v3 bearer REST client for
+    dynamic virtual accounts, card issuance/funding/withdrawals, transfers,
+    webhook signature/`verif-hash` verification) and `src/modules/funding/`
+    feature: `GET /api/wallet/deposit-account` (dynamic VA, reused across
+    calls), `POST /api/wallet/withdrawals` (reserve-at-initiate with guarded
+    `wallet.balance` debit, refunded on `FAIL`/reversal), and a `@Public()`
+    `POST /api/flutterwave/webhook` that dispatches `charge.completed` →
+    deposits, `transfer.disburse`/`transfer.reversal` → withdrawals, and acks
+    everything else. All money movement deduped via `provider_events`.
+  - Issued-card orchestration (`src/modules/cards/issued-cards.service.ts`):
+    `POST /api/cards/issued` (201), `POST /api/cards/:id/fund|withdraw|cancel`,
+    `PATCH /api/cards/:id/pause|resume` (provider-backed for `issuer:
+    flutterwave`), and `POST /api/cards/:id/transactions/sync` (deduped,
+    records `PAYMENT` transactions + `totalSpent`, refreshes `balance`).
+    Wallet debits use guarded `updateMany` checks inside interactive
+    `$transaction`s so an unaffordable prefund rolls back atomically.
+  - PAN/CVV never leave the server — encrypted at rest
+    (`aes-256-gcm`, `encryption.cardKey`), decrypted only provider-side, and
+    stripped from every API response (`toView`).
+  - Config: `FLUTTERWAVE_BASE_URL`, `FLUTTERWAVE_SECRET_KEY`,
+    `FLUTTERWAVE_WEBHOOK_SECRET_HASH`, `FLUTTERWAVE_VA_BANK_CODE`,
+    `CARD_ENCRYPTION_KEY`; `rawBody: true`; schema migration
+    `20260914085315_add_funding_cards` (`virtual_accounts`, `provider_events`).
+  - Unit + e2e coverage (verifier, credential crypto, cards client,
+    deposits/withdrawals/virtual-accounts services, issued-cards service;
+    funding + issued-cards e2e suites with an in-memory Flutterwave stub).
+
 - **Card transaction history + chat `updatedAt` tracking**:
   - New `GET /api/cards/:id/transactions` lists the caller's transactions made
     with a given card (paged envelope, owned-404, `amount` as fixed 2-decimal

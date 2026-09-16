@@ -44,8 +44,26 @@ export interface AppConfig {
     apiKey: string;
     senderId: string;
   };
+  push: {
+    /// Path to the FCM service-account JSON. Empty/absent disables push
+    /// delivery (dev-local apps still get in-app notifications).
+    fcmServiceAccountPath?: string;
+    /// Inline content of the FCM service-account JSON. Preferred on hosts
+    /// with no persistent filesystem (e.g. Vercel serverless functions, which
+    /// cannot read a service-account file). Takes precedence over the path.
+    fcmServiceAccountJson?: string;
+    /// Firebase project id used when initializing the FCM app (also present
+    /// inside the service-account JSON).
+    fcmProjectId?: string;
+  };
   encryption: {
     cardKey: string;
+  };
+  flutterwave: {
+    baseUrl: string;
+    secretKey: string;
+    webhookSecretHash: string;
+    vaBankCode: string;
   };
 }
 
@@ -93,5 +111,16 @@ export default (): AppConfig => ({
   },
   encryption: {
     cardKey: process.env.CARD_ENCRYPTION_KEY!,
+  },
+  flutterwave: {
+    baseUrl: process.env.FLUTTERWAVE_BASE_URL ?? 'https://api.flutterwave.com/v3',
+    secretKey: process.env.FLUTTERWAVE_SECRET_KEY!,
+    webhookSecretHash: process.env.FLUTTERWAVE_WEBHOOK_SECRET_HASH!,
+    vaBankCode: process.env.FLUTTERWAVE_VA_BANK_CODE ?? '090567',
+  },
+  push: {
+    fcmServiceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
+    fcmServiceAccountJson: process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
+    fcmProjectId: process.env.FIREBASE_PROJECT_ID,
   },
 });

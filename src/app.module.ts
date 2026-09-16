@@ -28,6 +28,8 @@ import { ChatsModule } from './modules/chats/chats.module.js';
 import { TransactionsModule } from './modules/transactions/transactions.module.js';
 import { ThresholdsModule } from './modules/thresholds/thresholds.module.js';
 import { BiometricsModule } from './modules/biometrics/biometrics.module.js';
+import { FlutterwaveModule } from './modules/flutterwave/flutterwave.module.js';
+import { FundingModule } from './modules/funding/funding.module.js';
 import { SupabaseAuthGuard } from './modules/auth/guards/auth.guard.js';
 import { RolesGuard } from './modules/auth/guards/roles.guard.js';
 import configuration, { AppConfig } from './config/configuration.js';
@@ -116,6 +118,8 @@ import { RedisClient } from './common/redis/redis-client.interface.js';
     TransactionsModule,
     ThresholdsModule,
     BiometricsModule,
+    FlutterwaveModule,
+    FundingModule,
     CommonModule,
   ],
   controllers: [AppController],

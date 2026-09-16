@@ -5,3 +5,5 @@ allowBuilds:
   prisma: true
   workerd: true
   '@scarf/scarf': false
+  '@firebase/util': true
+  protobufjs: true

@@ -34,6 +34,8 @@ export const SEED_APPROVAL_ID = '99999999-9999-4999-8999-999999999999';
 type AnyPrisma = PrismaService | PrismaClient;
 
 const PHYSICAL_TABLES = [
+  'provider_events',
+  'virtual_accounts',
   'transaction_approvals',
   'transactions',
   'transaction_thresholds',

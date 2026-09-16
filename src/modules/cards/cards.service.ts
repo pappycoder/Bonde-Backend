@@ -461,12 +461,13 @@ export class CardsService {
   }
 
   private toView(card: Card) {
-    const { cardNumberEncrypted: _encrypted, ...rest } = card;
+    const { cardNumberEncrypted: _p, cardCvvEncrypted: _c, ...rest } = card;
     return {
       ...rest,
       maxSpendLimit: card.maxSpendLimit === null ? null : money(card.maxSpendLimit),
       monthlyLimit: card.monthlyLimit === null ? null : money(card.monthlyLimit),
       totalSpent: money(card.totalSpent),
+      balance: money(card.balance),
     };
   }
 

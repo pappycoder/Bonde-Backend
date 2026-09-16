@@ -41,3 +41,7 @@ docker-compose.override.yml
 
 # Vitest
 .vitest/
+
+# Firebase service-account JSON — contains a PRIVATE KEY; never commit.
+*firebase-adminsdk*.json
+*firebase-service-account*.json

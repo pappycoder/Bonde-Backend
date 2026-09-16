@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { NotificationStatus, NotificationType, Prisma } from '@prisma/client';
 import { parsePaging, toPageResult } from '../../common/paging/paging.js';
@@ -9,6 +9,11 @@ import {
 } from '../../common/paging/filter.js';
 import { qWhere } from '../../common/paging/search.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import type { PushDispatcher } from './push-dispatcher.interface.js';
+import {
+  NoopPushDispatcher,
+  PUSH_DISPATCHER,
+} from './push-dispatcher.interface.js';
 
 export interface CreateNotificationInput {
   targetUserId: string;
@@ -16,6 +21,12 @@ export interface CreateNotificationInput {
   content: string;
   type?: NotificationType;
   metadata?: Prisma.InputJsonValue;
+}
+
+export interface RegisterDeviceInput {
+  userId: string;
+  token: string;
+  platform: 'ANDROID' | 'IOS';
 }
 
 export interface ListNotificationsOptions {
@@ -30,15 +41,13 @@ const NOTIFICATION_FILTER_FIELDS: Record<string, FilterFieldSpec> = {
   type: { kind: 'enum' },
 };
 
-/**
- * In-app notifications for the authenticated user. `create` is the internal
- * write path for other features (cards, transactions, chat, ...); the public
- * surface is read + mark-read only. Admin-side management of notifications is
- * available through the generic admin CRUD surface.
- */
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() @Inject(PUSH_DISPATCHER)
+    private readonly push: PushDispatcher = new NoopPushDispatcher(),
+  ) {}
 
   async create(input: CreateNotificationInput): Promise<void> {
     await this.prisma.notification.create({
@@ -51,6 +60,30 @@ export class NotificationsService {
         metadata: input.metadata ?? undefined,
       },
     });
+
+    // Best-effort push — in-app is source of truth; push must never fail the
+    // request that produced the notification (mirrors MAIL/OTP convention).
+    await this.dispatchBestEffort(input.targetUserId, input.title, input.content);
+  }
+
+  async registerDevice(input: RegisterDeviceInput): Promise<void> {
+    await this.prisma.pushDevice.upsert({
+      where: { token: input.token },
+      create: {
+        id: randomUUID(),
+        userId: input.userId,
+        token: input.token,
+        platform: input.platform,
+      },
+      update: { userId: input.userId, platform: input.platform },
+    });
+  }
+
+  async unregisterDevice(userId: string, token: string): Promise<{ removed: number }> {
+    const result = await this.prisma.pushDevice.deleteMany({
+      where: { token, userId },
+    });
+    return { removed: result.count };
   }
 
   async list(userId: string, options: ListNotificationsOptions = {}) {
@@ -94,5 +127,22 @@ export class NotificationsService {
       data: { status: NotificationStatus.READ, readAt: new Date() },
     });
     return { updated: result.count };
+  }
+
+  private async dispatchBestEffort(
+    userId: string,
+    title: string,
+    content: string,
+  ): Promise<void> {
+    if (!this.push.isEnabled()) return;
+    const devices = await this.prisma.pushDevice.findMany({
+      where: { userId },
+      select: { token: true },
+    });
+    await Promise.allSettled(
+      devices.map((d) =>
+        this.push.send({ deviceToken: d.token, title, body: content }),
+      ),
+    );
   }
 }
