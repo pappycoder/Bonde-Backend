@@ -12,8 +12,7 @@ import { PUSH_DISPATCHER } from './push-dispatcher.interface.js';
     NotificationsService,
     {
       provide: PUSH_DISPATCHER,
-      useFactory: (config: ConfigService<AppConfig, true>) =>
-        new FirebasePushDispatcher(config),
+      useFactory: (config: ConfigService<AppConfig, true>) => new FirebasePushDispatcher(config),
       inject: [ConfigService],
     },
   ],

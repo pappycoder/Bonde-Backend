@@ -10,10 +10,7 @@ import {
 import { qWhere } from '../../common/paging/search.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type { PushDispatcher } from './push-dispatcher.interface.js';
-import {
-  NoopPushDispatcher,
-  PUSH_DISPATCHER,
-} from './push-dispatcher.interface.js';
+import { NoopPushDispatcher, PUSH_DISPATCHER } from './push-dispatcher.interface.js';
 
 export interface CreateNotificationInput {
   targetUserId: string;
@@ -45,7 +42,8 @@ const NOTIFICATION_FILTER_FIELDS: Record<string, FilterFieldSpec> = {
 export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
-    @Optional() @Inject(PUSH_DISPATCHER)
+    @Optional()
+    @Inject(PUSH_DISPATCHER)
     private readonly push: PushDispatcher = new NoopPushDispatcher(),
   ) {}
 
@@ -129,20 +127,14 @@ export class NotificationsService {
     return { updated: result.count };
   }
 
-  private async dispatchBestEffort(
-    userId: string,
-    title: string,
-    content: string,
-  ): Promise<void> {
+  private async dispatchBestEffort(userId: string, title: string, content: string): Promise<void> {
     if (!this.push.isEnabled()) return;
     const devices = await this.prisma.pushDevice.findMany({
       where: { userId },
       select: { token: true },
     });
     await Promise.allSettled(
-      devices.map((d) =>
-        this.push.send({ deviceToken: d.token, title, body: content }),
-      ),
+      devices.map((d) => this.push.send({ deviceToken: d.token, title, body: content })),
     );
   }
 }

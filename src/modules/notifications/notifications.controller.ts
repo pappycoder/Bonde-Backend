@@ -83,10 +83,7 @@ export class NotificationsController {
   @ApiOperation({ summary: 'Register your device for push deliveries (FCM token)' })
   @ApiCreatedResponse({ type: RegisterDeviceDto })
   @ApiErrorResponse()
-  registerDevice(
-    @CurrentUser() principal: AuthPrincipal,
-    @Body() body: RegisterDeviceDto,
-  ) {
+  registerDevice(@CurrentUser() principal: AuthPrincipal, @Body() body: RegisterDeviceDto) {
     return this.notifications.registerDevice({
       userId: principal.userId,
       token: body.token,
@@ -99,10 +96,7 @@ export class NotificationsController {
   @ApiOperation({ summary: 'Unregister your device from push deliveries' })
   @ApiOkResponse({ type: UnregisterDeviceResponseDto })
   @ApiErrorResponse()
-  unregisterDevice(
-    @CurrentUser() principal: AuthPrincipal,
-    @Body() body: UnregisterDeviceDto,
-  ) {
+  unregisterDevice(@CurrentUser() principal: AuthPrincipal, @Body() body: UnregisterDeviceDto) {
     return this.notifications.unregisterDevice(principal.userId, body.token);
   }
 }

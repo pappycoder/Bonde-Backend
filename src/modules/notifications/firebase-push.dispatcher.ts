@@ -70,11 +70,7 @@ export class FirebasePushDispatcher implements PushDispatcher {
 
     // Inline JSON wins on hosts with no persistent filesystem (Vercel
     // serverless); a path fallback covers local dev and mounted-secret prod.
-    const credential = json
-      ? cert(JSON.parse(json as string))
-      : path
-        ? cert(path)
-        : undefined;
+    const credential = json ? cert(JSON.parse(json as string)) : path ? cert(path) : undefined;
 
     if (!credential) return undefined;
 
@@ -87,10 +83,7 @@ export class FirebasePushDispatcher implements PushDispatcher {
     }
 
     try {
-      this.app = initializeApp(
-        { credential, projectId: push.fcmProjectId },
-        'bonde-push',
-      );
+      this.app = initializeApp({ credential, projectId: push.fcmProjectId }, 'bonde-push');
       this.logger.log('[push] FCM app initialised');
     } catch (error) {
       this.logger.warn(`[push] FCM init failed: ${(error as Error).message}`);

@@ -33,6 +33,13 @@ env:
   TERMII_API_KEY: termii-dummy
   CARD_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   REDIS_URL: redis://localhost:6379
+  # --- Flutterwave (card issuance, funding, webhooks) ------------------------
+  # e2e stubs the Flutterwave client (every suite overrides FLUTTERWAVE_CLIENT
+  # with test/flutterwave-stub.ts), and funding.e2e-spec derives the webhook
+  # verif-hash from these SAME validated env values — so self-consistent
+  # placeholders are inert and let the 306-test suite boot deterministically.
+  FLUTTERWAVE_SECRET_KEY: flutterwave-placeholder
+  FLUTTERWAVE_WEBHOOK_SECRET_HASH: flutterwave-webhook-placeholder
   # --- Postgres used by e2e (matches test/db.ts TEST_DB_URL) ----------------
   TEST_DATABASE_URL: postgresql://bonde:bonde@localhost:5433/bonde
   # prisma.config.ts uses env('DIRECT_URL') for prisma generate; no .env in CI.
