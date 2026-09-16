@@ -84,6 +84,12 @@ enum NotificationType {
   CARD
 }
 
+/// Mobile platform for an FCM push-device registration.
+enum PushPlatform {
+  ANDROID
+  IOS
+}
+
 enum OtpChannel {
   EMAIL
   PHONE
@@ -137,6 +143,7 @@ model Profile {
   chats               Chat[]
   transactions        Transaction[]
   notifications       Notification[]
+  pushDevices         PushDevice[]
   otpCodes            OtpCode[]
   biometricDevices    BiometricDevice[]
   thresholds          TransactionThreshold[]
@@ -443,6 +450,22 @@ model Notification {
   @@index([userId, status])
   @@index([createdAt])
   @@map("notifications")
+}
+
+/// FCM-registered device owned by a user (one row per active install). Token
+/// registrations power push delivery for new in-app notifications.
+model PushDevice {
+  id        String       @id @db.Uuid
+  userId    String       @map("user_id") @db.Uuid
+  token     String       @unique @db.VarChar(4096)
+  platform  PushPlatform @default(ANDROID)
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_devices")
 }
 
 // ---------------------------------------------------------------------------

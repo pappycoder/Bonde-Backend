@@ -44,6 +44,12 @@ export const envValidationSchema = Joi.object({
   TERMII_API_KEY: Joi.string().required(),
   TERMII_SENDER_ID: Joi.string().max(11).default('Bonde'),
 
+  // FCM push delivery. Optional — when unset, `registerDevice` endpoints keep
+  // working but `NotificationsService.create` skips push dispatch (in-app
+  // notifications still record normally).
+  FIREBASE_SERVICE_ACCOUNT_PATH: Joi.string().optional(),
+  FIREBASE_PROJECT_ID: Joi.string().optional(),
+
   CARD_ENCRYPTION_KEY: Joi.string().hex().length(64).required(),
 
   FLUTTERWAVE_BASE_URL: Joi.string().uri().default('https://api.flutterwave.com/v3'),

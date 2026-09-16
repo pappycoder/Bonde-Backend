@@ -44,6 +44,14 @@ export interface AppConfig {
     apiKey: string;
     senderId: string;
   };
+  push: {
+    /// Path to the FCM service-account JSON. Empty/absent disables push
+    /// delivery (dev-local apps still get in-app notifications).
+    fcmServiceAccountPath?: string;
+    /// Firebase project id used when initializing the FCM app (also present
+    /// inside the service-account JSON).
+    fcmProjectId?: string;
+  };
   encryption: {
     cardKey: string;
   };
@@ -105,5 +113,9 @@ export default (): AppConfig => ({
     secretKey: process.env.FLUTTERWAVE_SECRET_KEY!,
     webhookSecretHash: process.env.FLUTTERWAVE_WEBHOOK_SECRET_HASH!,
     vaBankCode: process.env.FLUTTERWAVE_VA_BANK_CODE ?? '090567',
+  },
+  push: {
+    fcmServiceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
+    fcmProjectId: process.env.FIREBASE_PROJECT_ID,
   },
 });
