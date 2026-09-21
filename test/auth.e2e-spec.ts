@@ -287,7 +287,10 @@ describe('Auth endpoints (e2e)', () => {
       .post('/auth/resend-verification-otp')
       .send({ email: EMAIL })
       .expect(200);
-    expect(again.body).toEqual({ status: 'sent' });
+    expect(again.body).toMatchObject({ status: 'sent' });
+    // The account exists but is unverified → a fresh one-time ticket is issued
+    // so the mobile client can complete verification without re-registering.
+    expect(again.body.registrationToken).toEqual(expect.any(String));
     expect(sent.length).toBeGreaterThan(before);
 
     const missing = await ctx.raw
@@ -295,6 +298,7 @@ describe('Auth endpoints (e2e)', () => {
       .send({ email: 'nobody@bonde.app' })
       .expect(200);
     expect(missing.body).toEqual({ status: 'sent' });
+    expect(missing.body.registrationToken).toBeUndefined();
   });
 
   it('round-trips forgot-password → verify-reset-otp → reset-password', async () => {
