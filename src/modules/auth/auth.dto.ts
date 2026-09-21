@@ -149,6 +149,14 @@ export class SessionResponseDto {
 export class SendStatusResponseDto {
   @ApiProperty({ example: 'sent' })
   status: 'sent';
+
+  @ApiProperty({
+    required: false,
+    description:
+      'Fresh single-use token for /verify-email (15 min). Only present when ' +
+      'the account exists and its email is still unverified.',
+  })
+  registrationToken?: string;
 }
 
 /** Response for `PATCH /api/auth/reset-password`. */

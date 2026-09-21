@@ -552,3 +552,45 @@ describe('AuthService forgot-password', () => {
     ).rejects.toThrow(UnauthorizedException);
   });
 });
+
+describe('AuthService resendVerificationOtp', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function seedProfile(prisma: ReturnType<typeof makeService>['prisma'], emailVerified: boolean) {
+    vi.mocked(prisma.profile.findUnique).mockResolvedValue({
+      id: USER_ID,
+      email: EMAIL,
+      emailVerified,
+    });
+  }
+
+  it('always returns sent and reveals nothing for an unknown email', async () => {
+    const { service, sender, tokens } = makeService();
+    await expect(service.resendVerificationOtp(EMAIL)).resolves.toEqual({ status: 'sent' });
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(tokens.signRegistrationToken).not.toHaveBeenCalled();
+  });
+
+  it('never issues a token for an already-verified email', async () => {
+    const { service, sender, tokens, prisma } = makeService();
+    seedProfile(prisma, true);
+    await expect(service.resendVerificationOtp(EMAIL)).resolves.toEqual({ status: 'sent' });
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(tokens.signRegistrationToken).not.toHaveBeenCalled();
+  });
+
+  it('dispatches a code and issues a fresh registration token when unverified', async () => {
+    const { service, sender, tokens, prisma } = makeService();
+    seedProfile(prisma, false);
+    await expect(service.resendVerificationOtp(' amina@bonde.app ')).resolves.toEqual({
+      status: 'sent',
+      registrationToken: `reg.${USER_ID}.tok`,
+    });
+    expect(sender.send).toHaveBeenCalledWith({
+      channel: OtpChannel.EMAIL,
+      target: EMAIL,
+      code: expect.stringMatching(/^[0-9]{4}$/),
+    });
+    expect(tokens.signRegistrationToken).toHaveBeenCalledWith(USER_ID);
+  });
+});

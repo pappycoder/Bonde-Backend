@@ -158,7 +158,8 @@ export class AuthService {
     if (!profile || profile.emailVerified) return { status: 'sent' as const };
 
     await this.dispatchEmailCode(profile.id, profile.email);
-    return { status: 'sent' as const };
+    const registrationToken = await this.tokens.signRegistrationToken(profile.id);
+    return { status: 'sent' as const, registrationToken };
   }
 
   async login(dto: LoginDto) {
