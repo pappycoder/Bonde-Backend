@@ -65,6 +65,10 @@ export interface AppConfig {
     webhookSecretHash: string;
     vaBankCode: string;
   };
+  passcode: {
+    maxAttempts: number;
+    lockMinutes: number;
+  };
 }
 
 export default (): AppConfig => ({
@@ -122,5 +126,9 @@ export default (): AppConfig => ({
     fcmServiceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
     fcmServiceAccountJson: process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
     fcmProjectId: process.env.FIREBASE_PROJECT_ID,
+  },
+  passcode: {
+    maxAttempts: Number(process.env.PASSCODE_MAX_ATTEMPTS ?? 5),
+    lockMinutes: Number(process.env.PASSCODE_LOCK_MINUTES ?? 15),
   },
 });

@@ -28,6 +28,7 @@ import { ChatsModule } from './modules/chats/chats.module.js';
 import { TransactionsModule } from './modules/transactions/transactions.module.js';
 import { ThresholdsModule } from './modules/thresholds/thresholds.module.js';
 import { BiometricsModule } from './modules/biometrics/biometrics.module.js';
+import { PasscodeModule } from './modules/passcode/passcode.module.js';
 import { FlutterwaveModule } from './modules/flutterwave/flutterwave.module.js';
 import { FundingModule } from './modules/funding/funding.module.js';
 import { SupabaseAuthGuard } from './modules/auth/guards/auth.guard.js';
@@ -118,6 +119,7 @@ import { RedisClient } from './common/redis/redis-client.interface.js';
     TransactionsModule,
     ThresholdsModule,
     BiometricsModule,
+    PasscodeModule,
     FlutterwaveModule,
     FundingModule,
     CommonModule,

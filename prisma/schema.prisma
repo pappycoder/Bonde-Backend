@@ -145,6 +145,7 @@ model Profile {
   notifications       Notification[]
   pushDevices         PushDevice[]
   otpCodes            OtpCode[]
+  passcode            Passcode?
   biometricDevices    BiometricDevice[]
   thresholds          TransactionThreshold[]
   auditLogs           AuditLog[]
@@ -487,6 +488,24 @@ model OtpCode {
 
   @@index([userId, channel, used])
   @@map("otp_codes")
+}
+
+/// One-time 4-digit transaction passcode per profile. Stored as an scrypt
+/// digest with a per-user random salt (never plaintext); carries the failed
+/// attempt counter + lockout window that gate brute-force attempts.
+model Passcode {
+  id             String    @id @db.Uuid
+  userId         String    @unique @map("user_id") @db.Uuid
+  hash           String    @map("hash") @db.VarChar(128) // scrypt derived key, hex
+  salt           String    @map("salt") @db.VarChar(64) // random per-user salt, hex
+  failedAttempts Int       @default(0) @map("failed_attempts")
+  lockedUntil    DateTime? @map("locked_until")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("passcodes")
 }
 
 /// Per-device biometric enrollment. Actual biometric data lives on the

@@ -62,4 +62,7 @@ export const envValidationSchema = Joi.object({
   FLUTTERWAVE_SECRET_KEY: Joi.string().required(),
   FLUTTERWAVE_WEBHOOK_SECRET_HASH: Joi.string().required(),
   FLUTTERWAVE_VA_BANK_CODE: Joi.string().max(10).default('090567'),
+
+  PASSCODE_MAX_ATTEMPTS: Joi.number().integer().min(1).default(5),
+  PASSCODE_LOCK_MINUTES: Joi.number().integer().min(1).default(15),
 });

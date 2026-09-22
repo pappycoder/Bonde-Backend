@@ -50,6 +50,7 @@ const PHYSICAL_TABLES = [
   'cards',
   'card_providers',
   'biometric_devices',
+  'passcodes',
   'audit_logs',
   'wallets',
   'accounts',

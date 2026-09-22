@@ -74,7 +74,7 @@ async function seedLocalDatabase(): Promise<void> {
  * request). Best-effort: if Redis is down, suites degrade instead of failing.
  */
 async function flushRedisKeyDatabases(): Promise<void> {
-  for (const db of [0, 10, 12, 13, 14, 15]) {
+  for (const db of [0, 10, 12, 13, 14, 15, 16]) {
     let redis: Redis | undefined;
     try {
       redis = new Redis({ host: '127.0.0.1', port: 6379, db });
