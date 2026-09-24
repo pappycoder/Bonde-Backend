@@ -33,11 +33,11 @@ export class HealthController {
     return this.health
       .check([
         () =>
-          this.indicator.check('redis').attempt(async (_signal) => {
+          (async () => {
             const pong = await this.redis.ping();
             if (pong !== 'PONG') throw new Error('unexpected PING response');
-            return { message: 'pong' };
-          }),
+            return this.indicator.check('redis').up({ message: 'pong' });
+          })(),
       ])
       .catch((error: unknown) => {
         // Terminus throws ServiceUnavailableException(result) when a dependency
