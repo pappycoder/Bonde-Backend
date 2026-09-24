@@ -80,7 +80,7 @@ describe('Passcode (self-service e2e)', () => {
       .patch('/passcode')
       .send({ currentPasscode: '9999', newPasscode: '5678' })
       .expect(401);
-    expect(bad.body.message).toBe('Current passcode is incorrect');
+    expect(bad.body.message[0]).toBe('Current passcode is incorrect');
 
     await ctx.http
       .patch('/passcode')
@@ -105,7 +105,7 @@ describe('Passcode (self-service e2e)', () => {
       .send({ passcode: '9999' })
       .expect(401)
       .expect((res) => {
-        expect(res.body.message).toMatch(/locked/);
+        expect(res.body.message[0]).toMatch(/locked/);
       });
   });
 });

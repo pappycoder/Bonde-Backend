@@ -2,7 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { Logger as PinoLogger } from 'nestjs-pino';
 import { ConfigService } from '@nestjs/config';
-import helmet from 'helmet';
+import * as helmet from 'helmet';
 import hpp from 'hpp';
 import { AppModule } from './app.module.js';
 import { AppConfig } from './config/configuration.js';
@@ -23,7 +23,10 @@ async function bootstrap() {
   app.useLogger(app.get(PinoLogger));
 
   // ---- Security headers --------------------------------------------------
-  app.use(helmet());
+  // The callable is only exposed as the module `default` export (helmet 8 ships
+  // dual .d.cts/.d.mts without a named export), so go through the namespace to
+  // typecheck under both ESM and CJS resolution.
+  app.use(helmet.default());
 
   // ---- HTTP Parameter Pollution protection --------------------------------
   app.use(hpp());
