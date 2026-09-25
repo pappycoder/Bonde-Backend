@@ -20,6 +20,7 @@ import { OtpModule } from './modules/otp/otp.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { AuditLogModule } from './modules/audit/audit-log.module.js';
 import { ActivityModule } from './modules/activity/activity.module.js';
+import { AdminConsoleModule } from './modules/admin-console/admin-console.module.js';
 import { CrudModule } from './modules/crud/crud.module.js';
 import { AccountsModule } from './modules/accounts/accounts.module.js';
 import { WalletsModule } from './modules/wallets/wallets.module.js';
@@ -111,6 +112,7 @@ import { RedisClient } from './common/redis/redis-client.interface.js';
     NotificationsModule,
     AuditLogModule,
     ActivityModule,
+    AdminConsoleModule,
     CrudModule,
     AccountsModule,
     WalletsModule,
