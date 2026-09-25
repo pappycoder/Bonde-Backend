@@ -27,6 +27,6 @@ import type { AppConfig } from '../../config/configuration.js';
     AuthTokensService,
     AuthService,
   ],
-  exports: [JwksService],
+  exports: [JwksService, SUPABASE_AUTH_BODY],
 })
 export class AuthModule {}

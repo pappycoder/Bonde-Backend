@@ -68,6 +68,7 @@ function makeService(
       if (userId !== USER_ID) throw new AuthProviderError('NOT_FOUND', 'missing');
       users.set(EMAIL, { password, confirmed: true });
     }),
+    updateUserMetadata: vi.fn(async () => undefined),
   };
   Object.assign(provider, overrides.provider);
 

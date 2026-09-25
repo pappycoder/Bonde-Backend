@@ -1,12 +1,15 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { StorageService } from '../../common/storage/storage.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { SUPABASE_AUTH_BODY, type SupabaseAuthGateway } from '../auth/supabase/supabase-auth.client.js';
 import { UpdateAvatarDto, UpdateProfileDto } from './profiles.dto.js';
 
 /**
@@ -16,9 +19,12 @@ import { UpdateAvatarDto, UpdateProfileDto } from './profiles.dto.js';
  */
 @Injectable()
 export class ProfilesService {
+  private readonly logger = new Logger(ProfilesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    @Inject(SUPABASE_AUTH_BODY) private readonly provider: SupabaseAuthGateway,
   ) {}
 
   async get(userId: string) {
@@ -46,7 +52,15 @@ export class ProfilesService {
       data.onboardingCompletedAt = new Date();
     }
 
-    return this.prisma.profile.update({ where: { id: userId }, data });
+    const profile = await this.prisma.profile.update({ where: { id: userId }, data });
+
+    // The profiles row is the source of truth; mirror name changes into GoTrue
+    // so future tokens/sessions and the dashboard header pick the name up.
+    if (dto.fullName !== undefined && data.fullName) {
+      await this.syncUserMetadata(userId, { full_name: dto.fullName.trim() });
+    }
+
+    return profile;
   }
 
   async updateAvatar(userId: string, dto: UpdateAvatarDto) {
@@ -56,10 +70,14 @@ export class ProfilesService {
       throw new BadRequestException('Avatar path must live under your own u-<userId>/ prefix');
     }
     const { publicUrl } = this.storage.getPublicUrl('bonde-avatars', path);
-    return this.prisma.profile.update({
+    const profile = await this.prisma.profile.update({
       where: { id: userId },
       data: { avatarUrl: publicUrl },
     });
+    if (profile.avatarUrl) {
+      await this.syncUserMetadata(userId, { avatar_url: profile.avatarUrl });
+    }
+    return profile;
   }
 
   private async ensureExists(userId: string): Promise<void> {
@@ -84,5 +102,22 @@ export class ProfilesService {
       select: { phone: true },
     });
     return current?.phone !== phone;
+  }
+
+  /**
+   * Best-effort mirror into GoTrue `user_metadata`. A provider outage must
+   * never fail a profile save — the profiles row is authoritative and the
+   * mismatch only affects display until the next successful sync.
+   */
+  private async syncUserMetadata(
+    userId: string,
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.provider.updateUserMetadata(userId, metadata);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Could not sync user metadata for ${userId}: ${detail}`);
+    }
   }
 }

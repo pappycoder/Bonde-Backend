@@ -107,6 +107,14 @@ class FakeSupabaseAuth implements SupabaseAuthGateway {
     entry[1].password = password;
     entry[1].confirmed = true;
   }
+
+  async updateUserMetadata(userId: string, metadata: Record<string, unknown>): Promise<void> {
+    const fullName = metadata.full_name;
+    const entry = [...this.accounts.entries()].find(([, account]) => account.id === userId);
+    if (entry && typeof fullName === 'string') {
+      entry[1].fullName = fullName;
+    }
+  }
 }
 
 const EMAIL = 'new.user@bonde.app';

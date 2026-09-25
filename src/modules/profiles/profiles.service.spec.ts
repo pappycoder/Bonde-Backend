@@ -23,8 +23,11 @@ function makeService(
   const storage = {
     getPublicUrl: vi.fn(() => ({ publicUrl: 'https://cdn/bonde-avatars/x.jpeg' })),
   };
-  const service = new ProfilesService(prisma as never, storage as never);
-  return { service, prisma, storage };
+  const provider = {
+    updateUserMetadata: vi.fn(async () => undefined),
+  };
+  const service = new ProfilesService(prisma as never, storage as never, provider as never);
+  return { service, prisma, storage, provider };
 }
 
 describe('ProfilesService.get', () => {
@@ -65,6 +68,43 @@ describe('ProfilesService.update', () => {
       where: { id: USER_ID },
       data: { fullName: 'Zainab' },
     });
+  });
+
+  it('mirrors a name change into GoTrue user_metadata', async () => {
+    const update = vi.fn(async (args) => ({ ...PROFILE, ...args.data }));
+    const { service, provider } = makeService({
+      findUnique: vi.fn(async () => PROFILE),
+      update,
+    });
+    await service.update(USER_ID, { fullName: '  Zainab Sule  ' });
+    expect(provider.updateUserMetadata).toHaveBeenCalledWith(USER_ID, {
+      full_name: 'Zainab Sule',
+    });
+  });
+
+  it('does not touch GoTrue metadata for a phone-only update', async () => {
+    const update = vi.fn(async (args) => ({ ...PROFILE, ...args.data }));
+    const { service, provider } = makeService({
+      findUnique: vi
+        .fn()
+        .mockResolvedValueOnce(PROFILE)
+        .mockResolvedValueOnce({ phone: PROFILE.phone }),
+      findFirst: vi.fn(async () => null),
+      update,
+    });
+    await service.update(USER_ID, { phone: '+2348011111111' });
+    expect(provider.updateUserMetadata).not.toHaveBeenCalled();
+  });
+
+  it('still returns the saved profile when the GoTrue mirror fails (best-effort)', async () => {
+    const update = vi.fn(async (args) => ({ ...PROFILE, ...args.data }));
+    const { service, provider } = makeService({
+      findUnique: vi.fn(async () => PROFILE),
+      update,
+    });
+    provider.updateUserMetadata.mockRejectedValueOnce(new Error('provider down'));
+    const result = await service.update(USER_ID, { fullName: 'Zainab' });
+    expect(result).toHaveProperty('fullName', 'Zainab');
   });
 
   it('resets phoneVerified when the phone changes', async () => {
@@ -117,6 +157,29 @@ describe('ProfilesService.updateAvatar', () => {
     const { service, storage } = makeService({ findUnique: vi.fn(async () => PROFILE), update });
     const result = await service.updateAvatar(USER_ID, { path: `u-${USER_ID}/avatar.jpeg` });
     expect(storage.getPublicUrl).toHaveBeenCalledWith('bonde-avatars', `u-${USER_ID}/avatar.jpeg`);
+    expect(result).toHaveProperty('avatarUrl', 'https://cdn/bonde-avatars/x.jpeg');
+  });
+
+  it('mirrors the new avatar URL into GoTrue user_metadata', async () => {
+    const update = vi.fn(async (args) => ({ ...PROFILE, ...args.data }));
+    const { service, provider } = makeService({
+      findUnique: vi.fn(async () => PROFILE),
+      update,
+    });
+    await service.updateAvatar(USER_ID, { path: `u-${USER_ID}/avatar.jpeg` });
+    expect(provider.updateUserMetadata).toHaveBeenCalledWith(USER_ID, {
+      avatar_url: 'https://cdn/bonde-avatars/x.jpeg',
+    });
+  });
+
+  it('keeps the avatar write even when the GoTrue mirror fails', async () => {
+    const update = vi.fn(async (args) => ({ ...PROFILE, ...args.data }));
+    const { service, provider } = makeService({
+      findUnique: vi.fn(async () => PROFILE),
+      update,
+    });
+    provider.updateUserMetadata.mockRejectedValueOnce(new Error('provider down'));
+    const result = await service.updateAvatar(USER_ID, { path: `u-${USER_ID}/avatar.jpeg` });
     expect(result).toHaveProperty('avatarUrl', 'https://cdn/bonde-avatars/x.jpeg');
   });
 });

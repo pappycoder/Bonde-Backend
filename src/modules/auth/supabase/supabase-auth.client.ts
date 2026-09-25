@@ -51,6 +51,11 @@ export interface SupabaseAuthGateway {
   confirmEmail(userId: string): Promise<void>;
   /** Set a new password via the Admin API. */
   setPassword(userId: string, password: string): Promise<void>;
+  /**
+   * Merge display metadata (name, avatar) into `auth.users.user_metadata` via
+   * the Admin API so the JWT + any new session reflect profile edits.
+   */
+  updateUserMetadata(userId: string, metadata: Record<string, unknown>): Promise<void>;
 }
 
 /** Binding token — tests replace it with an in-memory fake. */
@@ -153,6 +158,19 @@ export class SupabaseAuthClient implements SupabaseAuthGateway {
     });
   }
 
+  async updateUserMetadata(userId: string, metadata: Record<string, unknown>): Promise<void> {
+    // Read-merge-write so unrelated keys in user_metadata are never dropped.
+    const current = await this.request<{ user_metadata?: Record<string, unknown> }>(
+      `/admin/users/${userId}`,
+      { method: 'GET', useServiceRole: true },
+    );
+    await this.request<GoTrueUser>(`/admin/users/${userId}`, {
+      method: 'PUT',
+      useServiceRole: true,
+      body: { user_metadata: { ...current.user_metadata, ...metadata } },
+    });
+  }
+
   private async token(body: Record<string, unknown>): Promise<SupabaseSession> {
     const session = await this.request<GoTrueTokenResponse>('/token', {
       method: 'POST',
@@ -169,7 +187,11 @@ export class SupabaseAuthClient implements SupabaseAuthGateway {
 
   private async request<T>(
     path: string,
-    init: { method: 'POST' | 'PUT'; useServiceRole: boolean; body: Record<string, unknown> },
+    init: {
+      method: 'GET' | 'POST' | 'PUT';
+      useServiceRole: boolean;
+      body?: Record<string, unknown>;
+    },
   ): Promise<T> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -181,7 +203,7 @@ export class SupabaseAuthClient implements SupabaseAuthGateway {
           'content-type': 'application/json',
           ...(init.useServiceRole ? { authorization: `Bearer ${this.serviceRoleKey}` } : {}),
         },
-        body: JSON.stringify(init.body),
+        body: init.body === undefined ? undefined : JSON.stringify(init.body),
         signal: controller.signal,
       });
 
