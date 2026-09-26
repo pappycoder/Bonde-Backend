@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { money } from '../../common/money/money.js';
 import { parsePaging, toPageResult } from '../../common/paging/paging.js';
@@ -8,6 +13,7 @@ import {
   type FilterFieldSpec,
 } from '../../common/paging/filter.js';
 import { qWhere } from '../../common/paging/search.js';
+import { AuditLogService } from '../audit/audit-log.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { toAdminTxSummary } from './admin-tx-view.js';
 
@@ -60,15 +66,19 @@ export interface AdminUserView {
 }
 
 /**
- * Read-only admin surface over profiles + their 1:1 account/wallet. The
- * derived `status` maps the provisioning state (`emailVerified`,
- * `onboardingCompletedAt`, account/wallet `isActive`) into the dashboard's
- * active/pending/suspended vocabulary. Write actions (suspend etc.) land in
- * Phase 3.
+ * Admin surface over profiles + their 1:1 account/wallet. The derived `status`
+ * maps the provisioning state (`emailVerified`, `onboardingCompletedAt`,
+ * account/wallet `isActive`) into the dashboard's active/pending/suspended
+ * vocabulary. Phase 3 adds the suspend/restore transitions, which toggle
+ * `isActive` on the 1:1 account + wallet and are recorded as audit-only
+ * actions (admins act, but end users are never notified by a system action).
  */
 @Injectable()
 export class AdminConsoleUsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditLogService,
+  ) {}
 
   async list(options: AdminUsersListOptions = {}) {
     const { page, pageSize, skip, take } = parsePaging(options.page, options.pageSize);
@@ -137,6 +147,94 @@ export class AdminConsoleUsersService {
     const byId: Record<string, string> = {};
     for (const profile of profiles) byId[profile.id] = profile.fullName;
     return byId;
+  }
+
+  /**
+   * Deactivate the user's 1:1 account + wallet. Idempotent: suspending an
+   * already-suspended user returns the current state without writing. The
+   * transition (not the no-op) is recorded via `admin.users.suspend`.
+   */
+  async suspend(userId: string, actorUserId: string, reason?: string) {
+    const { account, wallet, changed } = await this.toggleActive(userId, false);
+    if (changed) {
+      const ops: Prisma.PrismaPromise<unknown>[] = [
+        this.prisma.account.update({
+          where: { id: account!.id },
+          data: { isActive: false },
+        }),
+      ];
+      if (wallet) {
+        ops.push(
+          this.prisma.wallet.update({
+            where: { id: wallet.id },
+            data: { isActive: false },
+          }),
+        );
+      }
+      await this.prisma.$transaction(ops);
+      await this.audit.record({
+        userId: actorUserId,
+        action: 'admin.users.suspend',
+        entityType: 'user',
+        entityId: userId,
+        metadata: reason ? { reason } : undefined,
+      });
+    }
+    return this.get(userId);
+  }
+
+  /** Reactivate the user's 1:1 account + wallet (idempotent, audited). */
+  async restore(userId: string, actorUserId: string) {
+    const { account, wallet, changed } = await this.toggleActive(userId, true);
+    if (changed) {
+      const ops: Prisma.PrismaPromise<unknown>[] = [
+        this.prisma.account.update({
+          where: { id: account!.id },
+          data: { isActive: true },
+        }),
+      ];
+      if (wallet) {
+        ops.push(
+          this.prisma.wallet.update({
+            where: { id: wallet.id },
+            data: { isActive: true },
+          }),
+        );
+      }
+      await this.prisma.$transaction(ops);
+      await this.audit.record({
+        userId: actorUserId,
+        action: 'admin.users.restore',
+        entityType: 'user',
+        entityId: userId,
+      });
+    }
+    return this.get(userId);
+  }
+
+  /** Loads the user's account/wallet and reports whether a state flip is needed. */
+  private async toggleActive(
+    userId: string,
+    active: boolean,
+  ): Promise<{
+    account: NonNullable<UserRow['accounts'][number]> | null;
+    wallet: UserRow['accounts'][number]['wallets'][number] | null;
+    changed: boolean;
+  }> {
+    const profile = await this.prisma.profile.findUnique({
+      where: { id: userId },
+      include: USER_INCLUDE,
+    });
+    if (!profile) throw new NotFoundException('User not found');
+    const account = profile.accounts[0];
+    if (!account) {
+      throw new ConflictException('User has no provisioned account to manage');
+    }
+    const wallet = account.wallets[0];
+    const already = active
+      ? account.isActive && (!wallet || wallet.isActive)
+      : !account.isActive || (wallet !== undefined && !wallet.isActive);
+    return { account, wallet: wallet ?? null, changed: !already };
   }
 
   private buildWhere(options: AdminUsersListOptions): Prisma.ProfileWhereInput {

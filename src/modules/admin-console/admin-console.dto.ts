@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 /** Query parameters for the admin console list endpoints. */
 export class AdminListQueryDto {
@@ -39,6 +39,38 @@ export class AdminUserListQueryDto extends AdminListQueryDto {
   @IsOptional()
   @IsIn(['active', 'pending', 'suspended'])
   status?: 'active' | 'pending' | 'suspended';
+}
+
+// ---------------------------------------------------------------------------
+// Write-model DTOs (Phase 3 admin actions)
+// ---------------------------------------------------------------------------
+
+/** Body for `POST /api/admin/users/:id/suspend` (restore ignores the body). */
+export class SuspendUserBodyDto {
+  @ApiPropertyOptional({
+    example: 'Repeatedly failed risk review',
+    maxLength: 300,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  reason?: string;
+}
+
+/** Body for `POST /api/admin/transactions/:id/approval`. */
+export class ReviewApprovalBodyDto {
+  @ApiProperty({ enum: ['APPROVED', 'DECLINED'] })
+  @IsIn(['APPROVED', 'DECLINED'])
+  status: 'APPROVED' | 'DECLINED';
+
+  @ApiPropertyOptional({
+    example: 'Provider confirms the payout is legitimate.',
+    maxLength: 500,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  notes?: string;
 }
 
 // ---------------------------------------------------------------------------

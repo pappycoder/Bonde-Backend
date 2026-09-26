@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { AdminConsoleUsersService } from './admin-console-users.service.js';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_ID = '22222222-2222-4222-8222-222222222222';
+const ACTOR_ID = '0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a';
 const ACCOUNT_ID = '33333333-3333-4333-8333-333333333333';
 const WALLET_ID = '44444444-4444-4444-8444-444444444444';
 const TX_ID = '55555555-5555-4555-8555-555555555555';
@@ -90,13 +91,27 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     findMany: vi.fn(async () => [recentTxRow()]),
     ...overrides.transaction,
   };
+  const account = {
+    update: vi.fn(async (): Promise<unknown> => ({ id: ACCOUNT_ID })),
+    ...overrides.account,
+  };
+  const wallet = {
+    update: vi.fn(async (): Promise<unknown> => ({ id: WALLET_ID })),
+    ...overrides.wallet,
+  };
+  const audit = {
+    record: vi.fn(async (): Promise<void> => undefined),
+    ...overrides.audit,
+  };
   const prisma = {
     $transaction: vi.fn(async (ops: Array<Promise<unknown>>) => Promise.all(ops)),
     profile,
     transaction,
+    account,
+    wallet,
   };
-  const service = new AdminConsoleUsersService(prisma as never);
-  return { service, profile, transaction };
+  const service = new AdminConsoleUsersService(prisma as never, audit as never);
+  return { service, profile, transaction, account, wallet, audit };
 }
 
 describe('AdminConsoleUsersService', () => {
@@ -213,5 +228,91 @@ describe('AdminConsoleUsersService', () => {
   it('rejects non-UUID ids', async () => {
     const { service } = makeService();
     await expect(service.names('USR-1042')).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe('AdminConsoleUsersService.suspend / restore', () => {
+  it('suspends by deactivating the account + wallet and records the audit', async () => {
+    const { service, profile, account, wallet, audit } = makeService();
+    profile.findUnique.mockResolvedValueOnce(profileRow()).mockResolvedValue(
+      profileRow({
+        accounts: [accountRow({ isActive: false, wallets: [walletRow({ isActive: false })] })],
+      }),
+    );
+
+    const result = await service.suspend(USER_ID, ACTOR_ID, 'Repeated risk failures');
+
+    expect(account.update).toHaveBeenCalledWith({
+      where: { id: ACCOUNT_ID },
+      data: { isActive: false },
+    });
+    expect(wallet.update).toHaveBeenCalledWith({
+      where: { id: WALLET_ID },
+      data: { isActive: false },
+    });
+    expect(audit.record).toHaveBeenCalledTimes(1);
+    expect(audit.record).toHaveBeenCalledWith({
+      userId: ACTOR_ID,
+      action: 'admin.users.suspend',
+      entityType: 'user',
+      entityId: USER_ID,
+      metadata: { reason: 'Repeated risk failures' },
+    });
+    expect(result).toMatchObject({ id: USER_ID, status: 'suspended' });
+  });
+
+  it('restores by reactivating the account + wallet and records the audit', async () => {
+    const { service, profile, account, wallet, audit } = makeService();
+    profile.findUnique
+      .mockResolvedValueOnce(profileRow({ accounts: [accountRow({ isActive: false })] }))
+      .mockResolvedValue(profileRow());
+
+    const result = await service.restore(USER_ID, ACTOR_ID);
+
+    expect(account.update).toHaveBeenCalledWith({
+      where: { id: ACCOUNT_ID },
+      data: { isActive: true },
+    });
+    expect(wallet.update).toHaveBeenCalledWith({
+      where: { id: WALLET_ID },
+      data: { isActive: true },
+    });
+    expect(audit.record).toHaveBeenCalledWith({
+      userId: ACTOR_ID,
+      action: 'admin.users.restore',
+      entityType: 'user',
+      entityId: USER_ID,
+      metadata: undefined,
+    });
+    expect(result).toMatchObject({ id: USER_ID, status: 'active' });
+  });
+
+  it('is an idempotent no-op when the user is already suspended', async () => {
+    const { service, profile, account, wallet, audit } = makeService();
+    profile.findUnique.mockResolvedValue(
+      profileRow({ accounts: [accountRow({ isActive: false })] }),
+    );
+
+    const result = await service.suspend(USER_ID, ACTOR_ID);
+
+    expect(result).toMatchObject({ status: 'suspended' });
+    expect(account.update).not.toHaveBeenCalled();
+    expect(wallet.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it('404s for an unknown user', async () => {
+    const { service, profile } = makeService();
+    profile.findUnique.mockResolvedValue(null);
+    await expect(service.suspend(OTHER_ID, ACTOR_ID)).rejects.toThrow(NotFoundException);
+    await expect(service.restore(OTHER_ID, ACTOR_ID)).rejects.toThrow(NotFoundException);
+  });
+
+  it('409s when the user has no provisioned account', async () => {
+    const { service, profile, audit } = makeService();
+    profile.findUnique.mockResolvedValue(profileRow({ accounts: [] }));
+    await expect(service.suspend(USER_ID, ACTOR_ID)).rejects.toThrow(ConflictException);
+    await expect(service.restore(USER_ID, ACTOR_ID)).rejects.toThrow(ConflictException);
+    expect(audit.record).not.toHaveBeenCalled();
   });
 });

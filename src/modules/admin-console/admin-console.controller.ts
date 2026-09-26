@@ -1,4 +1,14 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -7,21 +17,26 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
+import type { AuthPrincipal } from '../auth/principal/auth-principal.js';
 import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
 import {
   AdminListQueryDto,
   AdminUserListQueryDto,
   PagedAdminTransactionsResponseDto,
   PagedAdminUsersResponseDto,
+  ReviewApprovalBodyDto,
+  SuspendUserBodyDto,
 } from './admin-console.dto.js';
 import { AdminConsoleTransactionsService } from './admin-console-transactions.service.js';
 import { AdminConsoleUsersService } from './admin-console-users.service.js';
 
 /**
- * Dedicated admin read surfaces for profiles/accounts/wallets and the ledger —
- * the tables deliberately excluded from the generic `crud` registry. Read-only
- * for now; suspend + transaction review writes land in Phase 3.
+ * Dedicated admin surfaces for profiles/accounts/wallets and the ledger — the
+ * tables deliberately excluded from the generic `crud` registry. Phase 2 was
+ * read-only; Phase 3 adds the suspend/restore transitions and the transaction
+ * review decision.
  *
  * NOTE: route registration order matters. These literal routes are matched
  * BEFORE the generic `CrudController` (`/admin/:resource[/:id]`) — keep this
@@ -95,5 +110,46 @@ export class AdminConsoleController {
   @ApiErrorResponse()
   getTransaction(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
     return this.transactions.get(id);
+  }
+
+  @Post('users/:id/suspend')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Suspend a user (deactivates the 1:1 account + wallet)' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ schema: { type: 'object' }, description: 'The refreshed admin user' })
+  @ApiErrorResponse()
+  suspendUser(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() body: SuspendUserBodyDto,
+  ) {
+    return this.users.suspend(id, principal.userId, body.reason);
+  }
+
+  @Post('users/:id/restore')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Restore a suspended user (reactivates the 1:1 account + wallet)' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ schema: { type: 'object' }, description: 'The refreshed admin user' })
+  @ApiErrorResponse()
+  restoreUser(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.users.restore(id, principal.userId);
+  }
+
+  @Post('transactions/:id/approval')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Record an admin approval/decline on an in-flight transaction' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ schema: { type: 'object' }, description: 'The refreshed transaction detail' })
+  @ApiErrorResponse()
+  reviewTransaction(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() body: ReviewApprovalBodyDto,
+  ) {
+    return this.transactions.review(id, principal.userId, body);
   }
 }

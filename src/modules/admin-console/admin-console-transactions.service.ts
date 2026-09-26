@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ApprovalStatus, Prisma } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import { money } from '../../common/money/money.js';
 import { parsePaging, toPageResult } from '../../common/paging/paging.js';
 import {
@@ -7,6 +8,7 @@ import {
   parseFilterEntries,
   type FilterFieldSpec,
 } from '../../common/paging/filter.js';
+import { AuditLogService } from '../audit/audit-log.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { toAdminTxSummary } from './admin-tx-view.js';
 
@@ -34,13 +36,18 @@ export interface AdminTransactionsListOptions {
 }
 
 /**
- * Read-only admin surface over the full ledger. `q` searches the transaction
- * description or the owning user's name/email; `filter` accepts the raw
- * `type`/`status`/`approvalStatus` enums and boolean flags.
+ * Admin surface over the full ledger. `q` searches the transaction description
+ * or the owning user's name/email; `filter` accepts the raw `type`/`status`/
+ * `approvalStatus` enums and boolean flags. Phase 3 adds the review decision:
+ * an admin records an APPROVED/DECLINED approval (append-only trail) and the
+ * transaction's `approvalStatus`/`approvedAt` follow it, both in one write.
  */
 @Injectable()
 export class AdminConsoleTransactionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditLogService,
+  ) {}
 
   async list(options: AdminTransactionsListOptions = {}) {
     const { page, pageSize, skip, take } = parsePaging(options.page, options.pageSize);
@@ -131,6 +138,62 @@ export class AdminConsoleTransactionsService {
         createdAt: event.createdAt.toISOString(),
       })),
     };
+  }
+
+  /**
+   * Record an admin review decision. Creates the append-only approval row
+   * (actor = the admin) and updates the transaction's approval state in the
+   * same transaction. Only in-flight transactions can be reviewed: refused once
+   * settled (`status !== PENDING`) or once a decision already landed
+   * (`approvalStatus !== PENDING`). Audited as `admin.transactions.approve` /
+   * `admin.transactions.decline`.
+   */
+  async review(
+    transactionId: string,
+    actorUserId: string,
+    dto: { status: 'APPROVED' | 'DECLINED'; notes?: string },
+  ) {
+    const transaction = await this.prisma.transaction.findUnique({
+      where: { id: transactionId },
+    });
+    if (!transaction) throw new NotFoundException('Transaction not found');
+    if (transaction.status !== 'PENDING') {
+      throw new ConflictException('Transaction is already settled');
+    }
+    if (transaction.approvalStatus !== ApprovalStatus.PENDING) {
+      throw new ConflictException('Transaction has already been reviewed');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.transactionApproval.create({
+        data: {
+          id: randomUUID(),
+          transactionId,
+          status: dto.status,
+          approvedBy: actorUserId,
+          notes: dto.notes ?? null,
+        },
+      }),
+      this.prisma.transaction.update({
+        where: { id: transactionId },
+        data: {
+          approvalStatus: dto.status,
+          approvedAt: dto.status === 'APPROVED' ? new Date() : null,
+          ...(dto.notes ? { approvalNotes: dto.notes } : {}),
+        },
+      }),
+    ]);
+
+    await this.audit.record({
+      userId: actorUserId,
+      action:
+        dto.status === 'APPROVED' ? 'admin.transactions.approve' : 'admin.transactions.decline',
+      entityType: 'transaction',
+      entityId: transactionId,
+      metadata: dto.notes ? { notes: dto.notes } : undefined,
+    });
+
+    return this.get(transactionId);
   }
 
   private buildWhere(options: AdminTransactionsListOptions): Prisma.TransactionWhereInput {
