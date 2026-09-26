@@ -9,7 +9,10 @@ import {
 import { Prisma } from '@prisma/client';
 import { StorageService } from '../../common/storage/storage.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { SUPABASE_AUTH_BODY, type SupabaseAuthGateway } from '../auth/supabase/supabase-auth.client.js';
+import {
+  SUPABASE_AUTH_BODY,
+  type SupabaseAuthGateway,
+} from '../auth/supabase/supabase-auth.client.js';
 import { UpdateAvatarDto, UpdateProfileDto } from './profiles.dto.js';
 
 /**
@@ -109,10 +112,7 @@ export class ProfilesService {
    * never fail a profile save — the profiles row is authoritative and the
    * mismatch only affects display until the next successful sync.
    */
-  private async syncUserMetadata(
-    userId: string,
-    metadata: Record<string, unknown>,
-  ): Promise<void> {
+  private async syncUserMetadata(userId: string, metadata: Record<string, unknown>): Promise<void> {
     try {
       await this.provider.updateUserMetadata(userId, metadata);
     } catch (error) {
