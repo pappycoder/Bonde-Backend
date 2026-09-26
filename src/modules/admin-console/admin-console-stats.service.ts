@@ -38,6 +38,7 @@ export interface AdminStatsSummary {
     deposits30d: string;
     depositsPrev30d: string;
     pendingReviews: number;
+    openTickets: number;
   };
   /** Last 12 completed months, oldest first. */
   revenue: AdminRevenuePoint[];
@@ -99,6 +100,9 @@ export class AdminConsoleStatsService {
     const pendingReviews = await this.prisma.transaction.count({
       where: { status: 'PENDING', approvalStatus: 'PENDING' },
     });
+    const openTickets = await this.prisma.supportTicket.count({
+      where: { status: 'OPEN' },
+    });
 
     return {
       totals: {
@@ -115,6 +119,7 @@ export class AdminConsoleStatsService {
         deposits30d: money(deposits30d._sum.amount ?? 0),
         depositsPrev30d: money(depositsPrev30d._sum.amount ?? 0),
         pendingReviews,
+        openTickets,
       },
       revenue: await this.monthlySeries(now),
       weekly: await this.weeklySeries(now),

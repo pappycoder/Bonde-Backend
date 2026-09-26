@@ -30,6 +30,8 @@ export const SEED_ACCOUNT_ID = '66666666-6666-4666-8666-666666666666';
 export const SEED_WALLET_ID = '77777777-7777-4777-8777-777777777777';
 export const SEED_TRANSACTION_ID = '88888888-8888-4888-8888-888888888888';
 export const SEED_APPROVAL_ID = '99999999-9999-4999-8999-999999999999';
+export const SEED_TICKET_ID = '10101010-1010-4101-8101-101010101010';
+export const SEED_TICKET_MESSAGE_ID = '20202020-2020-4202-8202-202020202020';
 
 type AnyPrisma = PrismaService | PrismaClient;
 
@@ -49,6 +51,8 @@ const PHYSICAL_TABLES = [
   'card_locks',
   'cards',
   'card_providers',
+  'support_messages',
+  'support_tickets',
   'biometric_devices',
   'passcodes',
   'audit_logs',
@@ -207,5 +211,28 @@ export async function seedBaseFixtures(prisma: AnyPrisma): Promise<void> {
       biometricType: 'FACE',
       publicKey: 'pub-key-1',
     },
+  });
+
+  await prisma.supportTicket.create({
+    data: {
+      id: SEED_TICKET_ID,
+      userId: SEED_USER_ID,
+      subject: 'Withdrawal blocked — account under review',
+      priority: 'URGENT',
+      status: 'OPEN',
+    },
+  });
+
+  await prisma.supportMessage.createMany({
+    data: [
+      {
+        id: SEED_TICKET_MESSAGE_ID,
+        ticketId: SEED_TICKET_ID,
+        role: 'USER',
+        body: 'Hi, I have been trying to withdraw funds but the action is blocked.',
+        createdAt: new Date('2026-01-02T00:00:00.000Z'),
+      },
+    ],
+    skipDuplicates: true,
   });
 }

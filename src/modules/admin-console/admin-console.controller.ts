@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -24,13 +25,20 @@ import { ApiErrorResponse } from '../../common/errors/api-error-response.decorat
 import {
   AdminListQueryDto,
   AdminStatsResponseDto,
+  AdminSupportListQueryDto,
+  AdminSupportTicketDetailDto,
   AdminUserListQueryDto,
+  CreateSupportTicketBodyDto,
+  NewSupportTicketMessageBodyDto,
+  PagedAdminSupportTicketsResponseDto,
   PagedAdminTransactionsResponseDto,
   PagedAdminUsersResponseDto,
   ReviewApprovalBodyDto,
   SuspendUserBodyDto,
+  UpdateSupportTicketStatusBodyDto,
 } from './admin-console.dto.js';
 import { AdminConsoleStatsService } from './admin-console-stats.service.js';
+import { AdminConsoleSupportService } from './admin-console-support.service.js';
 import { AdminConsoleTransactionsService } from './admin-console-transactions.service.js';
 import { AdminConsoleUsersService } from './admin-console-users.service.js';
 
@@ -53,6 +61,7 @@ export class AdminConsoleController {
     private readonly users: AdminConsoleUsersService,
     private readonly transactions: AdminConsoleTransactionsService,
     private readonly stats: AdminConsoleStatsService,
+    private readonly support: AdminConsoleSupportService,
   ) {}
 
   @Get('stats')
@@ -162,5 +171,63 @@ export class AdminConsoleController {
     @Body() body: ReviewApprovalBodyDto,
   ) {
     return this.transactions.review(id, principal.userId, body);
+  }
+
+  @Get('support-tickets')
+  @ApiOperation({ summary: 'List admin support tickets (paged, searchable, status filter)' })
+  @ApiOkResponse({ type: PagedAdminSupportTicketsResponseDto })
+  @ApiErrorResponse()
+  listSupportTickets(@Query() query: AdminSupportListQueryDto) {
+    return this.support.list(query);
+  }
+
+  @Post('support-tickets')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Raise a support ticket for a user (optionally with the first message)',
+  })
+  @ApiOkResponse({ type: AdminSupportTicketDetailDto })
+  @ApiErrorResponse()
+  createSupportTicket(
+    @CurrentUser() principal: AuthPrincipal,
+    @Body() body: CreateSupportTicketBodyDto,
+  ) {
+    return this.support.create(principal.userId, body);
+  }
+
+  @Get('support-tickets/:id')
+  @ApiOperation({ summary: 'Get one support ticket with its conversation' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: AdminSupportTicketDetailDto })
+  @ApiErrorResponse()
+  getSupportTicket(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
+    return this.support.get(id);
+  }
+
+  @Patch('support-tickets/:id/status')
+  @ApiOperation({ summary: 'Move a support ticket to OPEN/PENDING/RESOLVED (idempotent)' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: AdminSupportTicketDetailDto })
+  @ApiErrorResponse()
+  changeSupportTicketStatus(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() body: UpdateSupportTicketStatusBodyDto,
+  ) {
+    return this.support.changeStatus(id, principal.userId, body.status);
+  }
+
+  @Post('support-tickets/:id/messages')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Reply to a support ticket as support' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: AdminSupportTicketDetailDto })
+  @ApiErrorResponse()
+  replySupportTicket(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() body: NewSupportTicketMessageBodyDto,
+  ) {
+    return this.support.reply(id, principal.userId, body.body);
   }
 }

@@ -8,6 +8,7 @@ function mockPrisma() {
   return {
     profile: { count: vi.fn() },
     transaction: { count: vi.fn(), aggregate: vi.fn(), findMany: vi.fn() },
+    supportTicket: { count: vi.fn() },
   } as unknown as PrismaService;
 }
 
@@ -42,6 +43,7 @@ describe('AdminConsoleStatsService', () => {
     (prisma.transaction.findMany as unknown as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
+    (prisma.supportTicket.count as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(5);
 
     const service = new AdminConsoleStatsService(prisma);
     const { totals } = await service.summary();
@@ -60,6 +62,7 @@ describe('AdminConsoleStatsService', () => {
       deposits30d: '60000.00',
       depositsPrev30d: '45000.00',
       pendingReviews: 4,
+      openTickets: 5,
     });
   });
 
@@ -70,6 +73,7 @@ describe('AdminConsoleStatsService', () => {
     (prisma.transaction.aggregate as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       _sum: { amount: '0.00' },
     });
+    (prisma.supportTicket.count as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(0);
     (prisma.transaction.findMany as unknown as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce([
         { type: 'DEPOSIT', amount: '1200.5', createdAt: new Date('2026-09-02T10:00:00Z') },
@@ -113,6 +117,7 @@ describe('AdminConsoleStatsService', () => {
     (prisma.transaction.aggregate as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       _sum: { amount: '0.00' },
     });
+    (prisma.supportTicket.count as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(0);
     const now = Date.now();
     (prisma.transaction.findMany as unknown as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce([])
@@ -140,6 +145,7 @@ describe('AdminConsoleStatsService', () => {
     (prisma.transaction.aggregate as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       _sum: { amount: '0.00' },
     });
+    (prisma.supportTicket.count as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(0);
     (prisma.transaction.findMany as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
     const service = new AdminConsoleStatsService(prisma);

@@ -1,6 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 /** Query parameters for the admin console list endpoints. */
 export class AdminListQueryDto {
@@ -71,6 +81,61 @@ export class ReviewApprovalBodyDto {
   @IsString()
   @MaxLength(500)
   notes?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Write-model DTOs (Phase 5 support tickets)
+// ---------------------------------------------------------------------------
+
+/** Query parameters for `GET /api/admin/support-tickets`. */
+export class AdminSupportListQueryDto extends AdminListQueryDto {
+  @ApiPropertyOptional({ enum: ['OPEN', 'PENDING', 'RESOLVED'] })
+  @IsOptional()
+  @IsIn(['OPEN', 'PENDING', 'RESOLVED'])
+  status?: 'OPEN' | 'PENDING' | 'RESOLVED';
+}
+
+/** Body for `POST /api/admin/support-tickets` (admin raises a ticket for a user). */
+export class CreateSupportTicketBodyDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID()
+  userId: string;
+
+  @ApiProperty({ example: 'Withdrawal blocked — account under review', maxLength: 255 })
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(255)
+  subject: string;
+
+  @ApiPropertyOptional({ enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] })
+  @IsOptional()
+  @IsIn(['LOW', 'MEDIUM', 'HIGH', 'URGENT'])
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+
+  @ApiPropertyOptional({
+    example: 'Opened on the user’s behalf after their call.',
+    maxLength: 4000,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  message?: string;
+}
+
+/** Body for `PATCH /api/admin/support-tickets/:id/status`. */
+export class UpdateSupportTicketStatusBodyDto {
+  @ApiProperty({ enum: ['OPEN', 'PENDING', 'RESOLVED'] })
+  @IsIn(['OPEN', 'PENDING', 'RESOLVED'])
+  status: 'OPEN' | 'PENDING' | 'RESOLVED';
+}
+
+/** Body for `POST /api/admin/support-tickets/:id/messages` (support reply). */
+export class NewSupportTicketMessageBodyDto {
+  @ApiProperty({ example: 'Thanks — we are looking into this now.', maxLength: 4000 })
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(4000)
+  body: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -256,6 +321,9 @@ class AdminStatsTotalsDto {
 
   @ApiProperty({ example: 4 })
   pendingReviews: number;
+
+  @ApiProperty({ example: 3 })
+  openTickets: number;
 }
 
 class AdminStatsRevenuePointDto {
@@ -289,4 +357,75 @@ export class AdminStatsResponseDto {
 
   @ApiProperty({ type: AdminStatsWeeklyPointDto, isArray: true })
   weekly: AdminStatsWeeklyPointDto[];
+}
+
+class AdminSupportTicketViewDto {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ format: 'uuid' })
+  userId: string;
+
+  @ApiProperty({ nullable: true, example: 'Olivia Martin' })
+  user: string | null;
+
+  @ApiProperty({ nullable: true, example: 'olivia@bonde.ai' })
+  userEmail: string | null;
+
+  @ApiProperty({ example: 'Withdrawal blocked — account under review' })
+  subject: string;
+
+  @ApiProperty({ enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] })
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+
+  @ApiProperty({ enum: ['OPEN', 'PENDING', 'RESOLVED'] })
+  status: 'OPEN' | 'PENDING' | 'RESOLVED';
+
+  @ApiProperty({ nullable: true, example: 'T. Reed' })
+  assignee: string | null;
+
+  @ApiProperty({ example: 4 })
+  messageCount: number;
+
+  @ApiProperty({ example: '2026-09-08T09:42:00.000Z' })
+  createdAt: string;
+
+  @ApiProperty({ example: '2026-09-08T09:42:00.000Z' })
+  updatedAt: string;
+}
+
+class AdminSupportMessageDto {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ enum: ['USER', 'SUPPORT'] })
+  role: 'USER' | 'SUPPORT';
+
+  @ApiProperty({ example: 'Thanks — we are looking into this now.' })
+  body: string;
+
+  @ApiProperty({ example: '2026-09-08T09:42:00.000Z' })
+  createdAt: string;
+}
+
+export class AdminSupportTicketDetailDto extends AdminSupportTicketViewDto {
+  @ApiProperty({ type: AdminSupportMessageDto, isArray: true })
+  messages: AdminSupportMessageDto[];
+}
+
+export class PagedAdminSupportTicketsResponseDto {
+  @ApiProperty({ type: AdminSupportTicketViewDto, isArray: true })
+  items: AdminSupportTicketViewDto[];
+
+  @ApiProperty(PAGED_DTO_FIELDS.total)
+  total: number;
+
+  @ApiProperty(PAGED_DTO_FIELDS.page)
+  page: number;
+
+  @ApiProperty(PAGED_DTO_FIELDS.pageSize)
+  pageSize: number;
+
+  @ApiProperty(PAGED_DTO_FIELDS.totalPages)
+  totalPages: number;
 }

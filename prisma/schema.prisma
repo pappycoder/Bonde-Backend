@@ -42,6 +42,24 @@ enum MessageRole {
   SYSTEM
 }
 
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketStatus {
+  OPEN
+  PENDING
+  RESOLVED
+}
+
+enum SupportMessageRole {
+  USER
+  SUPPORT
+}
+
 enum TransactionType {
   DEPOSIT
   WITHDRAWAL
@@ -141,6 +159,8 @@ model Profile {
   accounts            Account[]
   cards               Card[]
   chats               Chat[]
+  supportTickets      SupportTicket[]    @relation("SupportTicketOwner")
+  assignedTickets     SupportTicket[]    @relation("SupportTicketAssignee")
   transactions        Transaction[]
   notifications       Notification[]
   pushDevices         PushDevice[]
@@ -350,6 +370,42 @@ model Message {
 
   @@index([chatId, createdAt])
   @@map("messages")
+}
+
+/// Admin support surface: a user-raised (or admin-raised) ticket carrying a
+/// back-and-forth conversation of USER/SUPPORT messages. Lives outside the
+/// generic `crud` registry; dedicated admin-console flows own it.
+model SupportTicket {
+  id         String         @id @db.Uuid
+  userId     String         @map("user_id") @db.Uuid
+  subject    String         @db.VarChar(255)
+  priority   TicketPriority @default(MEDIUM)
+  status     TicketStatus   @default(OPEN)
+  assigneeId String?        @map("assignee_id") @db.Uuid
+  createdAt  DateTime       @default(now()) @map("created_at")
+  updatedAt  DateTime       @updatedAt @map("updated_at")
+
+  user     Profile          @relation("SupportTicketOwner", fields: [userId], references: [id], onDelete: Cascade)
+  assignee Profile?         @relation("SupportTicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  messages SupportMessage[]
+
+  @@index([userId])
+  @@index([status, priority])
+  @@map("support_tickets")
+}
+
+/// One message in a support ticket conversation.
+model SupportMessage {
+  id        String             @id @db.Uuid
+  ticketId  String             @map("ticket_id") @db.Uuid
+  role      SupportMessageRole
+  body      String
+  createdAt DateTime           @default(now()) @map("created_at")
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+  @@map("support_messages")
 }
 
 // ---------------------------------------------------------------------------
