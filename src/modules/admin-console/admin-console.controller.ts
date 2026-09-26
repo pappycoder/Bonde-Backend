@@ -23,12 +23,14 @@ import type { AuthPrincipal } from '../auth/principal/auth-principal.js';
 import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
 import {
   AdminListQueryDto,
+  AdminStatsResponseDto,
   AdminUserListQueryDto,
   PagedAdminTransactionsResponseDto,
   PagedAdminUsersResponseDto,
   ReviewApprovalBodyDto,
   SuspendUserBodyDto,
 } from './admin-console.dto.js';
+import { AdminConsoleStatsService } from './admin-console-stats.service.js';
 import { AdminConsoleTransactionsService } from './admin-console-transactions.service.js';
 import { AdminConsoleUsersService } from './admin-console-users.service.js';
 
@@ -50,7 +52,16 @@ export class AdminConsoleController {
   constructor(
     private readonly users: AdminConsoleUsersService,
     private readonly transactions: AdminConsoleTransactionsService,
+    private readonly stats: AdminConsoleStatsService,
   ) {}
+
+  @Get('stats')
+  @ApiOperation({ summary: 'Dashboard KPIs with monthly and weekly series' })
+  @ApiOkResponse({ type: AdminStatsResponseDto })
+  @ApiErrorResponse()
+  getStats() {
+    return this.stats.summary();
+  }
 
   @Get('users/names')
   @ApiOperation({ summary: 'Resolve display names for a CSV-delimited list of user ids' })

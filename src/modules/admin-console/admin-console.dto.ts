@@ -216,3 +216,77 @@ export class PagedAdminTransactionsResponseDto {
   @ApiProperty(PAGED_DTO_FIELDS.totalPages)
   totalPages: number;
 }
+
+class AdminStatsTotalsDto {
+  @ApiProperty({ example: 128 })
+  users: number;
+
+  @ApiProperty({ example: 96 })
+  activeUsers: number;
+
+  @ApiProperty({ example: 24 })
+  pendingUsers: number;
+
+  @ApiProperty({ example: 8 })
+  suspendedUsers: number;
+
+  @ApiProperty({ example: 12 })
+  newUsers30d: number;
+
+  @ApiProperty({ example: 9 })
+  newUsersPrev30d: number;
+
+  @ApiProperty({ example: 340 })
+  transactions30d: number;
+
+  @ApiProperty({ example: '250000.00' })
+  volume: string;
+
+  @ApiProperty({ example: '84000.00' })
+  volume30d: string;
+
+  @ApiProperty({ example: '62000.00' })
+  volumePrev30d: string;
+
+  @ApiProperty({ example: '60000.00' })
+  deposits30d: string;
+
+  @ApiProperty({ example: '45000.00' })
+  depositsPrev30d: string;
+
+  @ApiProperty({ example: 4 })
+  pendingReviews: number;
+}
+
+class AdminStatsRevenuePointDto {
+  @ApiProperty({ example: 'Oct' })
+  month: string;
+
+  @ApiProperty({ example: '21250.00' })
+  revenue: string;
+
+  @ApiProperty({ example: '9800.00' })
+  expenses: string;
+
+  @ApiProperty({ example: '19000.00' })
+  volume: string;
+}
+
+class AdminStatsWeeklyPointDto {
+  @ApiProperty({ example: 'Mon' })
+  day: string;
+
+  @ApiProperty({ example: 14 })
+  transactions: number;
+}
+
+export class AdminStatsResponseDto {
+  @ApiProperty({ type: AdminStatsTotalsDto })
+  totals: AdminStatsTotalsDto;
+
+  @ApiProperty({ type: AdminStatsRevenuePointDto, isArray: true })
+  revenue: AdminStatsRevenuePointDto[];
+
+  @ApiProperty({ type: AdminStatsWeeklyPointDto, isArray: true })
+  weekly: AdminStatsWeeklyPointDto[];
+}

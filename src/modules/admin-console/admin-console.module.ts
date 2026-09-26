@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuditLogModule } from '../audit/audit-log.module.js';
 import { AdminConsoleController } from './admin-console.controller.js';
+import { AdminConsoleStatsService } from './admin-console-stats.service.js';
 import { AdminConsoleTransactionsService } from './admin-console-transactions.service.js';
 import { AdminConsoleUsersService } from './admin-console-users.service.js';
 
@@ -13,6 +14,6 @@ import { AdminConsoleUsersService } from './admin-console-users.service.js';
 @Module({
   imports: [AuditLogModule],
   controllers: [AdminConsoleController],
-  providers: [AdminConsoleUsersService, AdminConsoleTransactionsService],
+  providers: [AdminConsoleUsersService, AdminConsoleTransactionsService, AdminConsoleStatsService],
 })
 export class AdminConsoleModule {}

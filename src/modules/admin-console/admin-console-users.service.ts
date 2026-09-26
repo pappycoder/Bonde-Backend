@@ -286,7 +286,11 @@ export class AdminConsoleUsersService {
   }
 }
 
-function statusWhere(status?: AdminUserStatus): Prisma.ProfileWhereInput {
+/**
+ * Shared status → profile `WHERE` used by the list filter, the derived status
+ * (its mirror lives in `deriveStatus`) and the dashboard KPI counts.
+ */
+export function statusWhere(status?: AdminUserStatus): Prisma.ProfileWhereInput {
   switch (status) {
     case 'active':
       return {
