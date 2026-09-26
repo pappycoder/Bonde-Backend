@@ -41,6 +41,7 @@ export class JwksService {
       email: typeof payload.email === 'string' ? payload.email : null,
       phone: typeof payload.phone === 'string' ? payload.phone : null,
       role: this.toRole(appMetadata.role),
+      sessionId: typeof payload.session_id === 'string' ? payload.session_id : null,
       appMetadata,
       userMetadata,
     };

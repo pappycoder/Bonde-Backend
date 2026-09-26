@@ -20,6 +20,7 @@ const DEFAULT_PRINCIPAL: AuthPrincipal = {
   email: SEED_USER_EMAIL,
   phone: SEED_USER_PHONE,
   role: 'USER',
+  sessionId: 'e2e-session',
   appMetadata: {},
   userMetadata: {},
 };

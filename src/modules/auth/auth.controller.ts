@@ -1,4 +1,14 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  Ip,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -14,8 +24,10 @@ import { ApiErrorResponse } from '../../common/errors/api-error-response.decorat
 import { StrictThrottle } from '../../common/throttling/strict-throttle.decorator.js';
 import { AuthService } from './services/auth.service.js';
 import {
+  ChangePasswordDto,
   ForgotPasswordDto,
   LoginDto,
+  LogoutResponseDto,
   RefreshDto,
   RegisterDto,
   RegisterResponseDto,
@@ -31,10 +43,10 @@ import {
 } from './auth.dto.js';
 
 /**
- * BFF auth + session endpoints. Every route here is `@Public()` (no access
- * token yet exists) and carries `@StrictThrottle()` so brute-force / OTP
- * spraying is rate-limited per client. The verified session principal is
- * available on `GET /api/auth/me`.
+ * BFF auth + session endpoints. The unauthenticated routes are `@Public()` (no
+ * access token exists yet) and carry `@StrictThrottle()` so brute-force / OTP
+ * spraying is rate-limited per client. The signed-in routes (`me`,
+ * `change-password`, `logout`) reuse the global guard's verified principal.
  */
 @ApiTags('auth')
 @Controller('auth')
@@ -83,8 +95,12 @@ export class AuthController {
   @ApiOperation({ summary: 'Log in with email + password, returns access/refresh tokens' })
   @ApiOkResponse({ type: SessionResponseDto })
   @ApiErrorResponse()
-  login(@Body() dto: LoginDto) {
-    return this.auth.login(dto);
+  login(
+    @Body() dto: LoginDto,
+    @Headers('user-agent') userAgent?: string,
+    @Ip() ipAddress?: string,
+  ) {
+    return this.auth.login(dto, { userAgent, ipAddress });
   }
 
   @Post('refresh')
@@ -94,8 +110,12 @@ export class AuthController {
   @ApiOperation({ summary: 'Exchange a refresh token for a fresh session' })
   @ApiOkResponse({ type: SessionResponseDto })
   @ApiErrorResponse()
-  refresh(@Body() dto: RefreshDto) {
-    return this.auth.refresh(dto.refreshToken);
+  refresh(
+    @Body() dto: RefreshDto,
+    @Headers('user-agent') userAgent?: string,
+    @Ip() ipAddress?: string,
+  ) {
+    return this.auth.refresh(dto.refreshToken, { userAgent, ipAddress });
   }
 
   @Post('forgot-password')
@@ -129,6 +149,27 @@ export class AuthController {
   @ApiErrorResponse()
   resetPassword(@Body() dto: ResetPasswordDto) {
     return this.auth.resetPassword(dto);
+  }
+
+  @Post('change-password')
+  @StrictThrottle()
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Change the signed-in user’s password (current password required)' })
+  @ApiOkResponse({ type: ResetStatusResponseDto })
+  @ApiErrorResponse()
+  changePassword(@CurrentUser() user: AuthPrincipal, @Body() dto: ChangePasswordDto) {
+    return this.auth.changePassword(user, dto);
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Revoke the session making the request' })
+  @ApiOkResponse({ type: LogoutResponseDto })
+  @ApiErrorResponse()
+  logout(@CurrentUser() user: AuthPrincipal) {
+    return this.auth.logout(user);
   }
 
   @Get('me')

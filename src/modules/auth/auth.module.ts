@@ -2,7 +2,9 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwksService, JWKS, jwksFromConfig } from './services/jwks.service.js';
 import { AuthController } from './auth.controller.js';
+import { AuthSessionsController } from './auth-sessions.controller.js';
 import { AuthService } from './services/auth.service.js';
+import { AuthSessionsService } from './services/auth-sessions.service.js';
 import { AuthTokensService } from './services/auth-tokens.service.js';
 import { SUPABASE_AUTH_BODY, SupabaseAuthClient } from './supabase/supabase-auth.client.js';
 import { OtpModule } from '../otp/otp.module.js';
@@ -11,7 +13,7 @@ import type { AppConfig } from '../../config/configuration.js';
 
 @Module({
   imports: [OtpModule, AuditLogModule],
-  controllers: [AuthController],
+  controllers: [AuthController, AuthSessionsController],
   providers: [
     {
       provide: JWKS,
@@ -25,6 +27,7 @@ import type { AppConfig } from '../../config/configuration.js';
       inject: [ConfigService],
     },
     AuthTokensService,
+    AuthSessionsService,
     AuthService,
   ],
   exports: [JwksService, SUPABASE_AUTH_BODY],

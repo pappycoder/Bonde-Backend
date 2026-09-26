@@ -27,6 +27,7 @@ describe('JwksService', () => {
     const token = await signToken({
       email: 'me@bonde.app',
       phone: '+2348000000000',
+      session_id: 'session-77',
       app_metadata: { role: 'ADMIN', avatar: 'x' },
       user_metadata: { full_name: 'Ada' },
     });
@@ -38,6 +39,7 @@ describe('JwksService', () => {
       email: 'me@bonde.app',
       phone: '+2348000000000',
       role: 'ADMIN',
+      sessionId: 'session-77',
       appMetadata: { role: 'ADMIN', avatar: 'x' },
       userMetadata: { full_name: 'Ada' },
     });
@@ -51,6 +53,12 @@ describe('JwksService', () => {
 
     expect(principal.role).toBe('USER');
     expect(principal.appMetadata).toEqual({});
+  });
+
+  it('reports no session id when the token omits session_id', async () => {
+    const { service, signToken } = await setup();
+    const principal = await service.verify(await signToken({ email: 'me@bonde.app' }));
+    expect(principal.sessionId).toBeNull();
   });
 
   it('swallows missing/optional claims', async () => {

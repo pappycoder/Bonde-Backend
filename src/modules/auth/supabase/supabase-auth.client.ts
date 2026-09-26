@@ -37,6 +37,8 @@ export interface SupabaseSession {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+  /** GoTrue `session_id` — stable per issued token pair, absent on older payloads. */
+  sessionId: string | null;
   user: SupabaseUser;
 }
 
@@ -87,6 +89,7 @@ interface GoTrueUser {
   email: string;
   phone?: string | null;
   email_confirmed_at?: string | null;
+  session_id?: string | null;
 }
 
 interface GoTrueTokenResponse {
@@ -181,6 +184,7 @@ export class SupabaseAuthClient implements SupabaseAuthGateway {
       accessToken: session.access_token,
       refreshToken: session.refresh_token,
       expiresIn: session.expires_in,
+      sessionId: session.user.session_id ?? null,
       user: this.toUser(session.user),
     };
   }

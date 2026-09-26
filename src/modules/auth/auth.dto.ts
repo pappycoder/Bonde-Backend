@@ -103,6 +103,21 @@ export class ResetPasswordDto {
   newPassword: string;
 }
 
+/** Request body for `POST /api/auth/change-password`. */
+export class ChangePasswordDto {
+  @ApiProperty({ description: 'The password currently in use', minLength: 1, maxLength: 128 })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  currentPassword: string;
+
+  @ApiProperty({ example: 'new.hunter2.secure', minLength: 8, maxLength: 128 })
+  @IsString()
+  @MinLength(8)
+  @MaxLength(128)
+  newPassword: string;
+}
+
 /** User object included in session responses. */
 export class AuthedUserDto {
   @ApiProperty({ format: 'uuid', example: '673bc257-9204-4acb-acf5-61f51e20a328' })
@@ -184,4 +199,49 @@ export class AuthUserLiteDto {
 
   @ApiPropertyOptional({ type: String, nullable: true, example: '+2348000000000' })
   phone: string | null;
+}
+
+/** A signed-in device, as returned by `GET /api/auth/sessions`. */
+export class AuthSessionDto {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ type: String, nullable: true, example: 'Mozilla/5.0 (Macintosh…)' })
+  userAgent: string | null;
+
+  @ApiProperty({ type: String, nullable: true, example: '102.89.34.12' })
+  ipAddress: string | null;
+
+  @ApiProperty({ example: '2026-09-26T10:04:11.000Z' })
+  createdAt: string;
+
+  @ApiProperty({ example: '2026-09-26T18:41:02.000Z' })
+  lastUsedAt: string;
+
+  @ApiProperty({ description: 'Expiry of the access token last issued for this session' })
+  tokenExpiresAt: string;
+
+  @ApiProperty({ description: 'True when this is the session making the request' })
+  current: boolean;
+}
+
+/** Response for `GET /api/auth/sessions`. */
+export class AuthSessionListResponseDto {
+  @ApiProperty({ type: [AuthSessionDto] })
+  sessions: AuthSessionDto[];
+}
+
+/** Response for `DELETE /api/auth/sessions/:id`. */
+export class RevokeSessionResponseDto {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ example: true })
+  revoked: true;
+}
+
+/** Response for `POST /api/auth/logout`. */
+export class LogoutResponseDto {
+  @ApiProperty({ example: 'signed_out' })
+  status: 'signed_out';
 }

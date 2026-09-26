@@ -13,7 +13,14 @@ import {
 } from '../src/modules/otp/otp-sender.interface.js';
 import type { OtpSendRequest } from '../src/modules/otp/otp-sender.interface.js';
 import { MAIL_SENDER, type MailMessage, type MailSender } from '../src/common/mail/mail.types.js';
-import { bootE2EApp, seedBaseFixtures, truncateAll, type BootedE2EApp } from './e2e-app.js';
+import {
+  bootE2EApp,
+  SEED_USER_EMAIL,
+  SEED_USER_ID,
+  seedBaseFixtures,
+  truncateAll,
+  type BootedE2EApp,
+} from './e2e-app.js';
 
 /**
  * The auth suite runs against its OWN Redis database (db 16) with a generous
@@ -76,6 +83,7 @@ class FakeSupabaseAuth implements SupabaseAuthGateway {
       accessToken: `at-${email}`,
       refreshToken: `rt-${email}`,
       expiresIn: 3600,
+      sessionId: `sess-${email}`,
       user: { id: account.id, email, phone: null, emailConfirmed: true },
     };
   }
@@ -91,6 +99,7 @@ class FakeSupabaseAuth implements SupabaseAuthGateway {
       accessToken: `at2-${email}`,
       refreshToken: `rt2-${email}`,
       expiresIn: 3600,
+      sessionId: `sess-${email}`,
       user: { id: account.id, email, phone: null, emailConfirmed: true },
     };
   }
@@ -403,5 +412,157 @@ describe('Auth endpoints (e2e)', () => {
       .send({ fullName: 'New User', email: EMAIL })
       .expect(400);
     expect(noPassword.body.message[0]).toContain('password');
+  });
+  describe('signed-in security (change-password, sessions, logout)', () => {
+    /** Register + verify a fresh account and sign the e2e client in as them. */
+    async function signInNewUser(): Promise<string> {
+      const reg = await ctx.raw
+        .post('/auth/register')
+        .send({ fullName: 'New User', email: EMAIL, password: PASSWORD })
+        .expect(201);
+      const code = lastCode();
+      await ctx.raw
+        .post('/auth/verify-email')
+        .send({ token: reg.body.registrationToken, code })
+        .expect(200);
+      const userId = provider.accounts.get(EMAIL)!.id;
+      ctx.setPrincipal({ userId, email: EMAIL, sessionId: 'current-session' });
+      return userId;
+    }
+
+    async function seedSession(userId: string, sessionId: string): Promise<string> {
+      const id = randomUUID();
+      await ctx.prisma.authSession.create({
+        data: {
+          id,
+          userId,
+          sessionId,
+          userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+          ipAddress: '102.89.34.12',
+          expiresAt: new Date(Date.now() + 3_600_000),
+        },
+      });
+      return id;
+    }
+
+    it('lists the caller sessions and marks the requesting device as current', async () => {
+      const userId = await signInNewUser();
+      await seedSession(userId, 'current-session');
+      await seedSession(userId, 'other-session');
+
+      const res = await ctx.http.get('/auth/sessions').expect(200);
+
+      expect(res.body.sessions).toHaveLength(2);
+      const current = res.body.sessions.find((s: { current: boolean }) => s.current);
+      expect(current).toBeDefined();
+      expect(current.ipAddress).toBe('102.89.34.12');
+      expect(current.userAgent).toContain('Macintosh');
+      expect(res.body.sessions.filter((s: { current: boolean }) => !s.current)).toHaveLength(1);
+    });
+
+    it("revokes a session, hides it from the list, and 404s another user's", async () => {
+      const userId = await signInNewUser();
+      await seedSession(userId, 'current-session');
+      const otherId = await seedSession(userId, 'other-session');
+
+      const revoked = await ctx.http.delete(`/auth/sessions/${otherId}`).expect(200);
+      expect(revoked.body).toEqual({ id: otherId, revoked: true });
+
+      const after = await ctx.http.get('/auth/sessions').expect(200);
+      expect(after.body.sessions).toHaveLength(1);
+      expect(after.body.sessions[0].current).toBe(true);
+
+      // Another principal cannot probe the id — owned sessions resolve to 404.
+      ctx.setPrincipal({ userId: SEED_USER_ID, email: SEED_USER_EMAIL, sessionId: null });
+      await ctx.http.delete(`/auth/sessions/${otherId}`).expect(404);
+    });
+
+    it('changes the password, revokes other sessions and emails the user', async () => {
+      const userId = await signInNewUser();
+      await seedSession(userId, 'current-session');
+      await seedSession(userId, 'other-session');
+      const sentBefore = sentMails.length;
+
+      const wrong = await ctx.http
+        .post('/auth/change-password')
+        .send({ currentPassword: 'not-the-password', newPassword: 'new.hunter2.secure' })
+        .expect(401);
+      expect(wrong.body.message[0]).toContain('Current password is incorrect');
+
+      const changed = await ctx.http
+        .post('/auth/change-password')
+        .send({ currentPassword: PASSWORD, newPassword: 'new.hunter2.secure' })
+        .expect(200);
+      expect(changed.body).toEqual({ status: 'success', revokedSessions: 1 });
+
+      const remaining = await ctx.http.get('/auth/sessions').expect(200);
+      expect(remaining.body.sessions).toHaveLength(1);
+      expect(remaining.body.sessions[0].current).toBe(true);
+
+      const mail = sentMails.at(-1);
+      expect(mail!.to).toBe(EMAIL);
+      expect(mail!.subject).toContain('password was changed');
+      expect(mail!.html).toContain('1 other device');
+      expect(sentMails.length).toBe(sentBefore + 1);
+
+      // The old password no longer opens a session.
+      await ctx.raw.post('/auth/login').send({ email: EMAIL, password: PASSWORD }).expect(401);
+      await ctx.raw
+        .post('/auth/login')
+        .send({ email: EMAIL, password: 'new.hunter2.secure' })
+        .expect(200);
+    });
+
+    it('rejects a too-short new password with 400', async () => {
+      await signInNewUser();
+      await ctx.http
+        .post('/auth/change-password')
+        .send({ currentPassword: PASSWORD, newPassword: 'short' })
+        .expect(400);
+    });
+
+    it('logs out by revoking the current session', async () => {
+      const userId = await signInNewUser();
+      await seedSession(userId, 'current-session');
+
+      const res = await ctx.http.post('/auth/logout').expect(200);
+      expect(res.body).toEqual({ status: 'signed_out' });
+
+      const row = await ctx.prisma.authSession.findUnique({
+        where: { sessionId: 'current-session' },
+      });
+      expect(row?.revokeReason).toBe('logout');
+      expect(row?.revokedAt).not.toBeNull();
+    });
+
+    it('refuses to refresh a session the user revoked', async () => {
+      const userId = await signInNewUser();
+      // The fake provider hands out `sess-<email>` for this account.
+      await ctx.prisma.authSession.create({
+        data: {
+          id: randomUUID(),
+          userId,
+          sessionId: `sess-${EMAIL}`,
+          expiresAt: new Date(Date.now() + 3_600_000),
+          revokedAt: new Date(),
+          revokeReason: 'user',
+        },
+      });
+
+      const res = await ctx.raw
+        .post('/auth/refresh')
+        .send({ refreshToken: `rt-${EMAIL}` })
+        .expect(401);
+      expect(res.body.message[0]).toContain('revoked');
+    });
+
+    it('requires a bearer token for every signed-in security route', async () => {
+      await ctx.raw.get('/auth/sessions').expect(401);
+      await ctx.raw.post('/auth/logout').expect(401);
+      await ctx.raw
+        .post('/auth/change-password')
+        .send({ currentPassword: PASSWORD, newPassword: 'new.hunter2.secure' })
+        .expect(401);
+    });
   });
 });

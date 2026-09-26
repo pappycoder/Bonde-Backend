@@ -12,6 +12,8 @@ import { AuthProviderError, type SupabaseAuthGateway } from '../supabase/supabas
 import { OtpSendError, type OtpSendRequest } from '../../otp/otp-sender.interface.js';
 import { OtpService } from '../../otp/otp.service.js';
 import { AuthTokensService } from './auth-tokens.service.js';
+import { AuthSessionsService } from './auth-sessions.service.js';
+import type { AuthPrincipal } from '../principal/auth-principal.js';
 import { AuditLogService } from '../../audit/audit-log.service.js';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
@@ -45,6 +47,7 @@ function makeService(
         accessToken: 'access-token',
         refreshToken: 'refresh-token',
         expiresIn: 3600,
+        sessionId: 'session-1',
         user: { id: USER_ID, email, phone: null, emailConfirmed: true },
       };
     }),
@@ -56,6 +59,7 @@ function makeService(
         accessToken: 'access-token-2',
         refreshToken: 'refresh-token-2',
         expiresIn: 3600,
+        sessionId: 'session-1',
         user: { id: USER_ID, email: EMAIL, phone: null, emailConfirmed: true },
       };
     }),
@@ -134,6 +138,14 @@ function makeService(
         accountId: args.data.accountId,
       })),
     },
+    authSession: {
+      findUnique: vi.fn(async (): Promise<unknown> => null),
+      findFirst: vi.fn(async (): Promise<unknown> => null),
+      findMany: vi.fn(async (): Promise<unknown[]> => []),
+      create: vi.fn(async (args: { data: Record<string, unknown> }) => args.data),
+      update: vi.fn(async (args: { data: Record<string, unknown> }) => args.data),
+      updateMany: vi.fn(async () => ({ count: 1 })),
+    },
     $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma)),
   };
 
@@ -145,17 +157,26 @@ function makeService(
     send: vi.fn(async () => undefined),
   };
 
+  const sessions = {
+    record: vi.fn(async () => undefined),
+    isRevoked: vi.fn(async () => false),
+    list: vi.fn(async () => []),
+    revoke: vi.fn(async (_user: unknown, id: string) => ({ id, revoked: true as const })),
+    revokeAll: vi.fn(async () => 3),
+  } as unknown as AuthSessionsService;
+
   const service = new AuthService(
     prisma as never,
     provider as never,
     otp as never,
     sender as never,
     tokens as never,
+    sessions as never,
     audit as never,
     mail as never,
   );
 
-  return { service, provider, sender, otp, tokens, prisma, audit, mail, sent, users };
+  return { service, provider, sender, otp, tokens, sessions, prisma, audit, mail, sent, users };
 }
 
 describe('AuthService.register', () => {
@@ -440,6 +461,140 @@ describe('AuthService.login / refresh', () => {
   it('401 on a bad refresh token', async () => {
     const { service } = makeService();
     await expect(service.refresh('nope')).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('mirrors the issued session with the requesting device', async () => {
+    const { service, sessions } = makeService();
+    await service.refresh('valid-refresh', { userAgent: 'iPhone', ipAddress: '10.0.0.9' });
+    expect(sessions.record).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'session-1' }),
+      { userAgent: 'iPhone', ipAddress: '10.0.0.9' },
+    );
+  });
+
+  it('refuses to rotate a revoked session', async () => {
+    const { service, sessions } = makeService();
+    vi.mocked(sessions.isRevoked).mockResolvedValueOnce(true);
+
+    await expect(service.refresh('valid-refresh')).rejects.toThrow(
+      new UnauthorizedException('This session has been revoked'),
+    );
+    expect(sessions.record).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthService.changePassword', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const principal: AuthPrincipal = {
+    userId: USER_ID,
+    email: EMAIL,
+    phone: null,
+    role: 'USER',
+    sessionId: 'session-1',
+    appMetadata: {},
+    userMetadata: {},
+  };
+
+  async function withConfirmedUser() {
+    const harness = makeService();
+    await harness.service.register({ fullName: 'Amina', email: EMAIL, password: PASSWORD });
+    vi.mocked(harness.prisma.profile.findUnique).mockResolvedValue({
+      id: USER_ID,
+      email: EMAIL,
+      fullName: 'Amina Sule',
+    });
+    await harness.service.verifyEmail({ token: 'tok', code: '1234' });
+    return harness;
+  }
+
+  it('swaps the password, revokes other sessions, audits and emails', async () => {
+    const { service, provider, sessions, audit, mail } = await withConfirmedUser();
+    vi.mocked(provider.signInWithPassword).mockClear();
+
+    const result = await service.changePassword(principal, {
+      currentPassword: PASSWORD,
+      newPassword: 'new.hunter2.secure',
+    });
+
+    expect(result).toEqual({ status: 'success', revokedSessions: 3 });
+    expect(provider.setPassword).toHaveBeenCalledWith(USER_ID, 'new.hunter2.secure');
+    expect(sessions.revokeAll).toHaveBeenCalledWith(principal, 'password_changed', {
+      exceptSessionId: 'session-1',
+    });
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'auth.change_password',
+        metadata: { revokedSessions: 3 },
+      }),
+    );
+    expect(mail.send).toHaveBeenCalledWith(
+      expect.objectContaining({ to: EMAIL, subject: 'Your Bonde password was changed' }),
+    );
+  });
+
+  it('401s on a wrong current password and never writes', async () => {
+    const { service, provider, sessions } = await withConfirmedUser();
+
+    await expect(
+      service.changePassword(principal, {
+        currentPassword: 'not-the-password',
+        newPassword: 'new.hunter2.secure',
+      }),
+    ).rejects.toThrow(UnauthorizedException);
+    expect(provider.setPassword).not.toHaveBeenCalled();
+    expect(sessions.revokeAll).not.toHaveBeenCalled();
+  });
+
+  it('rejects a provider-rejected password as 400', async () => {
+    const { service, provider } = await withConfirmedUser();
+    vi.mocked(provider.setPassword).mockRejectedValueOnce(
+      new AuthProviderError('VALIDATION', 'weak password'),
+    );
+
+    await expect(
+      service.changePassword(principal, { currentPassword: PASSWORD, newPassword: 'weak' }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('400s when the principal carries no email', async () => {
+    const { service } = await withConfirmedUser();
+    await expect(
+      service.changePassword(
+        { ...principal, email: null },
+        { currentPassword: PASSWORD, newPassword: 'new.hunter2.secure' },
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe('AuthService.logout', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('revokes the current session row and audits', async () => {
+    const { service, prisma, audit } = makeService();
+    const principal: AuthPrincipal = {
+      userId: USER_ID,
+      email: EMAIL,
+      phone: null,
+      role: 'USER',
+      sessionId: 'session-1',
+      appMetadata: {},
+      userMetadata: {},
+    };
+
+    await expect(service.logout(principal)).resolves.toEqual({ status: 'signed_out' });
+    expect(prisma.authSession.updateMany).toHaveBeenCalledWith({
+      where: {
+        userId: USER_ID,
+        sessionId: 'session-1',
+        revokedAt: null,
+      },
+      data: { revokedAt: expect.any(Date), revokeReason: 'logout' },
+    });
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'auth.logout', userId: USER_ID }),
+    );
   });
 });
 

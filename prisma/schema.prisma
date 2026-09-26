@@ -171,8 +171,32 @@ model Profile {
   auditLogs           AuditLog[]
   transactionApprovals TransactionApproval[]
   virtualAccounts     VirtualAccount[]
+  authSessions        AuthSession[]
 
   @@map("profiles")
+}
+
+/// A signed-in device session, mirrored from the Supabase session id. Rows are
+/// created on login and touched on refresh so a user can review and revoke the
+/// devices signed in to their account.
+model AuthSession {
+  id           String    @id @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  /// Supabase `session_id` claim — unique per issued token pair.
+  sessionId    String    @unique @map("session_id") @db.VarChar(64)
+  userAgent    String?   @map("user_agent") @db.VarChar(512)
+  ipAddress    String?   @map("ip_address") @db.VarChar(64)
+  /// Access-token expiry of the last grant that touched this row.
+  expiresAt    DateTime  @map("expires_at")
+  lastUsedAt   DateTime  @default(now()) @map("last_used_at")
+  revokedAt    DateTime? @map("revoked_at")
+  revokeReason String?   @map("revoke_reason") @db.VarChar(64)
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@map("auth_sessions")
 }
 
 // ---------------------------------------------------------------------------

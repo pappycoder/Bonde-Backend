@@ -14,6 +14,8 @@ export interface AuthPrincipal {
   email: string | null;
   phone: string | null;
   role: BondeRole;
+  /** Supabase session id (JWT `session_id`) — identifies the device session. */
+  sessionId: string | null;
   appMetadata: Record<string, unknown>;
   userMetadata: Record<string, unknown>;
 }

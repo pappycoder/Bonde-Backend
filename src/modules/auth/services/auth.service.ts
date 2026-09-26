@@ -15,13 +15,16 @@ import { OTP_SENDER, OtpSendError, type OtpSender } from '../../otp/otp-sender.i
 import { AuditLogService } from '../../audit/audit-log.service.js';
 import { generateLuhnAccountNumber } from '../../accounts/account-number.js';
 import { AuthTokensService } from './auth-tokens.service.js';
+import { AuthSessionsService, type SessionRequestContext } from './auth-sessions.service.js';
 import {
   AuthProviderError,
   SUPABASE_AUTH_BODY,
   type SupabaseAuthGateway,
   type SupabaseSession,
 } from '../supabase/supabase-auth.client.js';
+import type { AuthPrincipal } from '../principal/auth-principal.js';
 import type {
+  ChangePasswordDto,
   LoginDto,
   RegisterDto,
   ResetPasswordDto,
@@ -31,6 +34,7 @@ import type {
 import { MAIL_SENDER, type MailMessage, type MailSender } from '../../../common/mail/mail.types.js';
 import { welcomeEmail } from '../../../common/mail/templates/welcome.js';
 import { passwordResetEmail } from '../../../common/mail/templates/password-reset.js';
+import { passwordChangedEmail } from '../../../common/mail/templates/password-changed.js';
 
 /**
  * BFF auth endpoints. Registration + password changes drive Supabase Auth via
@@ -48,6 +52,7 @@ export class AuthService {
     private readonly otp: OtpService,
     @Inject(OTP_SENDER) private readonly sender: OtpSender,
     private readonly tokens: AuthTokensService,
+    private readonly sessions: AuthSessionsService,
     private readonly audit: AuditLogService,
     @Inject(MAIL_SENDER) private readonly mail: MailSender,
   ) {}
@@ -162,7 +167,7 @@ export class AuthService {
     return { status: 'sent' as const, registrationToken };
   }
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, context: SessionRequestContext = {}) {
     const email = this.normalizeEmail(dto.email);
 
     let session: SupabaseSession;
@@ -182,6 +187,7 @@ export class AuthService {
       throw error;
     }
 
+    await this.sessions.record(session, context);
     await this.audit.record({
       userId: session.user.id,
       action: 'auth.login',
@@ -192,7 +198,7 @@ export class AuthService {
     return this.toSession(session);
   }
 
-  async refresh(refreshToken: string) {
+  async refresh(refreshToken: string, context: SessionRequestContext = {}) {
     let session: SupabaseSession;
     try {
       session = await this.provider.refresh(refreshToken);
@@ -205,7 +211,106 @@ export class AuthService {
       }
       throw error;
     }
+
+    // A revoked device keeps its access token until it expires, but must never
+    // be able to mint another one.
+    if (await this.sessions.isRevoked(session.sessionId)) {
+      throw new UnauthorizedException('This session has been revoked');
+    }
+    await this.sessions.record(session, context);
     return this.toSession(session);
+  }
+
+  /**
+   * Change the caller's own password: the current one is re-verified against the
+   * identity provider (GoTrue has no password-check endpoint, so this performs
+   * a throw-away password grant and discards the tokens it returns), then every
+   * *other* session is revoked so a stolen device loses access immediately.
+   */
+  async changePassword(principal: AuthPrincipal, dto: ChangePasswordDto) {
+    if (!principal.email) {
+      throw new BadRequestException('Your account has no email to verify against');
+    }
+
+    let verified: SupabaseSession;
+    try {
+      verified = await this.provider.signInWithPassword(
+        this.normalizeEmail(principal.email),
+        dto.currentPassword,
+      );
+    } catch (error) {
+      if (error instanceof AuthProviderError) {
+        if (error.code === 'INVALID_CREDENTIALS') {
+          throw new UnauthorizedException('Current password is incorrect');
+        }
+        throw new ServiceUnavailableException('Identity provider unavailable');
+      }
+      throw error;
+    }
+    if (verified.user.id !== principal.userId) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    try {
+      await this.provider.setPassword(principal.userId, dto.newPassword);
+    } catch (error) {
+      if (error instanceof AuthProviderError) {
+        if (error.code === 'NOT_FOUND') throw new UnauthorizedException('Account not found');
+        if (error.code === 'VALIDATION') {
+          throw new BadRequestException('Please choose a stronger password');
+        }
+        throw new ServiceUnavailableException('Identity provider unavailable');
+      }
+      throw error;
+    }
+
+    const revoked = await this.sessions.revokeAll(principal, 'password_changed', {
+      exceptSessionId: principal.sessionId,
+    });
+    await this.audit.record({
+      userId: principal.userId,
+      action: 'auth.change_password',
+      entityType: 'auth',
+      entityId: principal.userId,
+      metadata: { revokedSessions: revoked },
+    });
+
+    if (principal.email) {
+      const profile = await this.prisma.profile.findUnique({
+        where: { id: principal.userId },
+        select: { email: true, fullName: true },
+      });
+      if (profile) {
+        const email = passwordChangedEmail({
+          firstName: profile.fullName,
+          revokedSessions: revoked,
+        });
+        await this.sendBestEffort(
+          { to: profile.email, subject: email.subject, html: email.html },
+          'mail.password_changed',
+          principal.userId,
+        );
+      }
+    }
+
+    return { status: 'success' as const, revokedSessions: revoked };
+  }
+
+  /** Revoke the session making the request. Idempotent and never fails. */
+  async logout(principal: AuthPrincipal) {
+    if (principal.sessionId) {
+      await this.prisma.authSession.updateMany({
+        where: { userId: principal.userId, sessionId: principal.sessionId, revokedAt: null },
+        data: { revokedAt: new Date(), revokeReason: 'logout' },
+      });
+    }
+    await this.audit.record({
+      userId: principal.userId,
+      action: 'auth.logout',
+      entityType: 'auth',
+      entityId: principal.userId,
+    });
+    return { status: 'signed_out' as const };
   }
 
   async forgotPassword(email: string) {
