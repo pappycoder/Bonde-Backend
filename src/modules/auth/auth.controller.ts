@@ -12,6 +12,7 @@ import {
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
+  ApiExtraModels,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -25,9 +26,12 @@ import { StrictThrottle } from '../../common/throttling/strict-throttle.decorato
 import { AuthService } from './services/auth.service.js';
 import {
   ChangePasswordDto,
+  DisableTwoFactorDto,
+  EnableTwoFactorDto,
   ForgotPasswordDto,
   LoginDto,
   LogoutResponseDto,
+  MfaRequiredResponseDto,
   RefreshDto,
   RegisterDto,
   RegisterResponseDto,
@@ -36,8 +40,13 @@ import {
   ResendVerificationOtpDto,
   SendStatusResponseDto,
   SessionResponseDto,
+  StartTwoFactorDto,
+  TwoFactorEnableResponseDto,
+  TwoFactorSetupResponseDto,
+  TwoFactorStatusResponseDto,
   VerifyEmailDto,
   VerifyEmailResponseDto,
+  VerifyLoginMfaDto,
   VerifyResetOtpDto,
   VerifyResetOtpResponseDto,
 } from './auth.dto.js';
@@ -92,8 +101,12 @@ export class AuthController {
   @Public()
   @StrictThrottle()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Log in with email + password, returns access/refresh tokens' })
+  @ApiOperation({
+    summary:
+      'Log in with email + password; returns a challenge instead of tokens when a second factor is on',
+  })
   @ApiOkResponse({ type: SessionResponseDto })
+  @ApiExtraModels(MfaRequiredResponseDto)
   @ApiErrorResponse()
   login(
     @Body() dto: LoginDto,
@@ -101,6 +114,23 @@ export class AuthController {
     @Ip() ipAddress?: string,
   ) {
     return this.auth.login(dto, { userAgent, ipAddress });
+  }
+
+  @Post('login/mfa')
+  @Public()
+  @StrictThrottle()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Finish a login with the 6-digit code from the authenticator app',
+  })
+  @ApiOkResponse({ type: SessionResponseDto })
+  @ApiErrorResponse()
+  verifyLoginMfa(
+    @Body() dto: VerifyLoginMfaDto,
+    @Headers('user-agent') userAgent?: string,
+    @Ip() ipAddress?: string,
+  ) {
+    return this.auth.verifyLoginMfa(dto, { userAgent, ipAddress });
   }
 
   @Post('refresh')
@@ -170,6 +200,48 @@ export class AuthController {
   @ApiErrorResponse()
   logout(@CurrentUser() user: AuthPrincipal) {
     return this.auth.logout(user);
+  }
+
+  @Get('2fa')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Return whether a second factor is on' })
+  @ApiOkResponse({ type: TwoFactorStatusResponseDto })
+  @ApiErrorResponse()
+  twoFactorStatus(@CurrentUser() user: AuthPrincipal) {
+    return this.auth.twoFactorStatus(user);
+  }
+
+  @Post('2fa/setup')
+  @StrictThrottle()
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Start two-factor enrolment (password re-checked)' })
+  @ApiOkResponse({ type: TwoFactorSetupResponseDto })
+  @ApiErrorResponse()
+  startTwoFactorSetup(@CurrentUser() user: AuthPrincipal, @Body() dto: StartTwoFactorDto) {
+    return this.auth.startTwoFactorSetup(user, dto);
+  }
+
+  @Post('2fa/enable')
+  @StrictThrottle()
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Confirm enrolment and receive recovery codes' })
+  @ApiOkResponse({ type: TwoFactorEnableResponseDto })
+  @ApiErrorResponse()
+  enableTwoFactor(@CurrentUser() user: AuthPrincipal, @Body() dto: EnableTwoFactorDto) {
+    return this.auth.enableTwoFactor(user, dto);
+  }
+
+  @Post('2fa/disable')
+  @StrictThrottle()
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Turn the second factor off (password + code required)' })
+  @ApiOkResponse({ type: ResetStatusResponseDto })
+  @ApiErrorResponse()
+  disableTwoFactor(@CurrentUser() user: AuthPrincipal, @Body() dto: DisableTwoFactorDto) {
+    return this.auth.disableTwoFactor(user, dto);
   }
 
   @Get('me')

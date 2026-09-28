@@ -58,6 +58,9 @@ export const envValidationSchema = Joi.object({
 
   CARD_ENCRYPTION_KEY: Joi.string().hex().length(64).required(),
 
+  /// Key used to encrypt TOTP secrets; defaults to CARD_ENCRYPTION_KEY.
+  MFA_ENCRYPTION_KEY: Joi.string().hex().length(64).optional(),
+
   FLUTTERWAVE_BASE_URL: Joi.string().uri().default('https://api.flutterwave.com/v3'),
   FLUTTERWAVE_SECRET_KEY: Joi.string().required(),
   FLUTTERWAVE_WEBHOOK_SECRET_HASH: Joi.string().required(),

@@ -16,6 +16,8 @@ import { AuditLogService } from '../../audit/audit-log.service.js';
 import { generateLuhnAccountNumber } from '../../accounts/account-number.js';
 import { AuthTokensService } from './auth-tokens.service.js';
 import { AuthSessionsService, type SessionRequestContext } from './auth-sessions.service.js';
+import { MfaChallengeService, MFA_CHALLENGE_TTL_SECONDS } from './mfa-challenge.service.js';
+import { TwoFactorService } from './two-factor.service.js';
 import {
   AuthProviderError,
   SUPABASE_AUTH_BODY,
@@ -25,10 +27,14 @@ import {
 import type { AuthPrincipal } from '../principal/auth-principal.js';
 import type {
   ChangePasswordDto,
+  DisableTwoFactorDto,
+  EnableTwoFactorDto,
   LoginDto,
   RegisterDto,
   ResetPasswordDto,
+  StartTwoFactorDto,
   VerifyEmailDto,
+  VerifyLoginMfaDto,
   VerifyResetOtpDto,
 } from '../auth.dto.js';
 import { MAIL_SENDER, type MailMessage, type MailSender } from '../../../common/mail/mail.types.js';
@@ -53,6 +59,8 @@ export class AuthService {
     @Inject(OTP_SENDER) private readonly sender: OtpSender,
     private readonly tokens: AuthTokensService,
     private readonly sessions: AuthSessionsService,
+    private readonly challenges: MfaChallengeService,
+    private readonly twoFactor: TwoFactorService,
     private readonly audit: AuditLogService,
     @Inject(MAIL_SENDER) private readonly mail: MailSender,
   ) {}
@@ -187,6 +195,27 @@ export class AuthService {
       throw error;
     }
 
+    // With a second factor on, the provider session is parked server-side and
+    // no token is released until `POST /api/auth/login/mfa` accepts the code.
+    if (await this.twoFactor.isEnabled(session.user.id)) {
+      const challengeId = await this.challenges.create({
+        userId: session.user.id,
+        session,
+      });
+      await this.audit.record({
+        userId: session.user.id,
+        action: 'auth.login.mfa_challenge',
+        entityType: 'auth',
+        entityId: session.user.id,
+        metadata: { challengeId },
+      });
+      return {
+        mfaRequired: true as const,
+        challengeId,
+        expiresIn: MFA_CHALLENGE_TTL_SECONDS,
+      };
+    }
+
     await this.sessions.record(session, context);
     await this.audit.record({
       userId: session.user.id,
@@ -196,6 +225,71 @@ export class AuthService {
     });
 
     return this.toSession(session);
+  }
+
+  /** Completes a login parked by {@link login} once the second factor checks out. */
+  async verifyLoginMfa(dto: VerifyLoginMfaDto, context: SessionRequestContext = {}) {
+    const parked = await this.challenges.consume(dto.challengeId);
+    const method = await this.twoFactor.verify(parked.userId, dto.code);
+
+    await this.sessions.record(parked.session, context);
+    await this.audit.record({
+      userId: parked.userId,
+      action: 'auth.login',
+      entityType: 'auth',
+      entityId: parked.userId,
+      metadata: { mfa: method },
+    });
+    return this.toSession(parked.session);
+  }
+
+  async twoFactorStatus(principal: AuthPrincipal) {
+    return this.twoFactor.status(principal.userId);
+  }
+
+  /** Re-checks the caller's password before touching the second factor. */
+  async startTwoFactorSetup(principal: AuthPrincipal, dto: StartTwoFactorDto) {
+    await this.verifyOwnPassword(principal, dto.password);
+
+    const setup = await this.twoFactor.startSetup(
+      principal.userId,
+      this.normalizeEmail(principal.email ?? ''),
+    );
+    await this.audit.record({
+      userId: principal.userId,
+      action: 'auth.2fa_setup_started',
+      entityType: 'auth',
+      entityId: principal.userId,
+    });
+    return setup;
+  }
+
+  async enableTwoFactor(principal: AuthPrincipal, dto: EnableTwoFactorDto) {
+    const result = await this.twoFactor.enable(principal.userId, dto.code);
+    await this.audit.record({
+      userId: principal.userId,
+      action: 'auth.2fa_enabled',
+      entityType: 'auth',
+      entityId: principal.userId,
+    });
+    return result;
+  }
+
+  /**
+   * Turns the second factor off. Both the password and a current code are
+   * required so a stolen access token alone cannot downgrade the account.
+   */
+  async disableTwoFactor(principal: AuthPrincipal, dto: DisableTwoFactorDto) {
+    await this.verifyOwnPassword(principal, dto.password);
+    await this.twoFactor.verify(principal.userId, dto.code);
+    await this.twoFactor.disable(principal.userId);
+    await this.audit.record({
+      userId: principal.userId,
+      action: 'auth.2fa_disabled',
+      entityType: 'auth',
+      entityId: principal.userId,
+    });
+    return { status: 'disabled' as const };
   }
 
   async refresh(refreshToken: string, context: SessionRequestContext = {}) {
@@ -222,12 +316,11 @@ export class AuthService {
   }
 
   /**
-   * Change the caller's own password: the current one is re-verified against the
-   * identity provider (GoTrue has no password-check endpoint, so this performs
-   * a throw-away password grant and discards the tokens it returns), then every
-   * *other* session is revoked so a stolen device loses access immediately.
+   * Re-verifies the caller's own password. GoTrue exposes no password-check
+   * endpoint, so this performs a throw-away password grant and throws the
+   * tokens away; it also proves the grant resolved to *this* principal.
    */
-  async changePassword(principal: AuthPrincipal, dto: ChangePasswordDto) {
+  private async verifyOwnPassword(principal: AuthPrincipal, password: string): Promise<void> {
     if (!principal.email) {
       throw new BadRequestException('Your account has no email to verify against');
     }
@@ -236,7 +329,7 @@ export class AuthService {
     try {
       verified = await this.provider.signInWithPassword(
         this.normalizeEmail(principal.email),
-        dto.currentPassword,
+        password,
       );
     } catch (error) {
       if (error instanceof AuthProviderError) {
@@ -250,6 +343,16 @@ export class AuthService {
     if (verified.user.id !== principal.userId) {
       throw new UnauthorizedException('Current password is incorrect');
     }
+  }
+
+  /**
+   * Change the caller's own password: the current one is re-verified against the
+   * identity provider (GoTrue has no password-check endpoint, so this performs
+   * a throw-away password grant and discards the tokens it returns), then every
+   * *other* session is revoked so a stolen device loses access immediately.
+   */
+  async changePassword(principal: AuthPrincipal, dto: ChangePasswordDto) {
+    await this.verifyOwnPassword(principal, dto.currentPassword);
 
     try {
       await this.provider.setPassword(principal.userId, dto.newPassword);

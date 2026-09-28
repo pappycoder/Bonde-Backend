@@ -172,8 +172,31 @@ model Profile {
   transactionApprovals TransactionApproval[]
   virtualAccounts     VirtualAccount[]
   authSessions        AuthSession[]
+  twoFactor           TwoFactor?
 
   @@map("profiles")
+}
+
+/// Authenticator-app second factor for a profile. The TOTP secret is stored
+/// encrypted at rest; recovery codes are stored as SHA-256 digests so a stolen
+/// row cannot be replayed. A row exists from the moment enrolment starts but
+/// only takes effect once `enabledAt` is set.
+model TwoFactor {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @unique @map("user_id") @db.Uuid
+  /// AES-256-GCM payload (`enc::iv::tag::ciphertext`) of the base32 TOTP secret.
+  secretEnc      String    @map("secret_enc") @db.VarChar(255)
+  /// SHA-256 digests of the single-use recovery codes.
+  recoveryHashes String[]  @map("recovery_hashes")
+  enabledAt      DateTime? @map("enabled_at")
+  /// Highest TOTP time step already accepted; blocks code replay.
+  lastUsedStep   Int       @default(0) @map("last_used_step")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("two_factors")
 }
 
 /// A signed-in device session, mirrored from the Supabase session id. Rows are

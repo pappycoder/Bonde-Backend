@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsString, IsUUID, Length, Matches, MaxLength, MinLength } from 'class-validator';
 
 const EMAIL_MAX = 254;
 
@@ -244,4 +244,94 @@ export class RevokeSessionResponseDto {
 export class LogoutResponseDto {
   @ApiProperty({ example: 'signed_out' })
   status: 'signed_out';
+}
+
+/** `POST /api/auth/login` for an account with a second factor: no tokens yet. */
+export class MfaRequiredResponseDto {
+  @ApiProperty({ example: true })
+  mfaRequired: true;
+
+  @ApiProperty({ format: 'uuid', description: 'Handle for POST /api/auth/login/mfa' })
+  challengeId: string;
+
+  @ApiProperty({ example: 300, description: 'Seconds until the challenge expires' })
+  expiresIn: number;
+}
+
+/** Verifies the second factor and releases the parked session. */
+export class VerifyLoginMfaDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID()
+  challengeId: string;
+
+  @ApiProperty({
+    example: '123456',
+    description: '6-digit authenticator code, or a recovery code',
+  })
+  @IsString()
+  @MinLength(6)
+  @MaxLength(20)
+  code: string;
+}
+
+/** Response for `GET /api/auth/2fa`. */
+export class TwoFactorStatusResponseDto {
+  @ApiProperty({ example: false })
+  enabled: boolean;
+
+  @ApiProperty({ type: String, nullable: true, example: '2026-09-26T10:04:11.000Z' })
+  enrolledAt: string | null;
+
+  @ApiProperty({ example: 10 })
+  recoveryCodesRemaining: number;
+}
+
+/**
+ * Starts enrolment. The password is re-checked so a hijacked session cannot
+ * attach its own authenticator to the account.
+ */
+export class StartTwoFactorDto {
+  @ApiProperty({ description: 'Current password, re-verified against the provider' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  password: string;
+}
+
+/** Response for `POST /api/auth/2fa/setup`. */
+export class TwoFactorSetupResponseDto {
+  @ApiProperty({ example: 'JBSWY3DPEHPK3PXP', description: 'Base32 TOTP secret' })
+  secret: string;
+
+  @ApiProperty({ example: 'otpauth://totp/Bonde:amina@bonde.app?secret=JBSWY3DPEHPK3PXP' })
+  otpauthUri: string;
+}
+
+/** Confirms enrolment with a code from the authenticator app. */
+export class EnableTwoFactorDto {
+  @ApiProperty({ example: '123456' })
+  @IsString()
+  @Matches(/^\d{6}$/, { message: 'Authenticator codes are 6 digits' })
+  code: string;
+}
+
+/** Response for `POST /api/auth/2fa/enable`: shown to the user exactly once. */
+export class TwoFactorEnableResponseDto {
+  @ApiProperty({ type: [String], example: ['K3M4P-R7T2X', 'B9WQD-X2FTR'] })
+  recoveryCodes: string[];
+}
+
+/** Turns the second factor off: password + a current code, both re-checked. */
+export class DisableTwoFactorDto {
+  @ApiProperty({ description: 'Current password, re-verified against the provider' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  password: string;
+
+  @ApiProperty({ description: 'A current authenticator code, or a recovery code' })
+  @IsString()
+  @MinLength(6)
+  @MaxLength(20)
+  code: string;
 }

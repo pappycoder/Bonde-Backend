@@ -13,6 +13,8 @@ import { OtpSendError, type OtpSendRequest } from '../../otp/otp-sender.interfac
 import { OtpService } from '../../otp/otp.service.js';
 import { AuthTokensService } from './auth-tokens.service.js';
 import { AuthSessionsService } from './auth-sessions.service.js';
+import { MfaChallengeService } from './mfa-challenge.service.js';
+import { TwoFactorService } from './two-factor.service.js';
 import type { AuthPrincipal } from '../principal/auth-principal.js';
 import { AuditLogService } from '../../audit/audit-log.service.js';
 
@@ -25,6 +27,8 @@ function makeService(
     provider?: Partial<SupabaseAuthGateway>;
     senderFail?: () => never;
     tokens?: Partial<AuthTokensService>;
+    twoFactorEnabled?: boolean;
+    parkedLogin?: { userId: string; session: unknown } | null;
   } = {},
 ) {
   const users = new Map<string, { password: string; confirmed: boolean }>();
@@ -165,6 +169,32 @@ function makeService(
     revokeAll: vi.fn(async () => 3),
   } as unknown as AuthSessionsService;
 
+  const parked = overrides.parkedLogin;
+
+  const challenges = {
+    create: vi.fn(async () => 'challenge-1'),
+    consume: vi.fn(async () => {
+      if (!parked) throw new UnauthorizedException('Sign-in expired. Please start again.');
+      return parked as never;
+    }),
+  } as unknown as MfaChallengeService;
+
+  const twoFactor = {
+    isEnabled: vi.fn(async () => overrides.twoFactorEnabled === true),
+    status: vi.fn(async () => ({
+      enabled: overrides.twoFactorEnabled === true,
+      enrolledAt: null,
+      recoveryCodesRemaining: 0,
+    })),
+    startSetup: vi.fn(async () => ({
+      secret: 'JBSWY3DPEHPK3PXP',
+      otpauthUri: 'otpauth://totp/Bonde:amina@bonde.app?secret=JBSWY3DPEHPK3PXP',
+    })),
+    enable: vi.fn(async () => ({ recoveryCodes: ['K3M4P-R7T2X'] })),
+    verify: vi.fn(async () => 'totp' as const),
+    disable: vi.fn(async () => undefined),
+  } as unknown as TwoFactorService;
+
   const service = new AuthService(
     prisma as never,
     provider as never,
@@ -172,11 +202,27 @@ function makeService(
     sender as never,
     tokens as never,
     sessions as never,
+    challenges as never,
+    twoFactor as never,
     audit as never,
     mail as never,
   );
 
-  return { service, provider, sender, otp, tokens, sessions, prisma, audit, mail, sent, users };
+  return {
+    service,
+    provider,
+    sender,
+    otp,
+    tokens,
+    sessions,
+    prisma,
+    audit,
+    mail,
+    sent,
+    users,
+    challenges,
+    twoFactor,
+  };
 }
 
 describe('AuthService.register', () => {
@@ -748,5 +794,176 @@ describe('AuthService resendVerificationOtp', () => {
       code: expect.stringMatching(/^[0-9]{4}$/),
     });
     expect(tokens.signRegistrationToken).toHaveBeenCalledWith(USER_ID);
+  });
+});
+
+describe('AuthService second factor', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  /** Registers + verifies an account so `login` gets past GoTrue. */
+  async function confirmedUser(
+    service: AuthService,
+    prisma: ReturnType<typeof makeService>['prisma'],
+  ) {
+    await service.register({ fullName: 'Amina', email: EMAIL, password: PASSWORD });
+    vi.mocked(prisma.profile.findUnique).mockResolvedValue({
+      id: USER_ID,
+      email: EMAIL,
+      fullName: 'Amina Sule',
+    });
+    await service.verifyEmail({ token: 'tok', code: '1234' });
+  }
+
+  it('parks the login and returns a challenge instead of tokens', async () => {
+    const { service, prisma, sessions, challenges, audit } = makeService({
+      twoFactorEnabled: true,
+    });
+    await confirmedUser(service, prisma);
+
+    const result = await service.login({ email: EMAIL, password: PASSWORD });
+
+    expect(result).toEqual({
+      mfaRequired: true,
+      challengeId: 'challenge-1',
+      expiresIn: 300,
+    });
+    expect(challenges.create).toHaveBeenCalledWith(expect.objectContaining({ userId: USER_ID }));
+    // Nothing is handed out before the code is presented.
+    expect(sessions.record).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'auth.login.mfa_challenge', userId: USER_ID }),
+    );
+  });
+
+  it('never audits a completed login before the code is verified', async () => {
+    const { service, prisma, audit } = makeService({ twoFactorEnabled: true });
+    await confirmedUser(service, prisma);
+
+    await service.login({ email: EMAIL, password: PASSWORD });
+
+    expect(audit.record).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'auth.login' }),
+    );
+  });
+
+  it('releases the parked session once the code checks out', async () => {
+    const session = {
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      expiresIn: 3600,
+      sessionId: 'session-1',
+      user: { id: USER_ID, email: EMAIL, phone: null, emailConfirmed: true },
+    };
+    const { service, sessions, audit } = makeService({
+      parkedLogin: { userId: USER_ID, session },
+    });
+
+    const result = await service.verifyLoginMfa(
+      { challengeId: 'challenge-1', code: '123456' },
+      { userAgent: 'jest' },
+    );
+
+    expect(result).toEqual({
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      expiresIn: 3600,
+      user: { id: USER_ID, email: EMAIL, phone: null },
+    });
+    expect(sessions.record).toHaveBeenCalledWith(session, { userAgent: 'jest' });
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'auth.login', metadata: { mfa: 'totp' } }),
+    );
+  });
+
+  it('401s when the challenge is gone before the code arrives', async () => {
+    const { service } = makeService();
+    await expect(
+      service.verifyLoginMfa({ challengeId: 'challenge-1', code: '123456' }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('re-checks the password before starting enrolment', async () => {
+    const { service, prisma, twoFactor } = makeService();
+    await confirmedUser(service, prisma);
+
+    const setup = await service.startTwoFactorSetup({ userId: USER_ID, email: EMAIL } as never, {
+      password: PASSWORD,
+    });
+
+    expect(setup).toEqual({
+      secret: 'JBSWY3DPEHPK3PXP',
+      otpauthUri: 'otpauth://totp/Bonde:amina@bonde.app?secret=JBSWY3DPEHPK3PXP',
+    });
+    expect(twoFactor.startSetup).toHaveBeenCalledWith(USER_ID, EMAIL);
+  });
+
+  it('refuses to start enrolment with the wrong password', async () => {
+    const { service, prisma, twoFactor } = makeService();
+    await confirmedUser(service, prisma);
+
+    await expect(
+      service.startTwoFactorSetup({ userId: USER_ID, email: EMAIL } as never, {
+        password: 'wrong-password',
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(twoFactor.startSetup).not.toHaveBeenCalled();
+  });
+
+  it('400s enrolment when the principal carries no email', async () => {
+    const { service, twoFactor } = makeService();
+
+    await expect(
+      service.startTwoFactorSetup({ userId: USER_ID, email: null } as never, {
+        password: PASSWORD,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(twoFactor.startSetup).not.toHaveBeenCalled();
+  });
+
+  it('enables the factor and audits it', async () => {
+    const { service, twoFactor, audit } = makeService();
+
+    const result = await service.enableTwoFactor({ userId: USER_ID, email: EMAIL } as never, {
+      code: '123456',
+    });
+
+    expect(result).toEqual({ recoveryCodes: ['K3M4P-R7T2X'] });
+    expect(twoFactor.enable).toHaveBeenCalledWith(USER_ID, '123456');
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'auth.2fa_enabled' }),
+    );
+  });
+
+  it('disables only with the password AND a valid code', async () => {
+    const { service, prisma, twoFactor, audit } = makeService();
+    await confirmedUser(service, prisma);
+
+    const result = await service.disableTwoFactor({ userId: USER_ID, email: EMAIL } as never, {
+      password: PASSWORD,
+      code: '123456',
+    });
+
+    expect(result).toEqual({ status: 'disabled' });
+    expect(twoFactor.verify).toHaveBeenCalledWith(USER_ID, '123456');
+    expect(twoFactor.disable).toHaveBeenCalledWith(USER_ID);
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'auth.2fa_disabled' }),
+    );
+  });
+
+  it('keeps the factor on when the password is right but the code is not', async () => {
+    const { service, prisma, twoFactor } = makeService();
+    await confirmedUser(service, prisma);
+    vi.mocked(twoFactor.verify).mockRejectedValue(
+      new UnauthorizedException('Invalid authenticator code'),
+    );
+
+    await expect(
+      service.disableTwoFactor({ userId: USER_ID, email: EMAIL } as never, {
+        password: PASSWORD,
+        code: '000000',
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(twoFactor.disable).not.toHaveBeenCalled();
   });
 });

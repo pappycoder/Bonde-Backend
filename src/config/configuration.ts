@@ -58,6 +58,7 @@ export interface AppConfig {
   };
   encryption: {
     cardKey: string;
+    mfaKey: string;
   };
   flutterwave: {
     baseUrl: string;
@@ -115,6 +116,9 @@ export default (): AppConfig => ({
   },
   encryption: {
     cardKey: process.env.CARD_ENCRYPTION_KEY!,
+    // Separate key for authenticator secrets; falls back to the app-wide key so
+    // existing deployments keep working until MFA_ENCRYPTION_KEY is set.
+    mfaKey: process.env.MFA_ENCRYPTION_KEY ?? process.env.CARD_ENCRYPTION_KEY!,
   },
   flutterwave: {
     baseUrl: process.env.FLUTTERWAVE_BASE_URL ?? 'https://api.flutterwave.com/v3',

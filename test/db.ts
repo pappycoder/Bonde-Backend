@@ -52,6 +52,7 @@ const PHYSICAL_TABLES = [
   'cards',
   'card_providers',
   'auth_sessions',
+  'two_factors',
   'support_messages',
   'support_tickets',
   'biometric_devices',

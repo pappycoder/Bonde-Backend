@@ -565,4 +565,181 @@ describe('Auth endpoints (e2e)', () => {
         .expect(401);
     });
   });
+  describe('two-factor (TOTP)', () => {
+    /** Register + verify a fresh account and return its id. */
+    async function verifiedUser(): Promise<string> {
+      const reg = await ctx.raw
+        .post('/auth/register')
+        .send({ fullName: 'Two Factor', email: EMAIL, password: PASSWORD })
+        .expect(201);
+      await ctx.raw
+        .post('/auth/verify-email')
+        .send({ token: reg.body.registrationToken, code: lastCode() })
+        .expect(200);
+      return provider.accounts.get(EMAIL)!.id;
+    }
+
+    /** The current TOTP code for a secret, via the same lib the API uses. */
+    async function currentCode(secret: string): Promise<string> {
+      const { authenticator } = await import('otplib');
+      return authenticator.generate(secret);
+    }
+
+    it('reports no second factor by default', async () => {
+      const userId = await verifiedUser();
+      ctx.setPrincipal({ userId, email: EMAIL, sessionId: 'current-session' });
+
+      const res = await ctx.http.get('/auth/2fa').expect(200);
+      expect(res.body).toEqual({ enabled: false, enrolledAt: null, recoveryCodesRemaining: 0 });
+    });
+
+    it('enrols through setup -> enable and parks the next login', async () => {
+      const userId = await verifiedUser();
+      ctx.setPrincipal({ userId, email: EMAIL, sessionId: 'current-session' });
+
+      const setup = await ctx.http.post('/auth/2fa/setup').send({ password: PASSWORD }).expect(200);
+      expect(setup.body.otpauthUri).toContain(`secret=${setup.body.secret}`);
+
+      const row = await ctx.prisma.twoFactor.findUnique({ where: { userId } });
+      // The secret is never stored in the clear.
+      expect(row?.secretEnc).not.toContain(setup.body.secret);
+      expect(row?.enabledAt).toBeNull();
+
+      const enabled = await ctx.http
+        .post('/auth/2fa/enable')
+        .send({ code: await currentCode(setup.body.secret) })
+        .expect(200);
+      expect(enabled.body.recoveryCodes).toHaveLength(10);
+
+      const status = await ctx.http.get('/auth/2fa').expect(200);
+      expect(status.body.enabled).toBe(true);
+      expect(status.body.recoveryCodesRemaining).toBe(10);
+
+      // The next password login now returns a challenge instead of tokens.
+      const login = await ctx.raw
+        .post('/auth/login')
+        .send({ email: EMAIL, password: PASSWORD })
+        .expect(200);
+      expect(login.body.mfaRequired).toBe(true);
+      expect(login.body.challengeId).toBeTruthy();
+      expect(login.body.accessToken).toBeUndefined();
+
+      const verified = await ctx.raw
+        .post('/auth/login/mfa')
+        .send({ challengeId: login.body.challengeId, code: await currentCode(setup.body.secret) })
+        .expect(200);
+      expect(verified.body.accessToken).toBeTruthy();
+      expect(verified.body.refreshToken).toBeTruthy();
+    });
+
+    it('400s setup with the wrong password and 401s enable with a bad code', async () => {
+      const userId = await verifiedUser();
+      ctx.setPrincipal({ userId, email: EMAIL, sessionId: 'current-session' });
+
+      await ctx.http.post('/auth/2fa/setup').send({ password: 'not-the-password' }).expect(401);
+
+      await ctx.http.post('/auth/2fa/setup').send({ password: PASSWORD }).expect(200);
+      await ctx.http.post('/auth/2fa/enable').send({ code: '000000' }).expect(401);
+      await ctx.http.post('/auth/2fa/enable').send({ code: 'abcdef' }).expect(400);
+      const row = await ctx.prisma.twoFactor.findUnique({ where: { userId } });
+      expect(row?.enabledAt).toBeNull();
+    });
+
+    it('rejects a replayed login challenge', async () => {
+      const userId = await verifiedUser();
+      ctx.setPrincipal({ userId, email: EMAIL, sessionId: 'current-session' });
+      const setup = await ctx.http.post('/auth/2fa/setup').send({ password: PASSWORD }).expect(200);
+      await ctx.http
+        .post('/auth/2fa/enable')
+        .send({ code: await currentCode(setup.body.secret) })
+        .expect(200);
+
+      const login = await ctx.raw
+        .post('/auth/login')
+        .send({ email: EMAIL, password: PASSWORD })
+        .expect(200);
+
+      // Wrong code burns the challenge: a retry with the right one is refused.
+      await ctx.raw
+        .post('/auth/login/mfa')
+        .send({ challengeId: login.body.challengeId, code: '000000' })
+        .expect(401);
+      await ctx.raw
+        .post('/auth/login/mfa')
+        .send({ challengeId: login.body.challengeId, code: await currentCode(setup.body.secret) })
+        .expect(401);
+    });
+
+    it('accepts a recovery code once, then refuses it', async () => {
+      const userId = await verifiedUser();
+      ctx.setPrincipal({ userId, email: EMAIL, sessionId: 'current-session' });
+      const setup = await ctx.http.post('/auth/2fa/setup').send({ password: PASSWORD }).expect(200);
+      const enabled = await ctx.http
+        .post('/auth/2fa/enable')
+        .send({ code: await currentCode(setup.body.secret) })
+        .expect(200);
+      const recovery = enabled.body.recoveryCodes[0] as string;
+
+      const first = await ctx.raw
+        .post('/auth/login')
+        .send({ email: EMAIL, password: PASSWORD })
+        .expect(200);
+      await ctx.raw
+        .post('/auth/login/mfa')
+        .send({ challengeId: first.body.challengeId, code: recovery })
+        .expect(200);
+
+      const second = await ctx.raw
+        .post('/auth/login')
+        .send({ email: EMAIL, password: PASSWORD })
+        .expect(200);
+      await ctx.raw
+        .post('/auth/login/mfa')
+        .send({ challengeId: second.body.challengeId, code: recovery })
+        .expect(401);
+      expect((await ctx.http.get('/auth/2fa').expect(200)).body.recoveryCodesRemaining).toBe(9);
+    });
+
+    it('disables with password + code and restores plain login', async () => {
+      const userId = await verifiedUser();
+      ctx.setPrincipal({ userId, email: EMAIL, sessionId: 'current-session' });
+      const setup = await ctx.http.post('/auth/2fa/setup').send({ password: PASSWORD }).expect(200);
+      await ctx.http
+        .post('/auth/2fa/enable')
+        .send({ code: await currentCode(setup.body.secret) })
+        .expect(200);
+
+      await ctx.http
+        .post('/auth/2fa/disable')
+        .send({ password: 'not-the-password', code: await currentCode(setup.body.secret) })
+        .expect(401);
+      await ctx.http
+        .post('/auth/2fa/disable')
+        .send({ password: PASSWORD, code: '000000' })
+        .expect(401);
+      expect(await ctx.prisma.twoFactor.findUnique({ where: { userId } })).not.toBeNull();
+
+      await ctx.http
+        .post('/auth/2fa/disable')
+        .send({ password: PASSWORD, code: await currentCode(setup.body.secret) })
+        .expect(200);
+      expect(await ctx.prisma.twoFactor.findUnique({ where: { userId } })).toBeNull();
+
+      const login = await ctx.raw
+        .post('/auth/login')
+        .send({ email: EMAIL, password: PASSWORD })
+        .expect(200);
+      expect(login.body.accessToken).toBeTruthy();
+    });
+
+    it('requires a bearer token for every 2fa route', async () => {
+      await ctx.raw.get('/auth/2fa').expect(401);
+      await ctx.raw.post('/auth/2fa/setup').send({ password: PASSWORD }).expect(401);
+      await ctx.raw.post('/auth/2fa/enable').send({ code: '123456' }).expect(401);
+      await ctx.raw
+        .post('/auth/2fa/disable')
+        .send({ password: PASSWORD, code: '123456' })
+        .expect(401);
+    });
+  });
 });

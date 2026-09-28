@@ -6,13 +6,16 @@ import { AuthSessionsController } from './auth-sessions.controller.js';
 import { AuthService } from './services/auth.service.js';
 import { AuthSessionsService } from './services/auth-sessions.service.js';
 import { AuthTokensService } from './services/auth-tokens.service.js';
+import { MfaChallengeService } from './services/mfa-challenge.service.js';
+import { TwoFactorService } from './services/two-factor.service.js';
 import { SUPABASE_AUTH_BODY, SupabaseAuthClient } from './supabase/supabase-auth.client.js';
 import { OtpModule } from '../otp/otp.module.js';
 import { AuditLogModule } from '../audit/audit-log.module.js';
+import { RedisModule } from '../../common/redis/redis.module.js';
 import type { AppConfig } from '../../config/configuration.js';
 
 @Module({
-  imports: [OtpModule, AuditLogModule],
+  imports: [OtpModule, AuditLogModule, RedisModule],
   controllers: [AuthController, AuthSessionsController],
   providers: [
     {
@@ -28,6 +31,8 @@ import type { AppConfig } from '../../config/configuration.js';
     },
     AuthTokensService,
     AuthSessionsService,
+    TwoFactorService,
+    MfaChallengeService,
     AuthService,
   ],
   exports: [JwksService, SUPABASE_AUTH_BODY],

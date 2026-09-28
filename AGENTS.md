@@ -20,7 +20,7 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
 - `pnpm prisma:deploy` — apply migrations in CI/prod (`prisma migrate deploy`)
 
 ## Database (Prisma 7)
-- Schema lives in `prisma/schema.prisma` (20 tables, datasource has NO `url`).
+- Schema lives in `prisma/schema.prisma` (22 tables, datasource has NO `url`).
 - CLI connection config lives in `prisma.config.ts` — Migrate uses `DIRECT_URL`;
   the app runtime uses pooled `DATABASE_URL` via the `@prisma/adapter-pg`
   (`PrismaPg`) driver adapter inside `src/prisma/prisma.service.ts`.
@@ -56,9 +56,30 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
 - Auth routes are `@Public()` + `@StrictThrottle()`: `POST /api/auth/register`
   (201 → `{ status, registrationToken }`), `POST /api/auth/verify-email`, `POST
   /api/auth/resend-verification-otp`, `POST /api/auth/login`, `POST
-  /api/auth/refresh`, `POST /api/auth/forgot-password`, `POST
-  /api/auth/verify-reset-otp`, `PATCH /api/auth/reset-password`. `GET
-  /api/auth/me` stays authenticated.
+  /api/auth/login/mfa`, `POST /api/auth/refresh`, `POST
+  /api/auth/forgot-password`, `POST /api/auth/verify-reset-otp`, `PATCH
+  /api/auth/reset-password`. `GET /api/auth/me` stays authenticated.
+- **Sessions & password change**: `auth_sessions` mirrors the Supabase
+  `session_id` (written on login/refresh, `GET /api/auth/sessions`,
+  `DELETE /api/auth/sessions/:id` to revoke one, `POST /api/auth/logout` for the
+  current one). `POST /api/auth/change-password` re-verifies the current password
+  via a throw-away GoTrue grant (GoTrue has no password-check endpoint), then
+  revokes every *other* session and emails the user. A revoked device keeps its
+  access token until it expires but can never refresh again.
+- **Second factor (TOTP)**: `two_factors` holds one row per profile
+  (`secretEnc` AES-256-GCM under `encryption.mfaKey`, `recoveryHashes`
+  SHA-256 digests, `enabledAt`, `lastUsedStep`). Routes: `GET /api/auth/2fa`,
+  `POST /api/auth/2fa/setup` (password re-checked, returns `secret` +
+  `otpauthUri`), `POST /api/auth/2fa/enable` (first valid code → 10 single-use
+  recovery codes, shown once), `POST /api/auth/2fa/disable` (password **and** a
+  current code). When a factor is on, `POST /api/auth/login` answers
+  `{ mfaRequired: true, challengeId, expiresIn: 300 }` and parks the provider
+  session in Redis (`auth:mfa:<uuid>`, `MfaChallengeService`) — no token is
+  released until `POST /api/auth/login/mfa` accepts the code, and the challenge
+  is consumed (deleted) on the first attempt, so a wrong code forces a fresh
+  login. TOTP codes are accepted once per 30s step (`lastUsedStep` blocks
+  replay); `encryption.mfaKey` falls back to `CARD_ENCRYPTION_KEY` when
+  `MFA_ENCRYPTION_KEY` is unset.
 - Register surfaces GoTrue payload validation as 400, duplicate accounts as 409, and provider / service-role misconfiguration as 503.
   `email_confirm:false` user (service-role `createUser`) and `login` returns
   403 until `verify-email` succeeds. `forgot-password` always answers 200 — no
@@ -295,7 +316,8 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   `CardsService.toView` also strips CVV).
 - Config keys (typed `AppConfig`, Joi-validated): `FLUTTERWAVE_BASE_URL`,
   `FLUTTERWAVE_SECRET_KEY`, `FLUTTERWAVE_WEBHOOK_SECRET_HASH`,
-  `FLUTTERWAVE_VA_BANK_CODE` (090567), `CARD_ENCRYPTION_KEY`.
+  `FLUTTERWAVE_VA_BANK_CODE` (090567), `CARD_ENCRYPTION_KEY`,
+  `MFA_ENCRYPTION_KEY` (optional; defaults to `CARD_ENCRYPTION_KEY`).
   **`ConfigService` typing gotcha**: `config.get('a').b` for nested blocks,
   `{ infer: true }` for a deep single key — dotted paths (`'flutterwave.
   webhookSecretHash'`) **do not** typecheck under `ConfigService<AppConfig,
@@ -314,7 +336,7 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   untouched.
 - `test/db.ts` owns the constants + fixtures: seeded profiles use **real UUIDs**
   (`SEED_USER_ID` etc.) because `profiles.id` is `@db.Uuid`; `truncateAll`
-  TRUNCATEs the 20 tables CASCADE; `seedBaseFixtures` upserts the profile/
+  TRUNCATEs all tables CASCADE; `seedBaseFixtures` upserts the profile/
   provider/card/chat baseline **plus** an account+wallet (SEED_USER only — the
   SEED_OTHER user intentionally has none, powering 1:1 ownership 404s),
   chat messages, a PENDING transaction + approval, a threshold, a
@@ -386,7 +408,8 @@ src/
       decorators/  param/method/class decorators
       services/    feature services
     auth/          Supabase BFF + JWT verification + RBAC (global APP_GUARDs;
-                   supabase/ gateway client, services/ orchestration + tickets)
+                   supabase/ gateway client, services/ orchestration + tickets,
+                   device sessions, TOTP second factor)
     health/        terminus health/readiness probes
     profiles/      self-service profile (GET/PATCH /profile, avatar)
     otp/           app-level phone/email verification (send/verify)
