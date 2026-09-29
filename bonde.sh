@@ -110,6 +110,22 @@ api_start() {
   return 1
 }
 
+# The API logs why the identity provider call failed; surface just that line.
+api_provider_reason() {
+  local reason
+  # Take the line to the structured-log tail, then drop the colour codes and the
+  # JSON. A `[^"]*` class would stop at the first double quote, which the
+  # password message itself contains, and the JSON does not start after a plain
+  # space — a colour code sits between them.
+  reason=$(
+    grep -ao 'Identity provider call failed ([A-Z_]*): .*' "$API_LOG" 2>/dev/null |
+      tail -1 | sed 's/\x1b\[[0-9;]*m//g; s/{"req".*$//'
+  )
+  if [ -n "$reason" ]; then
+    fail "Reason: ${reason#Identity provider call failed }"
+  fi
+}
+
 api_stop() {
   [ "$API_OWNED" = "1" ] || return 0
   local pid="$API_PID" waited=0
@@ -176,9 +192,36 @@ register_superuser() {
     *) die "Invalid email address." ;;
   esac
 
-  printf '%b   Password (min 6 chars): %b' "$CYAN" "$RESET"
+  printf '%b   Password: %b' "$CYAN" "$RESET"
   read -rs password; printf '\n'
   [ "${#password}" -ge 6 ] || die "Password must be at least 6 characters."
+  # Supabase enforces strength server-side and answers 422, which used to
+  # surface as an opaque "could not create your account". Preflight it so a weak
+  # password fails here instead of after booting the API. Supabase stays the
+  # source of truth; this only mirrors its documented requirement.
+  case "$password" in
+    *[a-z]*) ;;
+    *) die "Password needs at least one lowercase letter (a-z)." ;;
+  esac
+  case "$password" in
+    *[A-Z]*) ;;
+    *) die "Password needs at least one uppercase letter (A-Z)." ;;
+  esac
+  case "$password" in
+    *[0-9]*) ;;
+    *) die "Password needs at least one digit (0-9)." ;;
+  esac
+  # Supabase's special set, matched by membership rather than one glob bracket
+  # expression — several of these characters are shell metacharacters.
+  local specials='!@#$%^&*()_+-=[]{};:'"'"'|<>?,./`~' ch found=''
+  local i
+  for ((i = 0; i < ${#specials}; i++)); do
+    ch=${specials:i:1}
+    case "$password" in
+      *"$ch"*) found=1; break ;;
+    esac
+  done
+  [ -n "$found" ] || die "Password needs at least one special character, e.g. ! @ # \$ % ^ & * ( ) _ + - = [ ] { } ; : ' \" | < > ? , . / \` ~"
 
   printf '%b   Full name [%s]: %b' "$CYAN" "${email%%@*}" "$RESET"
   read -r full_name
@@ -211,10 +254,12 @@ register_superuser() {
   case "$code" in
     201) ok "Account created." ;;
     409) warn "Account already exists — promoting the existing user." ;;
-    5??)
-      # 503 here means the identity provider, not this script. The API logs the
-      # underlying GoTrue reason; without showing it there is nothing to act on.
-      fail "Register failed (HTTP $code): the identity provider rejected the request."
+    4??|5??)
+      # The API deliberately answers 4xx with generic copy, so the actionable
+      # reason only exists in its log (Supabase password strength, rate limits,
+      # provider outages). Show it, or there is nothing to act on.
+      fail "Register failed (HTTP $code): $(printf '%s' "$body" | jq -r '(.message | if type=="array" then .[0] else . end) // "unknown error"' 2>/dev/null)"
+      api_provider_reason
       api_log_tail
       exit 1
       ;;
