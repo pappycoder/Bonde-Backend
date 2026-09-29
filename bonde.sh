@@ -273,7 +273,15 @@ register_superuser() {
   admin_headers=( -H "apikey: $SUPABASE_ANON_KEY" -H "authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" )
   while [ -z "$supa_id" ] && [ "$page" -le 50 ]; do
     current=$(curl -sS -m 15 -X GET "$supa/admin/users?page=$page&per_page=200" "${admin_headers[@]}")
-    supa_id=$(printf '%s' "$current" | jq -r --arg e "$email" '[.[] | select(.email == $e)] | .[0].id // empty')
+    # GoTrue answers with {"users":[...],"aud":...}, not a bare array. Reading it
+    # as one made .[] walk the object's values, so .email hit an array — 50
+    # identical jq errors before giving up, and the user was never found.
+    if ! printf '%s' "$current" | jq -e 'has("users")' >/dev/null 2>&1; then
+      fail "Unexpected shape from Supabase Auth (expected an object with a \"users\" key):"
+      printf '   %s\n' "$(printf '%s' "$current" | head -c 200)"
+      exit 1
+    fi
+    supa_id=$(printf '%s' "$current" | jq -r --arg e "$email" '[.users[] | select(.email == $e)] | .[0].id // empty')
     page=$((page + 1))
   done
   [ -n "$supa_id" ] || die "Could not find $email in Supabase Auth."
