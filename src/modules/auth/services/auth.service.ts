@@ -186,6 +186,12 @@ export class AuthService {
       session = await this.provider.signInWithPassword(email, dto.password);
     } catch (error) {
       if (error instanceof AuthProviderError) {
+        // This path answers a real, actionable message ("verify your email")
+        // instead of the blanket 503, so it never reaches `mapProviderError`
+        // and would otherwise log nothing. A wrong-password bug looks exactly
+        // like a bad password here, which is not a distinction worth guessing
+        // at from the outside.
+        this.logger.warn(`Identity login rejected (${error.code}): ${error.message}`);
         switch (error.code) {
           case 'INVALID_CREDENTIALS':
             throw new UnauthorizedException('Invalid email or password');

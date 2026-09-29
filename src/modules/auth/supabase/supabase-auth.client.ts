@@ -163,11 +163,11 @@ export class SupabaseAuthClient implements SupabaseAuthGateway {
   }
 
   async signInWithPassword(email: string, password: string): Promise<SupabaseSession> {
-    return this.token({ grant_type: 'password', email, password });
+    return this.token('password', { email, password });
   }
 
   async refresh(refreshToken: string): Promise<SupabaseSession> {
-    return this.token({ grant_type: 'refresh_token', refresh_token: refreshToken });
+    return this.token('refresh_token', { refresh_token: refreshToken });
   }
 
   async confirmEmail(userId: string): Promise<void> {
@@ -199,8 +199,17 @@ export class SupabaseAuthClient implements SupabaseAuthGateway {
     });
   }
 
-  private async token(body: Record<string, unknown>): Promise<SupabaseSession> {
-    const session = await this.request<GoTrueTokenResponse>('/token', {
+  private async token(
+    grantType: 'password' | 'refresh_token',
+    body: Record<string, unknown>,
+  ): Promise<SupabaseSession> {
+    // `grant_type` belongs in the query string. GoTrue does not read it from a
+    // JSON body, so posting it there answers `400 unsupported_grant_type` —
+    // tagged `invalid_credentials`, which the mapper then turns into
+    // INVALID_CREDENTIALS, making every login and refresh fail with "Invalid
+    // email or password" whatever the password was. supabase-js always sends
+    // the query param; match it.
+    const session = await this.request<GoTrueTokenResponse>(`/token?grant_type=${grantType}`, {
       method: 'POST',
       useServiceRole: false,
       body,

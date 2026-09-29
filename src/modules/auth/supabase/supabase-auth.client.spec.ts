@@ -166,6 +166,39 @@ describe('SupabaseAuthClient', () => {
     });
   });
 
+  it('sends grant_type in the query string, not only the JSON body', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            access_token: 'at',
+            refresh_token: 'rt',
+            expires_in: 3600,
+            user: { id: 'u1', email: 'a@b.com' },
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const client = makeClient();
+
+    await client.signInWithPassword('a@b.com', 'good');
+    await client.refresh('rt');
+
+    // GoTrue ignores grant_type in a JSON body and answers
+    // `400 unsupported_grant_type` — reported as INVALID_CREDENTIALS, i.e.
+    // "Invalid email or password" for a password that was correct.
+    const [signInUrl, signInInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(signInUrl).toBe('https://sb.supabase.co/auth/v1/token?grant_type=password');
+    expect(JSON.parse(String(signInInit.body))).toEqual({
+      email: 'a@b.com',
+      password: 'good',
+    });
+
+    const [refreshUrl] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(refreshUrl).toBe('https://sb.supabase.co/auth/v1/token?grant_type=refresh_token');
+  });
+
   it('wraps network failures as PROVIDER with underlying detail', async () => {
     vi.stubGlobal(
       'fetch',
