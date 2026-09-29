@@ -87,6 +87,20 @@ export class ReviewApprovalBodyDto {
 // Write-model DTOs (Phase 5 support tickets)
 // ---------------------------------------------------------------------------
 
+/** Query parameters for `GET /api/admin/transactions`. */
+export class AdminTransactionListQueryDto extends AdminListQueryDto {
+  /**
+   * The UI-legible status the list renders, rather than the raw
+   * `status`/`approvalStatus`/`thresholdWarning` triple behind it. Filtering on
+   * the raw triple cannot express the derived values, and the two vocabularies
+   * disagree, so this is the filter that matches what the table shows.
+   */
+  @ApiPropertyOptional({ enum: ['completed', 'processing', 'pending', 'failed', 'flagged'] })
+  @IsOptional()
+  @IsIn(['completed', 'processing', 'pending', 'failed', 'flagged'])
+  uiStatus?: 'completed' | 'processing' | 'pending' | 'failed' | 'flagged';
+}
+
 /** Query parameters for `GET /api/admin/support-tickets`. */
 export class AdminSupportListQueryDto extends AdminListQueryDto {
   @ApiPropertyOptional({ enum: ['OPEN', 'PENDING', 'RESOLVED'] })

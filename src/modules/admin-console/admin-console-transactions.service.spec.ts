@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import type { ApprovalStatus, TransactionStatus, TransactionType } from '@prisma/client';
-import { AdminConsoleTransactionsService } from './admin-console-transactions.service.js';
+import {
+  AdminConsoleTransactionsService,
+  uiStatusWhere,
+} from './admin-console-transactions.service.js';
 import { deriveTxStatus, toAdminTxSummary, txMethod } from './admin-tx-view.js';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
@@ -145,6 +148,71 @@ describe('AdminConsoleTransactionsService', () => {
     const where = transaction.findMany.mock.calls[0][0].where;
     expect(where.status).toBe('SUCCESS');
     expect(where.type).toBe('PAYMENT');
+  });
+
+  it('maps a uiStatus filter onto the raw status, approval and warning columns', async () => {
+    const { service, transaction } = makeService();
+    await service.list({ uiStatus: 'completed' });
+    expect(transaction.findMany.mock.calls[0][0].where).toMatchObject({
+      status: 'SUCCESS',
+      thresholdWarning: false,
+    });
+  });
+
+  it('excludes a uiStatus when no uiStatus is requested', async () => {
+    const { service, transaction } = makeService();
+    await service.list({ filter: ['type:PAYMENT'] });
+    const where = transaction.findMany.mock.calls[0][0].where;
+    expect(where).toEqual({ type: 'PAYMENT' });
+  });
+
+  it('returns exactly the rows that render the requested badge', () => {
+    // Every combination of the three raw columns must agree with deriveTxStatus,
+    // otherwise the table shows a status the filter cannot reproduce.
+    type Combo = {
+      status: 'SUCCESS' | 'PENDING' | 'FAIL';
+      approvalStatus: 'PENDING' | 'APPROVED' | 'DECLINED';
+      thresholdWarning: boolean;
+    };
+    const combinations: Combo[] = [];
+    for (const status of ['SUCCESS', 'PENDING', 'FAIL'] as const) {
+      for (const approvalStatus of ['PENDING', 'APPROVED', 'DECLINED'] as const) {
+        for (const thresholdWarning of [false, true]) {
+          combinations.push({ status, approvalStatus, thresholdWarning });
+        }
+      }
+    }
+
+    /** Minimal Prisma evaluator: equality, `not`, and nested AND/OR. */
+    const matches = (clause: Record<string, unknown>, row: Combo): boolean => {
+      const { AND, OR, ...conditions } = clause;
+      const conditionsHold = Object.entries(conditions).every(([field, expected]) => {
+        const actual = row[field as keyof Combo];
+        if (expected && typeof expected === 'object' && 'not' in expected) {
+          return actual !== (expected as { not: unknown }).not;
+        }
+        return actual === expected;
+      });
+      const andHolds =
+        !Array.isArray(AND) ||
+        (AND as Array<Record<string, unknown>>).every((part) => matches(part, row));
+      const orHolds =
+        !Array.isArray(OR) ||
+        (OR as Array<Record<string, unknown>>).some((part) => matches(part, row));
+      return conditionsHold && andHolds && orHolds;
+    };
+
+    for (const uiStatus of ['completed', 'processing', 'pending', 'failed', 'flagged'] as const) {
+      const where = uiStatusWhere(uiStatus) as unknown as Record<string, unknown>;
+      for (const row of combinations) {
+        const rendered = deriveTxStatus(row);
+        expect({ uiStatus, row, selected: matches(where, row) }).toEqual({
+          uiStatus,
+          row,
+          selected: rendered === uiStatus,
+        });
+      }
+    }
   });
 
   it('searches description, user name and user email', async () => {

@@ -10,7 +10,7 @@ import {
 } from '../../common/paging/filter.js';
 import { AuditLogService } from '../audit/audit-log.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { toAdminTxSummary } from './admin-tx-view.js';
+import { toAdminTxSummary, type UiTxStatus } from './admin-tx-view.js';
 
 const TX_FILTER_FIELDS: Record<string, FilterFieldSpec> = {
   type: { kind: 'enum' },
@@ -33,6 +33,44 @@ export interface AdminTransactionsListOptions {
   pageSize?: number;
   q?: string;
   filter?: string | string[];
+  uiStatus?: UiTxStatus;
+}
+
+/**
+ * Prisma predicate for a UI-legible status: the exact preimage of
+ * `deriveTxStatus`, so a `uiStatus` filter returns precisely the rows that
+ * render with that badge. `approvalStatus` is non-nullable and
+ * `thresholdWarning` defaults to false, so equality is safe.
+ *
+ * The disjunctions are nested under `AND` rather than placed at the top level,
+ * because `buildWhere` merges this with a free-text `q` whose own `OR` would
+ * otherwise overwrite them.
+ */
+export function uiStatusWhere(uiStatus: UiTxStatus): Prisma.TransactionWhereInput {
+  switch (uiStatus) {
+    case 'completed':
+      return { status: 'SUCCESS', thresholdWarning: false };
+    case 'processing':
+      return { status: 'PENDING', approvalStatus: 'PENDING', thresholdWarning: false };
+    case 'pending':
+      return { status: 'PENDING', approvalStatus: 'APPROVED', thresholdWarning: false };
+    case 'failed':
+      // FAIL short-circuits first; a decline leaves the row PENDING.
+      return {
+        AND: [{ OR: [{ status: 'FAIL' }, { status: 'PENDING', approvalStatus: 'DECLINED' }] }],
+      };
+    case 'flagged':
+      // A warning flags anything that is not already failed, and a decline
+      // beats the warning.
+      return {
+        AND: [
+          {
+            thresholdWarning: true,
+            OR: [{ status: 'SUCCESS' }, { status: 'PENDING', approvalStatus: { not: 'DECLINED' } }],
+          },
+        ],
+      };
+  }
 }
 
 /**
@@ -199,6 +237,7 @@ export class AdminConsoleTransactionsService {
   private buildWhere(options: AdminTransactionsListOptions): Prisma.TransactionWhereInput {
     return {
       ...buildFilterWhere(parseFilterEntries(options.filter), TX_FILTER_FIELDS),
+      ...(options.uiStatus ? uiStatusWhere(options.uiStatus) : {}),
       ...this.searchWhere(options.q),
     };
   }

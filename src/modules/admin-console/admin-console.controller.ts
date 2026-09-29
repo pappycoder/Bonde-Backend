@@ -23,10 +23,10 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import type { AuthPrincipal } from '../auth/principal/auth-principal.js';
 import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
 import {
-  AdminListQueryDto,
   AdminStatsResponseDto,
   AdminSupportListQueryDto,
   AdminSupportTicketDetailDto,
+  AdminTransactionListQueryDto,
   AdminUserListQueryDto,
   CreateSupportTicketBodyDto,
   NewSupportTicketMessageBodyDto,
@@ -113,10 +113,12 @@ export class AdminConsoleController {
   }
 
   @Get('transactions')
-  @ApiOperation({ summary: 'List admin transactions (paged, searchable, enum filters)' })
+  @ApiOperation({
+    summary: 'List admin transactions (paged, searchable, enum and UI-status filters)',
+  })
   @ApiOkResponse({ type: PagedAdminTransactionsResponseDto })
   @ApiErrorResponse()
-  listTransactions(@Query() query: AdminListQueryDto) {
+  listTransactions(@Query() query: AdminTransactionListQueryDto) {
     return this.transactions.list(query);
   }
 
