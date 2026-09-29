@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -51,6 +52,8 @@ import { passwordChangedEmail } from '../../../common/mail/templates/password-ch
  */
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     @Inject(SUPABASE_AUTH_BODY) private readonly provider: SupabaseAuthGateway,
@@ -553,6 +556,10 @@ export class AuthService {
     handlers: Partial<Record<NonNullable<AuthProviderError['code']>, () => never>>,
   ): never {
     if (!(error instanceof AuthProviderError)) throw error;
+    // The client only ever sees "Identity provider unavailable", so without this
+    // the log cannot distinguish bad service-role credentials from GoTrue being
+    // unreachable or 5xx-ing, and the two have completely different fixes.
+    this.logger.warn(`Identity provider call failed (${error.code}): ${error.message}`);
     const handler = handlers[error.code];
     if (handler) handler();
     throw new ServiceUnavailableException('Identity provider unavailable');

@@ -211,6 +211,13 @@ register_superuser() {
   case "$code" in
     201) ok "Account created." ;;
     409) warn "Account already exists — promoting the existing user." ;;
+    5??)
+      # 503 here means the identity provider, not this script. The API logs the
+      # underlying GoTrue reason; without showing it there is nothing to act on.
+      fail "Register failed (HTTP $code): the identity provider rejected the request."
+      api_log_tail
+      exit 1
+      ;;
     *)
       die "Register failed (HTTP $code): $(printf '%s' "$body" | jq -r '(.message | if type=="array" then .[0] else . end) // "unknown error"' 2>/dev/null)"
       ;;
