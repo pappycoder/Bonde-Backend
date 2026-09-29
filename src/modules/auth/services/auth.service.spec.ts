@@ -15,6 +15,7 @@ import { AuthTokensService } from './auth-tokens.service.js';
 import { AuthSessionsService } from './auth-sessions.service.js';
 import { MfaChallengeService } from './mfa-challenge.service.js';
 import { TwoFactorService } from './two-factor.service.js';
+import { UserProvisioningService } from './user-provisioning.service.js';
 import type { AuthPrincipal } from '../principal/auth-principal.js';
 import { AuditLogService } from '../../audit/audit-log.service.js';
 
@@ -195,6 +196,9 @@ function makeService(
     disable: vi.fn(async () => undefined),
   } as unknown as TwoFactorService;
 
+  // The real provisioning transaction runs against the in-memory prisma mock.
+  const provisioning = new UserProvisioningService(prisma as never);
+
   const service = new AuthService(
     prisma as never,
     provider as never,
@@ -204,6 +208,7 @@ function makeService(
     sessions as never,
     challenges as never,
     twoFactor as never,
+    provisioning,
     audit as never,
     mail as never,
   );

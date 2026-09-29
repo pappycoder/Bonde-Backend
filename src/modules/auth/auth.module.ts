@@ -8,6 +8,7 @@ import { AuthSessionsService } from './services/auth-sessions.service.js';
 import { AuthTokensService } from './services/auth-tokens.service.js';
 import { MfaChallengeService } from './services/mfa-challenge.service.js';
 import { TwoFactorService } from './services/two-factor.service.js';
+import { UserProvisioningService } from './services/user-provisioning.service.js';
 import { SUPABASE_AUTH_BODY, SupabaseAuthClient } from './supabase/supabase-auth.client.js';
 import { OtpModule } from '../otp/otp.module.js';
 import { AuditLogModule } from '../audit/audit-log.module.js';
@@ -33,8 +34,9 @@ import type { AppConfig } from '../../config/configuration.js';
     AuthSessionsService,
     TwoFactorService,
     MfaChallengeService,
+    UserProvisioningService,
     AuthService,
   ],
-  exports: [JwksService, SUPABASE_AUTH_BODY],
+  exports: [JwksService, SUPABASE_AUTH_BODY, UserProvisioningService],
 })
 export class AuthModule {}

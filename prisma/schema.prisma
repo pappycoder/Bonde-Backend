@@ -173,8 +173,53 @@ model Profile {
   virtualAccounts     VirtualAccount[]
   authSessions        AuthSession[]
   twoFactor           TwoFactor?
+  invitesIssued       UserInvite[]  @relation("InviteIssuer")
+  broadcastsSent      Broadcast[]   @relation("BroadcastSender")
 
   @@map("profiles")
+}
+
+/// A single-use, expiring invitation to join. The token is only ever stored as
+/// a SHA-256 digest (like OTP codes) and is emailed to the invitee, who sets
+/// their own password on acceptance. Nothing is created in `profiles` until the
+/// invite is accepted.
+model UserInvite {
+  id         String    @id @db.Uuid
+  email      String    @db.VarChar(254)
+  fullName   String?   @map("full_name") @db.VarChar(255)
+  /// Bonde role applied to the Supabase `app_metadata.role` on acceptance.
+  role       String    @db.VarChar(32)
+  /// SHA-256 digest of the emailed token.
+  tokenHash  String    @unique @map("token_hash") @db.VarChar(64)
+  expiresAt  DateTime  @map("expires_at")
+  acceptedAt DateTime? @map("accepted_at")
+  revokedAt  DateTime? @map("revoked_at")
+  invitedBy  String?   @map("invited_by") @db.Uuid
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  inviter Profile? @relation("InviteIssuer", fields: [invitedBy], references: [id], onDelete: SetNull)
+
+  @@index([email])
+  @@index([expiresAt])
+  @@map("user_invites")
+}
+
+/// An admin-authored message fanned out to every active profile as one
+/// `Notification` row each. The row is the send record (title/body/sender/
+/// recipientCount); the per-user copies live in `notifications`.
+model Broadcast {
+  id             String   @id @db.Uuid
+  title          String   @db.VarChar(140)
+  body           String   @db.VarChar(1000)
+  recipientCount Int      @map("recipient_count")
+  sentBy         String?  @map("sent_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  sender Profile? @relation("BroadcastSender", fields: [sentBy], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@map("broadcasts")
 }
 
 /// Authenticator-app second factor for a profile. The TOTP secret is stored

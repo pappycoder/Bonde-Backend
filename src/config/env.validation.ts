@@ -61,6 +61,9 @@ export const envValidationSchema = Joi.object({
   /// Key used to encrypt TOTP secrets; defaults to CARD_ENCRYPTION_KEY.
   MFA_ENCRYPTION_KEY: Joi.string().hex().length(64).optional(),
 
+  /// Base URL of the admin console; invite emails link to <base>/accept-invite.
+  ADMIN_APP_URL: Joi.string().uri().default('http://localhost:3000'),
+
   FLUTTERWAVE_BASE_URL: Joi.string().uri().default('https://api.flutterwave.com/v3'),
   FLUTTERWAVE_SECRET_KEY: Joi.string().required(),
   FLUTTERWAVE_WEBHOOK_SECRET_HASH: Joi.string().required(),

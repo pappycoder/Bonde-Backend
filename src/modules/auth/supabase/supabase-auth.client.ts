@@ -44,7 +44,15 @@ export interface SupabaseSession {
 
 export interface SupabaseAuthGateway {
   /** Create an auth.users row via the Admin API. */
-  signUp(input: { email: string; password: string; fullName: string }): Promise<SupabaseUser>;
+  signUp(input: {
+    email: string;
+    password: string;
+    fullName: string;
+    /** Bonde role, written to `app_metadata.role` (never user_metadata). */
+    role?: 'USER' | 'ADMIN' | 'SUPER_ADMIN';
+    /** Pre-confirm the address (invite links are the email proof). */
+    emailConfirm?: boolean;
+  }): Promise<SupabaseUser>;
   /** Password grant against GoTrue (anon key only). */
   signInWithPassword(email: string, password: string): Promise<SupabaseSession>;
   /** Refresh-token grant against GoTrue (anon key only). */
@@ -123,6 +131,8 @@ export class SupabaseAuthClient implements SupabaseAuthGateway {
     email: string;
     password: string;
     fullName: string;
+    role?: 'USER' | 'ADMIN' | 'SUPER_ADMIN';
+    emailConfirm?: boolean;
   }): Promise<SupabaseUser> {
     const user = await this.request<GoTrueUser>('/admin/users', {
       method: 'POST',
@@ -130,8 +140,9 @@ export class SupabaseAuthClient implements SupabaseAuthGateway {
       body: {
         email: input.email,
         password: input.password,
-        email_confirm: false,
+        email_confirm: input.emailConfirm ?? false,
         user_metadata: { full_name: input.fullName },
+        ...(input.role ? { app_metadata: { role: input.role } } : {}),
       },
     });
     return this.toUser(user);

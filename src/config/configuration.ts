@@ -10,6 +10,8 @@ export interface AppConfig {
   port: number;
   corsOrigins: string[];
   publicUrl: string;
+  /** Base URL of the Next.js admin console (where invite links point). */
+  adminAppUrl: string;
   supabase: {
     url: string;
     anonKey: string;
@@ -80,6 +82,7 @@ export default (): AppConfig => ({
     .map((origin) => origin.trim())
     .filter(Boolean),
   publicUrl: process.env.PUBLIC_URL ?? 'http://localhost:3001',
+  adminAppUrl: process.env.ADMIN_APP_URL ?? 'http://localhost:3000',
   supabase: {
     url: process.env.SUPABASE_URL!,
     anonKey: process.env.SUPABASE_ANON_KEY!,
