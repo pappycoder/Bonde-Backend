@@ -6,191 +6,204 @@ import { statusWhere } from './admin-console-users.service.js';
 
 const DAY_MS = 86_400_000;
 
-const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+/** Days at or below this bucket by day; longer windows bucket by month. */
+const DAILY_BUCKET_LIMIT = 31;
 
-export interface AdminRevenuePoint {
-  month: string;
-  /** DEPOSITS in SUCCESS that month, fixed 2-decimal string. */
+export interface AdminSeriesPoint {
+  /** Bucket label: `Sep 12` for daily buckets, `Sep` for monthly ones. */
+  label: string;
+  /** DEPOSITS in SUCCESS, fixed 2-decimal string. */
   revenue: string;
-  /** WITHDRAWALS in SUCCESS that month, fixed 2-decimal string. */
+  /** WITHDRAWALS in SUCCESS, fixed 2-decimal string. */
   expenses: string;
-  /** All SUCCESS volume that month, fixed 2-decimal string. */
+  /** All SUCCESS volume, fixed 2-decimal string. */
   volume: string;
-}
-
-export interface AdminWeeklyPoint {
-  day: string;
+  /** All SUCCESS transaction count in the bucket. */
   transactions: number;
 }
 
+export interface AdminStatsTotals {
+  users: number;
+  activeUsers: number;
+  pendingUsers: number;
+  suspendedUsers: number;
+  pendingReviews: number;
+  openTickets: number;
+  /** All-time SUCCESS volume, fixed 2-decimal string. */
+  volume: string;
+}
+
+/** The trailing window the caller asked for, and the one before it. */
+export interface AdminWindow {
+  days: number;
+  from: string;
+  to: string;
+}
+
 export interface AdminStatsSummary {
-  totals: {
-    users: number;
-    activeUsers: number;
-    pendingUsers: number;
-    suspendedUsers: number;
-    newUsers30d: number;
-    newUsersPrev30d: number;
-    transactions30d: number;
+  window: AdminWindow;
+  /** State gauges — all-time by nature, never windowed. */
+  totals: AdminStatsTotals;
+  /** Period metrics, scoped to `window` with the prior period for deltas. */
+  windowTotals: {
+    newUsers: number;
+    newUsersPrev: number;
+    transactions: number;
     volume: string;
-    volume30d: string;
-    volumePrev30d: string;
-    deposits30d: string;
-    depositsPrev30d: string;
-    pendingReviews: number;
-    openTickets: number;
+    volumePrev: string;
+    deposits: string;
+    depositsPrev: string;
   };
-  /** Last 12 completed months, oldest first. */
-  revenue: AdminRevenuePoint[];
-  /** Last 7 calendar days (oldest first). */
-  weekly: AdminWeeklyPoint[];
+  /** One series over `window`, oldest first, bucketed day or month. */
+  series: AdminSeriesPoint[];
 }
 
 /**
  * Dashboard/analytics KPIs for the admin console. All money is `SUCCESS`
- * volume in NGN (fixed 2-decimal strings via `money()`); the 30-day windows
- * are trailing, so `volume30d` vs `volumePrev30d` (and the user-registration
- * pair) give the dashboard its deltas. Series are built from scoped reads and
- * bucketed in JS — cheap at dashboard scale and keeps SQL simple.
+ * volume in NGN (fixed 2-decimal strings via `money()`). The caller picks a
+ * trailing window (`days`, 1-365, default 30); every period metric is scoped
+ * to it and compared against the immediately preceding window of equal length,
+ * so the dashboard deltas stay meaningful at any range. State gauges (user
+ * counts, review queue, open tickets) are all-time on purpose — a suspended
+ * user is not something that "expires".
+ *
+ * The series is bucketed in JS from one scoped read: daily for windows up to
+ * 31 days, monthly beyond that. Cheap at dashboard scale and keeps the SQL
+ * simple, matching the existing approach.
  */
 @Injectable()
 export class AdminConsoleStatsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async summary(): Promise<AdminStatsSummary> {
-    const now = Date.now();
-    const window30 = new Date(now - 30 * DAY_MS);
-    const window60 = new Date(now - 60 * DAY_MS);
+  async summary(days = 30): Promise<AdminStatsSummary> {
+    const to = new Date();
+    const from = new Date(to.getTime() - days * DAY_MS);
+    const prevTo = from;
+    const prevFrom = new Date(from.getTime() - days * DAY_MS);
 
-    const users = await this.prisma.profile.count();
-    const activeUsers = await this.prisma.profile.count({ where: statusWhere('active') });
-    const pendingUsers = await this.prisma.profile.count({ where: statusWhere('pending') });
-    const suspendedUsers = await this.prisma.profile.count({ where: statusWhere('suspended') });
-    const newUsers30d = await this.prisma.profile.count({
-      where: { createdAt: { gte: window30 } },
-    });
-    const newUsersPrev30d = await this.prisma.profile.count({
-      where: { createdAt: { gte: window60, lt: window30 } },
-    });
+    const [users, activeUsers, pendingUsers, suspendedUsers, pendingReviews, openTickets] =
+      await Promise.all([
+        this.prisma.profile.count(),
+        this.prisma.profile.count({ where: statusWhere('active') }),
+        this.prisma.profile.count({ where: statusWhere('pending') }),
+        this.prisma.profile.count({ where: statusWhere('suspended') }),
+        this.prisma.transaction.count({ where: { status: 'PENDING', approvalStatus: 'PENDING' } }),
+        this.prisma.supportTicket.count({ where: { status: 'OPEN' } }),
+      ]);
 
     const SUCCESS: Prisma.TransactionWhereInput = { status: 'SUCCESS' };
-    const transactions30d = await this.prisma.transaction.count({
-      where: { ...SUCCESS, createdAt: { gte: window30 } },
-    });
-    const volumeAll = await this.prisma.transaction.aggregate({
-      where: SUCCESS,
-      _sum: { amount: true },
-    });
-    const volume30d = await this.prisma.transaction.aggregate({
-      where: { ...SUCCESS, createdAt: { gte: window30 } },
-      _sum: { amount: true },
-    });
-    const volumePrev30d = await this.prisma.transaction.aggregate({
-      where: { ...SUCCESS, createdAt: { gte: window60, lt: window30 } },
-      _sum: { amount: true },
-    });
-    const deposits30d = await this.prisma.transaction.aggregate({
-      where: { ...SUCCESS, type: 'DEPOSIT', createdAt: { gte: window30 } },
-      _sum: { amount: true },
-    });
-    const depositsPrev30d = await this.prisma.transaction.aggregate({
-      where: { ...SUCCESS, type: 'DEPOSIT', createdAt: { gte: window60, lt: window30 } },
-      _sum: { amount: true },
-    });
-    const pendingReviews = await this.prisma.transaction.count({
-      where: { status: 'PENDING', approvalStatus: 'PENDING' },
-    });
-    const openTickets = await this.prisma.supportTicket.count({
-      where: { status: 'OPEN' },
-    });
+    const inWindow = { gte: from, lt: to };
+    const inPrevWindow = { gte: prevFrom, lt: prevTo };
+
+    const [
+      newUsers,
+      newUsersPrev,
+      transactions,
+      volumeAll,
+      volume,
+      volumePrev,
+      deposits,
+      depositsPrev,
+    ] = await Promise.all([
+      this.prisma.profile.count({ where: { createdAt: inWindow } }),
+      this.prisma.profile.count({ where: { createdAt: inPrevWindow } }),
+      this.prisma.transaction.count({ where: { ...SUCCESS, createdAt: inWindow } }),
+      this.prisma.transaction.aggregate({ where: SUCCESS, _sum: { amount: true } }),
+      this.prisma.transaction.aggregate({
+        where: { ...SUCCESS, createdAt: inWindow },
+        _sum: { amount: true },
+      }),
+      this.prisma.transaction.aggregate({
+        where: { ...SUCCESS, createdAt: inPrevWindow },
+        _sum: { amount: true },
+      }),
+      this.prisma.transaction.aggregate({
+        where: { ...SUCCESS, type: 'DEPOSIT', createdAt: inWindow },
+        _sum: { amount: true },
+      }),
+      this.prisma.transaction.aggregate({
+        where: { ...SUCCESS, type: 'DEPOSIT', createdAt: inPrevWindow },
+        _sum: { amount: true },
+      }),
+    ]);
 
     return {
+      window: { days, from: from.toISOString(), to: to.toISOString() },
       totals: {
         users,
         activeUsers,
         pendingUsers,
         suspendedUsers,
-        newUsers30d,
-        newUsersPrev30d,
-        transactions30d,
-        volume: money(volumeAll._sum.amount ?? 0),
-        volume30d: money(volume30d._sum.amount ?? 0),
-        volumePrev30d: money(volumePrev30d._sum.amount ?? 0),
-        deposits30d: money(deposits30d._sum.amount ?? 0),
-        depositsPrev30d: money(depositsPrev30d._sum.amount ?? 0),
         pendingReviews,
         openTickets,
+        volume: money(volumeAll._sum.amount ?? 0),
       },
-      revenue: await this.monthlySeries(now),
-      weekly: await this.weeklySeries(now),
+      windowTotals: {
+        newUsers,
+        newUsersPrev,
+        transactions,
+        volume: money(volume._sum.amount ?? 0),
+        volumePrev: money(volumePrev._sum.amount ?? 0),
+        deposits: money(deposits._sum.amount ?? 0),
+        depositsPrev: money(depositsPrev._sum.amount ?? 0),
+      },
+      series: await this.series(days, from, to),
     };
   }
 
-  /** Last 12 complete months of `SUCCESS` volume, bucketed by year-month. */
-  private async monthlySeries(now: number): Promise<AdminRevenuePoint[]> {
-    const monthKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}`;
+  /** `SUCCESS` volume and count over the window, bucketed by day or month. */
+  private async series(days: number, from: Date, to: Date): Promise<AdminSeriesPoint[]> {
+    const byDay = days <= DAILY_BUCKET_LIMIT;
+    const dailyKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const monthlyKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}`;
+
     const buckets = new Map<
       string,
-      { month: string; revenue: number; expenses: number; volume: number }
+      { label: string; revenue: number; expenses: number; volume: number; transactions: number }
     >();
-    const today = new Date(now);
-    for (let i = 11; i >= 0; i--) {
-      const month = new Date(today.getFullYear(), today.getMonth() - i, 1);
-      buckets.set(monthKey(month), {
-        month: month.toLocaleString('en-US', { month: 'short' }),
+    // Anchored to whole calendar days/months, and inclusive of the day `to`
+    // falls in: the window's last day is partial but must still get a bucket,
+    // or the money in `windowTotals` would not match the chart.
+    const start = byDay
+      ? new Date(from.getFullYear(), from.getMonth(), from.getDate())
+      : new Date(from.getFullYear(), from.getMonth(), 1);
+    for (let cursor = new Date(start); cursor <= to; cursor.setDate(cursor.getDate() + 1)) {
+      const key = byDay ? dailyKey(cursor) : monthlyKey(cursor);
+      if (buckets.has(key)) continue;
+      buckets.set(key, {
+        // A long window can straddle a year boundary, where bare month names
+        // would repeat ("Sep", …, "Sep"), so monthly labels carry the year.
+        label: byDay
+          ? cursor.toLocaleString('en-US', { month: 'short', day: 'numeric' })
+          : cursor.toLocaleString('en-US', { month: 'short', year: '2-digit' }),
         revenue: 0,
         expenses: 0,
         volume: 0,
+        transactions: 0,
       });
     }
 
     const rows = await this.prisma.transaction.findMany({
-      where: {
-        status: 'SUCCESS',
-        createdAt: { gte: new Date(today.getFullYear(), today.getMonth() - 11, 1) },
-      },
+      where: { status: 'SUCCESS', createdAt: { gte: from, lt: to } },
       select: { type: true, amount: true, createdAt: true },
     });
 
     for (const row of rows) {
-      const bucket = buckets.get(monthKey(row.createdAt));
+      const bucket = buckets.get(byDay ? dailyKey(row.createdAt) : monthlyKey(row.createdAt));
       if (!bucket) continue;
       const amount = Number(row.amount);
       bucket.volume += amount;
+      bucket.transactions += 1;
       if (row.type === 'DEPOSIT') bucket.revenue += amount;
       else if (row.type === 'WITHDRAWAL') bucket.expenses += amount;
     }
 
     return [...buckets.values()].map((bucket) => ({
-      month: bucket.month,
+      label: bucket.label,
       revenue: money(bucket.revenue),
       expenses: money(bucket.expenses),
       volume: money(bucket.volume),
+      transactions: bucket.transactions,
     }));
-  }
-
-  /** `SUCCESS` transaction count per day over the trailing 7 calendar days. */
-  private async weeklySeries(now: number): Promise<AdminWeeklyPoint[]> {
-    const dateKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    const counts = new Map<string, number>();
-    for (let i = 6; i >= 0; i--) {
-      const day = new Date(now - i * DAY_MS);
-      counts.set(dateKey(day), 0);
-    }
-
-    const rows = await this.prisma.transaction.findMany({
-      where: { status: 'SUCCESS', createdAt: { gte: new Date(now - 6 * DAY_MS) } },
-      select: { createdAt: true },
-    });
-
-    for (const row of rows) {
-      const key = dateKey(row.createdAt);
-      if (counts.has(key)) counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-
-    return [...counts.entries()].map(([key, transactions]) => {
-      const [year, month, day] = key.split('-').map(Number);
-      return { day: WEEKDAY[new Date(year, month, day).getDay()], transactions };
-    });
   }
 }

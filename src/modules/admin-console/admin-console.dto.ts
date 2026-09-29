@@ -296,7 +296,38 @@ export class PagedAdminTransactionsResponseDto {
   totalPages: number;
 }
 
-class AdminStatsTotalsDto {
+/** Trailing window the period metrics were scoped to, echoed back. */
+export class AdminStatsQueryDto {
+  @ApiPropertyOptional({
+    example: 30,
+    minimum: 1,
+    maximum: 365,
+    description:
+      'Trailing window in days for the period metrics and the chart. The ' +
+      'preceding window of equal length is used for the deltas. Windows up to ' +
+      '31 days bucket the series by day, longer ones by month.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  @Type(() => Number)
+  days?: number;
+}
+
+export class AdminStatsWindowDto {
+  @ApiProperty({ example: 30 })
+  days: number;
+
+  @ApiProperty({ example: '2026-08-16T12:00:00.000Z' })
+  from: string;
+
+  @ApiProperty({ example: '2026-09-15T12:00:00.000Z' })
+  to: string;
+}
+
+/** State gauges — all-time by nature, never windowed. */
+export class AdminStatsTotalsDto {
   @ApiProperty({ example: 128 })
   users: number;
 
@@ -309,40 +340,43 @@ class AdminStatsTotalsDto {
   @ApiProperty({ example: 8 })
   suspendedUsers: number;
 
-  @ApiProperty({ example: 12 })
-  newUsers30d: number;
-
-  @ApiProperty({ example: 9 })
-  newUsersPrev30d: number;
-
-  @ApiProperty({ example: 340 })
-  transactions30d: number;
-
-  @ApiProperty({ example: '250000.00' })
-  volume: string;
-
-  @ApiProperty({ example: '84000.00' })
-  volume30d: string;
-
-  @ApiProperty({ example: '62000.00' })
-  volumePrev30d: string;
-
-  @ApiProperty({ example: '60000.00' })
-  deposits30d: string;
-
-  @ApiProperty({ example: '45000.00' })
-  depositsPrev30d: string;
-
   @ApiProperty({ example: 4 })
   pendingReviews: number;
 
   @ApiProperty({ example: 3 })
   openTickets: number;
+
+  @ApiProperty({ example: '250000.00' })
+  volume: string;
 }
 
-class AdminStatsRevenuePointDto {
-  @ApiProperty({ example: 'Oct' })
-  month: string;
+/** Period metrics, scoped to the requested window. */
+export class AdminStatsWindowTotalsDto {
+  @ApiProperty({ example: 12 })
+  newUsers: number;
+
+  @ApiProperty({ example: 9 })
+  newUsersPrev: number;
+
+  @ApiProperty({ example: 340 })
+  transactions: number;
+
+  @ApiProperty({ example: '84000.00' })
+  volume: string;
+
+  @ApiProperty({ example: '62000.00' })
+  volumePrev: string;
+
+  @ApiProperty({ example: '60000.00' })
+  deposits: string;
+
+  @ApiProperty({ example: '45000.00' })
+  depositsPrev: string;
+}
+
+export class AdminStatsSeriesPointDto {
+  @ApiProperty({ example: 'Sep 12', description: 'Day label, or month for long windows' })
+  label: string;
 
   @ApiProperty({ example: '21250.00' })
   revenue: string;
@@ -352,25 +386,23 @@ class AdminStatsRevenuePointDto {
 
   @ApiProperty({ example: '19000.00' })
   volume: string;
-}
-
-class AdminStatsWeeklyPointDto {
-  @ApiProperty({ example: 'Mon' })
-  day: string;
 
   @ApiProperty({ example: 14 })
   transactions: number;
 }
 
 export class AdminStatsResponseDto {
+  @ApiProperty({ type: AdminStatsWindowDto })
+  window: AdminStatsWindowDto;
+
   @ApiProperty({ type: AdminStatsTotalsDto })
   totals: AdminStatsTotalsDto;
 
-  @ApiProperty({ type: AdminStatsRevenuePointDto, isArray: true })
-  revenue: AdminStatsRevenuePointDto[];
+  @ApiProperty({ type: AdminStatsWindowTotalsDto })
+  windowTotals: AdminStatsWindowTotalsDto;
 
-  @ApiProperty({ type: AdminStatsWeeklyPointDto, isArray: true })
-  weekly: AdminStatsWeeklyPointDto[];
+  @ApiProperty({ type: AdminStatsSeriesPointDto, isArray: true })
+  series: AdminStatsSeriesPointDto[];
 }
 
 class AdminSupportTicketViewDto {

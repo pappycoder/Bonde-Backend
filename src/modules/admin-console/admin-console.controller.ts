@@ -23,6 +23,7 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import type { AuthPrincipal } from '../auth/principal/auth-principal.js';
 import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
 import {
+  AdminStatsQueryDto,
   AdminStatsResponseDto,
   AdminSupportListQueryDto,
   AdminSupportTicketDetailDto,
@@ -65,11 +66,13 @@ export class AdminConsoleController {
   ) {}
 
   @Get('stats')
-  @ApiOperation({ summary: 'Dashboard KPIs with monthly and weekly series' })
+  @ApiOperation({
+    summary: 'Dashboard KPIs over a trailing window, with a bucketed series',
+  })
   @ApiOkResponse({ type: AdminStatsResponseDto })
   @ApiErrorResponse()
-  getStats() {
-    return this.stats.summary();
+  getStats(@Query() query: AdminStatsQueryDto) {
+    return this.stats.summary(query.days ?? 30);
   }
 
   @Get('users/names')
