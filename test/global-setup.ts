@@ -20,10 +20,13 @@ const RETRY_MS = 500;
  * 3. Seeds the baseline fixtures every suite depends on.
  * 4. Flushes the Redis throttler databases so rate-limit counters never leak
  *    between runs (suites pin dedicated DBs: rate-limit scratch=12, app=13,
- *    429-proof=14, OTP=15, auth=16; the shared default is 0).
+ *    429-proof=14, OTP=15, auth=10, invites=11; the shared default is 0).
  */
 export async function setup(): Promise<void> {
   await deployMigrations();
+  // Truncate before seeding: the fixtures use plain `create` for rows with fixed
+  // ids, so an interrupted previous run would otherwise fail setup on P2002.
+  await truncateLocalDatabase();
   await seedLocalDatabase();
   await flushRedisKeyDatabases();
 }
@@ -59,6 +62,16 @@ async function deployMigrations(): Promise<void> {
   );
 }
 
+/** Wipes every table so the fixture seed starts from a known-empty state. */
+async function truncateLocalDatabase(): Promise<void> {
+  const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: TEST_DB_URL }) });
+  try {
+    await truncateAll(prisma);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
 async function seedLocalDatabase(): Promise<void> {
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: TEST_DB_URL }) });
   try {
@@ -74,7 +87,9 @@ async function seedLocalDatabase(): Promise<void> {
  * request). Best-effort: if Redis is down, suites degrade instead of failing.
  */
 async function flushRedisKeyDatabases(): Promise<void> {
-  for (const db of [0, 10, 12, 13, 14, 15, 16]) {
+  // 0-15: a stock Redis has 16 databases, and an out-of-range index surfaces as
+  // an unhandled ioredis error event rather than a rejected promise.
+  for (const db of [0, 10, 11, 12, 13, 14, 15]) {
     let redis: Redis | undefined;
     try {
       redis = new Redis({ host: '127.0.0.1', port: 6379, db });

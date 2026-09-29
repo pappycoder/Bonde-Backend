@@ -20,7 +20,7 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
 - `pnpm prisma:deploy` — apply migrations in CI/prod (`prisma migrate deploy`)
 
 ## Database (Prisma 7)
-- Schema lives in `prisma/schema.prisma` (22 tables, datasource has NO `url`).
+- Schema lives in `prisma/schema.prisma` (23 tables, datasource has NO `url`).
 - CLI connection config lives in `prisma.config.ts` — Migrate uses `DIRECT_URL`;
   the app runtime uses pooled `DATABASE_URL` via the `@prisma/adapter-pg`
   (`PrismaPg`) driver adapter inside `src/prisma/prisma.service.ts`.
@@ -89,13 +89,42 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   registration**: `verifyEmail` atomically marks the profile verified and
   provisions the user's single account + wallet (`AccountType.CHECKING`, Luhn
   account number, zero balance) in one `prisma.$transaction`
-  (`provisionAfterVerification` in `auth.service.ts`), so provisioning is
+  (`UserProvisioningService.provision` in
+  `modules/auth/services/user-provisioning.service.ts`, shared with invite
+  acceptance), so provisioning is
   eager/automatic and never left to a later onboarding step. The provisioning
   is idempotent and its failure rolls back before the single-use registration
   token is consumed.
 - New authenticated routes are protected by default; opt out with `@Public()`.
   Roles are assigned in Supabase (dashboard / edge function), never in
   PostgreSQL.
+
+## Invitations (admin-issued, single-use)
+- `user_invites` rows are created **only** by an authenticated
+  `ADMIN`/`SUPER_ADMIN` (`InvitesController`, `/api/admin/invites`): `POST`
+  (issue + email), `GET` (paged, `?q&status=pending|accepted|revoked|expired`),
+  `POST /:id/revoke`. The raw token is generated once (`randomBytes(32)`,
+  base64url) and **never stored or returned** — only its SHA-256 digest lands in
+  `token_hash`, and the emailed link is the sole copy
+  (`<ADMIN_APP_URL>/accept-invite?token=…`).
+- Delivery is **fail-closed**: if the invite email cannot be sent the row is
+  deleted and the request answers 503, because the token is unrecoverable
+  otherwise. Re-issuing an address revokes its live invite (one live invite per
+  email) and 409s if the address already has a `profiles` row.
+- Redemption is public and lives in `InvitesPublicController`
+  (`GET /api/auth/invites/accept?token=` → `{ email, fullName, role, expiresAt,
+  valid }`; unknown tokens answer the same shape with `valid: false`, so nothing
+  is enumerable). `POST /api/auth/invites/accept` is `@StrictThrottle()` and
+  claims the token with a guarded `updateMany({ acceptedAt: null })` **before**
+  calling the provider, so a lost race cannot orphan an `auth.users` row; a
+  provider rejection releases the claim (retryable), a weak password never burns
+  it. The user is created with `email_confirm: true` and the invite's role in
+  `app_metadata` (the emailed link is the email proof, so there is no OTP dance),
+  then the profile + account + wallet are provisioned by the shared
+  `UserProvisioningService`. Audits: `admin.invite.create|revoke`,
+  `auth.invite_accepted`, `mail.invite`.
+- `ADMIN_APP_URL` (typed config, Joi `uri`, default `http://localhost:3000`) is
+  the admin-console base URL used to build invite links.
 
 ## Profiles, OTP & verification
 - **Profiles**: `profiles` mirrors Supabase `auth.users` 1:1 — including the
@@ -354,9 +383,11 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   Postgres, so `vitest.config.e2e.ts` sets `fileParallelism: false`.
 - **Redis interplay**: throttler counters live in Redis. Suites pin **dedicated
   Redis DBs** (`:6379/12` rate-limit scratch, `/13` smoke, `/14` 429-proof,
-  `/15` OTP, `/10` auth) with env overrides restored in `afterAll`, and
-  `test/global-setup.ts` flushes `0,10,12,13,14,15` so counters never leak
-  between runs. `bootE2EApp` awaits Redis `ready` before returning so every
+  `/15` OTP, `/10` auth, `/11` invites) with env overrides restored in
+  `afterAll`, and `test/global-setup.ts` flushes `0,10,11,12,13,14,15` so
+  counters never leak between runs (db **16** is deliberately absent: a stock
+  Redis has 16 databases and an out-of-range index surfaces as an unhandled
+  ioredis error event). `bootE2EApp` awaits Redis `ready` before returning so every
   request of a suite counts on ONE store — a burst straddling the fail-open
   memory→Redis switch would otherwise split counters and 429/under-count
   non-deterministically.
@@ -413,6 +444,8 @@ src/
     health/        terminus health/readiness probes
     profiles/      self-service profile (GET/PATCH /profile, avatar)
     otp/           app-level phone/email verification (send/verify)
+    invites/       admin-issued single-use join links (issue/revoke + public
+                   accept; acceptance provisions exactly like verification)
     notifications/ mobile notification feed (list/read/read-all)
     audit/         append-only AuditLogService.record + self-service audit-logs
     activity/      ActivityService.record — one-call audit + in-app notification
@@ -446,7 +479,10 @@ src/
   not ready, it degrades to per-process `MemoryThrottlerStorage` and logs a
   warning — the API never 5xxes because of a rate-limit store outage.
 - `/api/health` reports `503` (uniform `ApiErrorDto`, message lists the failing
-  dependency) when a dependency is down; `/api/health/ready` stays `200`.
+  dependency) when a dependency is down; `/api/health/ready` stays `200`. Both
+  failure shapes count: Terminus' `ServiceUnavailableException` **and** a raw
+  client error from a dead socket (ioredis `MaxRetriesPerRequestError`) — a
+  socket-level Redis death must not surface as a 500.
 - Do not reintroduce `enableOfflineQueue: false` — commands issued before the
   first connect would fail outright; keep bounded `maxRetriesPerRequest` +
   `retryStrategy` and rely on the throttler fallback instead.

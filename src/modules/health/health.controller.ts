@@ -40,25 +40,22 @@ export class HealthController {
           })(),
       ])
       .catch((error: unknown) => {
-        // Terminus throws ServiceUnavailableException(result) when a dependency
-        // is down. Surface its message through the uniform error contract so a
-        // degraded health endpoint reports *which* dependency failed instead of
-        // a generic "Internal Server Error".
-        if (error instanceof ServiceUnavailableException) {
-          const result = error.getResponse() as {
-            status?: string;
-            error?: Record<string, string>;
-          };
-          const failures = result?.error
-            ? Object.values(result.error).filter(Boolean)
-            : ['Service Unavailable'];
-          throw new ServiceUnavailableException({
-            statusCode: HttpStatus.SERVICE_UNAVAILABLE,
-            error: 'ServiceUnavailableException',
-            message: failures.length > 0 ? failures : ['Service Unavailable'],
-          });
-        }
-        throw error;
+        // A down dependency has two shapes: Terminus' ServiceUnavailableException
+        // (carrying *which* check failed) or the raw client error when the
+        // connection dies at the socket level (ioredis MaxRetriesPerRequestError).
+        // Both are "degraded", so both surface as the uniform 503 — a dead
+        // Redis must never read as a 500.
+        const failures =
+          error instanceof ServiceUnavailableException
+            ? Object.values(
+                (error.getResponse() as { error?: Record<string, string> }).error ?? {},
+              ).filter(Boolean)
+            : [];
+        throw new ServiceUnavailableException({
+          statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+          error: 'ServiceUnavailableException',
+          message: failures.length > 0 ? failures : ['A backing service is unavailable'],
+        });
       });
   }
 

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AuthProviderError,
   SUPABASE_AUTH_BODY,
@@ -585,6 +585,24 @@ describe('Auth endpoints (e2e)', () => {
       return authenticator.generate(secret);
     }
 
+    /**
+     * Runs `fn` with the clock moved into the NEXT 30s step. `enable` consumes
+     * the step it verified (replay protection), so a code generated right after
+     * enrolment is refused by design — only `Date` is faked here, timers stay
+     * real so supertest and Redis TTLs behave normally.
+     */
+    async function inNextStep<T>(fn: () => Promise<T>): Promise<T> {
+      const stepMs = 30_000;
+      const target = Math.floor(Date.now() / stepMs) * stepMs + stepMs + 1_000;
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(target);
+      try {
+        return await fn();
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+
     it('reports no second factor by default', async () => {
       const userId = await verifiedUser();
       ctx.setPrincipal({ userId, email: EMAIL, sessionId: 'current-session' });
@@ -624,10 +642,12 @@ describe('Auth endpoints (e2e)', () => {
       expect(login.body.challengeId).toBeTruthy();
       expect(login.body.accessToken).toBeUndefined();
 
-      const verified = await ctx.raw
-        .post('/auth/login/mfa')
-        .send({ challengeId: login.body.challengeId, code: await currentCode(setup.body.secret) })
-        .expect(200);
+      const verified = await inNextStep(async () =>
+        ctx.raw
+          .post('/auth/login/mfa')
+          .send({ challengeId: login.body.challengeId, code: await currentCode(setup.body.secret) })
+          .expect(200),
+      );
       expect(verified.body.accessToken).toBeTruthy();
       expect(verified.body.refreshToken).toBeTruthy();
     });
@@ -709,20 +729,22 @@ describe('Auth endpoints (e2e)', () => {
         .send({ code: await currentCode(setup.body.secret) })
         .expect(200);
 
-      await ctx.http
-        .post('/auth/2fa/disable')
-        .send({ password: 'not-the-password', code: await currentCode(setup.body.secret) })
-        .expect(401);
-      await ctx.http
-        .post('/auth/2fa/disable')
-        .send({ password: PASSWORD, code: '000000' })
-        .expect(401);
-      expect(await ctx.prisma.twoFactor.findUnique({ where: { userId } })).not.toBeNull();
+      await inNextStep(async () => {
+        await ctx.http
+          .post('/auth/2fa/disable')
+          .send({ password: 'not-the-password', code: await currentCode(setup.body.secret) })
+          .expect(401);
+        await ctx.http
+          .post('/auth/2fa/disable')
+          .send({ password: PASSWORD, code: '000000' })
+          .expect(401);
+        expect(await ctx.prisma.twoFactor.findUnique({ where: { userId } })).not.toBeNull();
 
-      await ctx.http
-        .post('/auth/2fa/disable')
-        .send({ password: PASSWORD, code: await currentCode(setup.body.secret) })
-        .expect(200);
+        await ctx.http
+          .post('/auth/2fa/disable')
+          .send({ password: PASSWORD, code: await currentCode(setup.body.secret) })
+          .expect(200);
+      });
       expect(await ctx.prisma.twoFactor.findUnique({ where: { userId } })).toBeNull();
 
       const login = await ctx.raw
