@@ -44,6 +44,98 @@ run_cmd() {
   return "$rc"
 }
 
+# --- api lifecycle -----------------------------------------------------------
+# The one-shot actions below need a live API, because provisioning a user goes
+# through it. Rather than making you keep a second terminal open, we start a
+# server, use it, and stop it again — but we only ever stop one we started
+# ourselves, so a server you launched by hand is left alone.
+API_LOG="$PROJECT_DIR/.bonde-api.log"
+API_PIDFILE="${TMPDIR:-/tmp}/bonde-api.$$.pid"
+API_PID=""
+API_OWNED=0
+
+# The app binds the port before every dependency is up, so probe the endpoint
+# that reports "serving" rather than /api/health (503 until deps are healthy).
+api_alive() {
+  curl -sS -m 2 -o /dev/null "$1/api/health/ready" >/dev/null 2>&1
+}
+
+api_log_tail() {
+  [ -f "$API_LOG" ] || return 0
+  dim "Last lines of ${API_LOG##*/}:"
+  while IFS= read -r line; do dim "   $line"; done < <(tail -n 15 "$API_LOG")
+}
+
+api_start() {
+  local base="$1" waited=0 pid=""
+  if api_alive "$base"; then
+    dim "Backend already listening on $base — leaving it running."
+    return 0
+  fi
+
+  info "No backend on $base — starting one for this task."
+  rm -f "$API_LOG" "$API_PIDFILE"
+  # setsid puts the server in its own process group so api_stop can take down
+  # the whole tree (pnpm -> nest -> tsc) instead of orphaning the watcher.
+  # The pid is read back from a file because $! is the setsid wrapper's pid,
+  # not the server's.
+  setsid bash -c 'echo $$ > "$1"; shift; exec "$@"' _ "$API_PIDFILE" pnpm start:dev \
+    >"$API_LOG" 2>&1 &
+
+  while [ "$waited" -lt 120 ]; do
+    if [ -z "$pid" ] && [ -f "$API_PIDFILE" ]; then
+      pid=$(cat "$API_PIDFILE" 2>/dev/null)
+      if [ -n "$pid" ]; then
+        API_PID="$pid"
+        API_OWNED=1
+      fi
+    fi
+    if [ -n "$pid" ] && ! kill -0 -- "-$pid" 2>/dev/null; then
+      fail "The backend exited before it finished starting."
+      api_log_tail
+      api_stop
+      return 1
+    fi
+    if api_alive "$base"; then
+      ok "Backend ready on $base (pid $pid). Log: ${API_LOG##*/}"
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  fail "Timed out after ${waited}s waiting for $base."
+  api_log_tail
+  api_stop
+  return 1
+}
+
+api_stop() {
+  [ "$API_OWNED" = "1" ] || return 0
+  local pid="$API_PID" waited=0
+  API_OWNED=0
+  API_PID=""
+  [ -n "$pid" ] || return 0
+  kill -0 -- "-$pid" 2>/dev/null || return 0
+
+  kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
+  while [ "$waited" -lt 10 ] && kill -0 -- "-$pid" 2>/dev/null; do
+    sleep 1
+    waited=$((waited + 1))
+  done
+  # Test the group, not just the leader: pnpm can exit while nest or the tsc
+  # watcher is still alive, and those strays would keep the port or rebuild.
+  if kill -0 -- "-$pid" 2>/dev/null; then
+    warn "Backend ignored SIGTERM — forcing the process group down."
+    kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null
+  fi
+  ok "Backend stopped."
+  rm -f "$API_PIDFILE"
+}
+
+# Backstop for die()/Ctrl-C/quit: no path may leave our server behind.
+trap api_stop EXIT
+
 # --- actions -----------------------------------------------------------------
 load_env() {
   local env_file="$PROJECT_DIR/.env"
@@ -102,6 +194,8 @@ register_superuser() {
 
   title "Registering superuser $email ($role)"
 
+  api_start "$base" || exit 1
+
   local out code body
   out=$(curl -sS -m 15 -w $'\n%{http_code}' -X POST "$base/api/auth/register" \
     -H 'content-type: application/json' \
@@ -110,7 +204,9 @@ register_superuser() {
   code="${out##*$'\n'}"
   body="${out%$'\n'*}"
   if [ "$code" = "000" ]; then
-    die "Could not reach $base — is the backend running? (pnpm start:dev)"
+    fail "The backend stopped answering mid-request. Server log:"
+    api_log_tail
+    exit 1
   fi
   case "$code" in
     201) ok "Account created." ;;
@@ -164,6 +260,8 @@ register_superuser() {
 
   dim "Note: email was confirmed via the Supabase Auth Admin API (no emailed OTP)."
   dim "profiles.emailVerified stays false and no account/wallet is provisioned — irrelevant for admin endpoints."
+
+  api_stop
 }
 
 run_prod() {
@@ -204,7 +302,7 @@ main() {
     printf '  %b  Run production             %b\n' "$BOLD[3]$RESET" "$DIM pnpm start:prod$RESET"
     printf '  %b  Build                      %b\n' "$BOLD[4]$RESET" "$DIM pnpm build$RESET"
     printf '  %b  Start infra (Redis + Postgres)%b\n' "$BOLD[5]$RESET" "$DIM docker compose up -d redis postgres$RESET"
-    printf '  %b  Register superuser (Supabase)%b\n' "$BOLD[6]$RESET" "$DIM create Supabase-auth user with app_metadata.role$RESET"
+    printf '  %b  Register superuser (Supabase)%b\n' "$BOLD[6]$RESET" "$DIM creates the user, starts the API if needed, stops it after$RESET"
     printf '  %b  Quit\n\n' "$BOLD[q]$RESET"
     printf '%b> %b' "$GREEN" "$RESET"
     read -r choice

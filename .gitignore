@@ -45,3 +45,6 @@ docker-compose.override.yml
 # Firebase service-account JSON — contains a PRIVATE KEY; never commit.
 *firebase-adminsdk*.json
 *firebase-service-account*.json
+
+# bonde.sh auto-started backend log
+.bonde-api.log
