@@ -92,6 +92,20 @@ const ERROR_CODE_MAP: Partial<Record<string, AuthProviderErrorCode>> = {
   signups_disabled: 'CONFIG',
 };
 
+/**
+ * GoTrue's error envelope. `code` is the HTTP status mirrored as a *number* in
+ * current versions, with the meaningful token in `error_code`; older builds put
+ * a string token in `code`. Typing `code` as a string is what hid the crash
+ * below from the compiler.
+ */
+interface GoTrueErrorBody {
+  code?: string | number;
+  error_code?: string;
+  msg?: string;
+  error?: string;
+  error_description?: string;
+}
+
 interface GoTrueUser {
   id: string;
   email: string;
@@ -224,11 +238,7 @@ export class SupabaseAuthClient implements SupabaseAuthGateway {
 
       const body = (await this.parseBody(response)) as GoTrueUser | GoTrueTokenResponse | null;
       if (!response.ok) {
-        throw this.toProviderError(
-          response.status,
-          body as { code?: string; msg?: string },
-          init.useServiceRole,
-        );
+        throw this.toProviderError(response.status, body as GoTrueErrorBody, init.useServiceRole);
       }
       return body as T;
     } catch (error) {
@@ -250,11 +260,16 @@ export class SupabaseAuthClient implements SupabaseAuthGateway {
 
   private toProviderError(
     status: number,
-    body: { code?: string; msg?: string; error?: string; error_description?: string } | null,
+    body: GoTrueErrorBody | null,
     useServiceRole: boolean,
   ): AuthProviderError {
     const message = this.messageOf(status, body);
-    const known = ERROR_CODE_MAP[(body?.code ?? body?.error ?? '').toLowerCase()];
+    // `error_code` first: current GoTrue puts the token there and mirrors the
+    // HTTP status in a numeric `code`, so `(body.code).toLowerCase()` threw a
+    // TypeError that the caller rewrapped as "provider unreachable" — every 4xx
+    // and 5xx from GoTrue was reported as an outage, whatever the real cause.
+    const token = body?.error_code ?? body?.code ?? body?.error ?? '';
+    const known = ERROR_CODE_MAP[String(token).toLowerCase()];
     if (known) return new AuthProviderError(known, message);
 
     if (useServiceRole) {
@@ -267,12 +282,10 @@ export class SupabaseAuthClient implements SupabaseAuthGateway {
     return new AuthProviderError('PROVIDER', message);
   }
 
-  private messageOf(
-    status: number,
-    body: { msg?: string; error_description?: string; error?: string; code?: string } | null,
-  ): string {
-    const detail = body?.msg ?? body?.error_description ?? body?.error ?? body?.code;
-    return detail ? `GoTrue ${status}: ${detail}` : `GoTrue returned ${status}`;
+  private messageOf(status: number, body: GoTrueErrorBody | null): string {
+    const detail =
+      body?.msg ?? body?.error_description ?? body?.error ?? body?.error_code ?? body?.code;
+    return detail ? `GoTrue ${status}: ${String(detail)}` : `GoTrue returned ${status}`;
   }
 
   private toUser(user: GoTrueUser): SupabaseUser {

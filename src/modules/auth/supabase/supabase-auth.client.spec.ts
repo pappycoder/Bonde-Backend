@@ -21,7 +21,67 @@ function makeClient() {
 describe('SupabaseAuthClient', () => {
   beforeEach(() => vi.unstubAllGlobals());
 
-  it('maps a GoTrue payload error to the named code', async () => {
+  it("maps current GoTrue's numeric code + error_code to the named code", async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              code: 422,
+              error_code: 'email_exists',
+              msg: 'A user with this email address has already been registered',
+            }),
+            { status: 422 },
+          ),
+      ),
+    );
+    const client = makeClient();
+
+    await expect(
+      client.signUp({ email: 'a@b.com', password: 'long.enough.1', fullName: 'A' }),
+    ).rejects.toMatchObject({ code: 'USER_EXISTS' });
+  });
+
+  it('maps a weak-password 422 to VALIDATION, not an outage', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ code: 422, error_code: 'weak_password', msg: 'Password is too weak' }),
+            { status: 422 },
+          ),
+      ),
+    );
+    const client = makeClient();
+
+    await expect(
+      client.signUp({ email: 'a@b.com', password: 'short', fullName: 'A' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('reports a GoTrue 5xx as the provider error it is, not a TypeError', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ code: 500, msg: 'Database error saving new user' }), {
+            status: 500,
+          }),
+      ),
+    );
+    const client = makeClient();
+
+    // Regression: `(body.code).toLowerCase()` threw on the numeric code, and
+    // the caller rewrapped that as "provider unreachable" — so a real 500 was
+    // indistinguishable from a network outage.
+    await expect(
+      client.signUp({ email: 'a@b.com', password: 'long.enough.1', fullName: 'A' }),
+    ).rejects.toThrow(/GoTrue 500: Database error saving new user/);
+  });
+
+  it('maps a legacy GoTrue string `code` to the named code', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string | URL, init: RequestInit) => {
