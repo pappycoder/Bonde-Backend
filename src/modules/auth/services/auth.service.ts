@@ -307,7 +307,16 @@ export class AuthService {
       session = await this.provider.refresh(refreshToken);
     } catch (error) {
       if (error instanceof AuthProviderError) {
-        if (error.code === 'INVALID_CREDENTIALS') {
+        // Same reasoning as `login`: this branch answers a specific message, so
+        // it never reaches `mapProviderError` and would log nothing.
+        this.logger.warn(`Identity refresh rejected (${error.code}): ${error.message}`);
+        // GoTrue answers an unknown or malformed refresh token with
+        // `validation_failed` ("Refresh token is not valid"), not
+        // `invalid_grant`. Treating that as anything but a bad credential fell
+        // through to the 503 below, so a client with a revoked or expired token
+        // was told the provider was down instead of being asked to log in
+        // again.
+        if (error.code === 'INVALID_CREDENTIALS' || error.code === 'VALIDATION') {
           throw new UnauthorizedException('Invalid refresh token');
         }
         throw new ServiceUnavailableException('Identity provider unavailable');

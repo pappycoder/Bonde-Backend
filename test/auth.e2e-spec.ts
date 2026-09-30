@@ -89,12 +89,16 @@ class FakeSupabaseAuth implements SupabaseAuthGateway {
   }
 
   async refresh(refreshToken: string) {
+    // GoTrue answers an unknown or malformed refresh token with
+    // `validation_failed` ("Refresh token is not valid"), which maps to
+    // VALIDATION — not `invalid_grant`. Mirrored here so the suite exercises
+    // the code the real provider actually sends.
     if (!refreshToken.startsWith('rt-')) {
-      throw new AuthProviderError('INVALID_CREDENTIALS', 'Invalid refresh token');
+      throw new AuthProviderError('VALIDATION', 'Refresh token is not valid');
     }
     const email = refreshToken.slice(3);
     const account = this.accounts.get(email);
-    if (!account) throw new AuthProviderError('INVALID_CREDENTIALS', 'Invalid refresh token');
+    if (!account) throw new AuthProviderError('VALIDATION', 'Refresh token is not valid');
     return {
       accessToken: `at2-${email}`,
       refreshToken: `rt2-${email}`,
@@ -258,6 +262,28 @@ describe('Auth endpoints (e2e)', () => {
       .send({ refreshToken: login.body.refreshToken })
       .expect(200);
     expect(refreshed.body.accessToken).toBeTruthy();
+  });
+
+  it('401s on an unusable refresh token instead of blaming the provider', async () => {
+    const reg = await ctx.raw
+      .post('/auth/register')
+      .send({ fullName: 'New User', email: EMAIL, password: PASSWORD })
+      .expect(201);
+    await ctx.raw
+      .post('/auth/verify-email')
+      .send({ token: reg.body.registrationToken, code: lastCode() })
+      .expect(200);
+
+    // A short token is refused by the DTO (the provider's own tokens are ~12
+    // characters, so this is a floor, not a format check)...
+    await ctx.raw.post('/auth/refresh').send({ refreshToken: 'nope' }).expect(400);
+    // ...and one of plausible length but unknown to GoTrue is a 401, not the
+    // 503 that a client would read as "the API is down".
+    const res = await ctx.raw
+      .post('/auth/refresh')
+      .send({ refreshToken: 'rt-unknown-account' })
+      .expect(401);
+    expect(res.body.message[0]).toContain('Invalid refresh token');
   });
 
   it('409 on a duplicate email registration', async () => {

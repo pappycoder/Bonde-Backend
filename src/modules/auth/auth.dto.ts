@@ -61,9 +61,13 @@ export class LoginDto {
 
 /** Request body for `POST /api/auth/refresh`. */
 export class RefreshDto {
-  @ApiProperty({ description: 'refresh_token from login/refresh' })
+  // The floor only rejects an empty value. It is deliberately not a format
+  // check: the token is opaque and GoTrue's current tokens are ~12 characters,
+  // so the 20-character minimum that used to sit here rejected every real
+  // refresh token with a 400 before the request ever reached the provider.
+  @ApiProperty({ description: 'refresh_token from login/refresh', minLength: 8 })
   @IsString()
-  @MinLength(20)
+  @MinLength(8)
   refreshToken: string;
 }
 
