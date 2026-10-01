@@ -9,6 +9,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Transactional email redesign**:
+  - New shared design system under `src/common/mail/templates/`: `theme.ts`
+    (light + dark palette, 560px card, header gradient, system font stacks),
+    `links.ts` (legal entity, copyright year, support and social URLs — all
+    placeholders pending real destinations), `sections.ts` (declarative
+    `EmailSection` body blocks with a single escaping chokepoint), `footer.ts`
+    (branded logo, legal line, social icons, support link) and
+    `templates/assets/index.ts` (asset registry: key → filename, alt text,
+    base64 fallback).
+  - Hardened light/dark rendering: `color-scheme`/`supported-color-schemes`
+    metas, `:root { color-scheme }`, `prefers-color-scheme` media query and
+    Outlook.com `[data-ogsc]`/`[data-ogsb]` selectors layered over inlined light
+    colours, so Gmail's forced-dark transform, real dark mode and Outlook all
+    land on the intended palette. The header repeats `background-color` before
+    `background-image` because Outlook's Word engine drops the shorthand.
+  - Real brand assets replace placeholders: hosted Bonde logo plus generated
+    LinkedIn/X/Instagram glyphs (`scripts/build-mail-assets.mjs`, a
+    dependency-free `node:zlib` PNG encoder; `--out <dir>` emits uploadable
+    PNGs).
+  - `MailService` now resolves a whole asset registry instead of only the logo:
+    **`MAIL_ASSET_BASE_URL`** rewrites every asset to `<base>/<filename>` and
+    takes precedence over the existing `MAIL_LOGO_URL`, which keeps working as a
+    logo-only override.
+
+### Changed
+
+- All seven mail renderers (`verification-code`, `welcome`,
+  `password-reset`, `password-changed`, `invite`, `card-registered`) are now
+  declarative `EmailSection[]` lists; `forgot-password.ts` was removed as dead
+  code. Renderers pass raw text to the layout — `welcome` and `card-registered`
+  previously pre-escaped the first name, double-encoding `&` and apostrophes.
+- OTP purposes are threaded end to end: `OtpSendRequest.purpose` reaches the
+  template, so each flow gets its own subject and body. A password-reset code
+  no longer arrives worded as an email-verification confirmation.
+- OTP codes are kept out of the preheader so they cannot leak in an inbox
+  preview on a locked screen.
+
+### Fixed
+
+- **The invite join URL is now a real anchor.** It was rendered as an inert
+  paragraph, so recipients had to hand-select and copy a long single-use token —
+  and the token exists nowhere else, making a mangled copy unrecoverable. Added
+  the `link` section kind.
+- **Long tokens no longer overflow the card.** `<body>` now sets
+  `word-break`/`overflow-wrap`, so codes, account numbers and join URLs cannot
+  force a horizontal scroll on a narrow client.
+- **An unrecognised OTP purpose now throws.** Previously a caller passing a flow
+  with no copy rendered `undefined` into the body of a credential email and sent
+  a wrong-headed message; the union is also narrowed to the two purposes a code
+  path can actually send (`verify-email`, `recovery` — login is password-only
+  and 2FA is TOTP).
+
+### Added
+
 - **Flutterwave funding + issued virtual cards**:
   - New reusable `src/modules/flutterwave/` package (v3 bearer REST client for
     dynamic virtual accounts, card issuance/funding/withdrawals, transfers,

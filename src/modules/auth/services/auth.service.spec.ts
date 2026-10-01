@@ -252,6 +252,7 @@ describe('AuthService.register', () => {
       channel: OtpChannel.EMAIL,
       target: EMAIL,
       code: expect.stringMatching(/^[0-9]{4}$/),
+      purpose: 'verify-email',
     });
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'auth.register', userId: USER_ID }),
@@ -676,6 +677,8 @@ describe('AuthService forgot-password', () => {
       channel: OtpChannel.EMAIL,
       target: EMAIL,
       code: expect.stringMatching(/^[0-9]{4}$/),
+      // Must not be 'verify-email' — that mismatch is what this asserts.
+      purpose: 'recovery',
     });
   });
 
@@ -797,6 +800,7 @@ describe('AuthService resendVerificationOtp', () => {
       channel: OtpChannel.EMAIL,
       target: EMAIL,
       code: expect.stringMatching(/^[0-9]{4}$/),
+      purpose: 'verify-email',
     });
     expect(tokens.signRegistrationToken).toHaveBeenCalledWith(USER_ID);
   });

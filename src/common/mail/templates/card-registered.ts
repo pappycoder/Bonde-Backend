@@ -1,5 +1,5 @@
 import { emailLayout } from './layout.js';
-import { esc, infoRow, lead, note } from './parts.js';
+import type { EmailSection } from './sections.js';
 import type { EmailDoc } from './types.js';
 
 export interface CardMerchantSummary {
@@ -23,7 +23,6 @@ export interface CardRegisteredEmailInput {
  */
 export function cardRegisteredEmail(input: CardRegisteredEmailInput): EmailDoc {
   const first = input.firstName.trim() || 'there';
-  const merchantLabel = 'Restricted to these merchants';
   const merchantValue =
     input.merchants.length > 0
       ? input.merchants
@@ -31,24 +30,31 @@ export function cardRegisteredEmail(input: CardRegisteredEmailInput): EmailDoc {
           .join(', ')
       : 'None';
 
+  const sections: EmailSection[] = [
+    { kind: 'lead', text: `Hi ${first}, your new card is ready to use.` },
+    {
+      kind: 'facts',
+      rows: [
+        { label: 'Card', value: `•••• ${input.last4}` },
+        { label: 'Nickname', value: input.nickname },
+        { label: 'Single-transaction limit', value: formatLimit(input.maxSpendLimit) },
+        { label: 'Monthly limit', value: formatLimit(input.monthlyLimit) },
+        { label: 'Restricted to these merchants', value: merchantValue },
+      ],
+    },
+    {
+      kind: 'note',
+      text: 'Merchant restrictions are enforced at the provider before a transaction is approved.',
+    },
+  ];
+
   return {
     subject: `Your Bonde card ending in ${input.last4} is ready`,
     html: emailLayout({
       preheader: `Your new Bonde card ending in ${input.last4} is ready to use.`,
       headline: 'Your card is ready',
       eyebrow: 'Card issued',
-      body:
-        lead(`Hi ${esc(first)}, your new card is ready to use.`) +
-        `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 0">
-${infoRow('Card', `•••• ${input.last4}`)}
-${infoRow('Nickname', input.nickname)}
-${infoRow('Single-transaction limit', formatLimit(input.maxSpendLimit))}
-${infoRow('Monthly limit', formatLimit(input.monthlyLimit))}
-${infoRow(merchantLabel, merchantValue)}
-</table>` +
-        note(
-          'Merchant restrictions are enforced at the provider before a transaction is approved.',
-        ),
+      sections,
     }),
   };
 }

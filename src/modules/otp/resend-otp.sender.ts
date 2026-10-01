@@ -14,7 +14,9 @@ export class ResendOtpSender implements OtpSender {
   constructor(@Inject(MAIL_SENDER) private readonly mail: MailSender) {}
 
   async send(request: OtpSendRequest): Promise<void> {
-    const email = verificationCodeEmail(request.code, 'verify-email');
+    // No purpose means the caller didn't distinguish flows; verification is the
+    // historical default and the only one that existed before this was threaded.
+    const email = verificationCodeEmail(request.code, request.purpose ?? 'verify-email');
     try {
       await this.mail.send({ to: request.target, subject: email.subject, html: email.html });
     } catch {

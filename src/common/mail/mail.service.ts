@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../../config/configuration.js';
-import { logoDataUri } from './templates/assets/logo.js';
+import { mailAssets } from './templates/assets/index.js';
 import { MailSendError, type MailMessage, type MailSender } from './mail.types.js';
 
 const RESEND_BASE_URL = 'https://api.resend.com';
@@ -24,6 +24,7 @@ export class MailService implements MailSender {
   private readonly apiKey: string;
   private readonly fromEmail: string;
   private readonly logoUrl?: string;
+  private readonly assetBaseUrl?: string;
   private readonly devFallback: boolean;
   private readonly logger = new Logger('MailService');
 
@@ -32,6 +33,7 @@ export class MailService implements MailSender {
     this.apiKey = resend.apiKey;
     this.fromEmail = resend.fromEmail;
     this.logoUrl = resend.logoUrl;
+    this.assetBaseUrl = resend.assetBaseUrl;
     this.devFallback = config.get('nodeEnv') === 'development';
   }
 
@@ -49,7 +51,7 @@ export class MailService implements MailSender {
           from: this.fromEmail,
           to: [message.to],
           subject: message.subject,
-          html: this.resolveLogo(message.html),
+          html: this.resolveAssets(message.html),
         }),
         signal: controller.signal,
       });
@@ -83,13 +85,33 @@ export class MailService implements MailSender {
   }
 
   /**
-   * Email clients block data-URI images (Gmail, Outlook), so when a hosted
-   * `MAIL_LOGO_URL` is configured the inline data URI is swapped for it. Falls
-   * back to the embedded image when the env is unset.
+   * Swap the embedded data URIs for hosted URLs.
+   *
+   * Gmail and Outlook both strip `data:` images, so production needs a public
+   * host. Two levels of configuration:
+   *
+   * - `MAIL_ASSET_BASE_URL` rewrites *every* asset by its registry `file`, which
+   *   is what you want — one folder on a CDN holding logo.png plus the social
+   *   marks.
+   * - `MAIL_LOGO_URL` rewrites only the logo, and is kept for backwards
+   *   compatibility with existing deployments.
+   *
+   * With neither set the data URIs ship as-is, which still renders correctly in
+   * Apple Mail and most webmail clients.
    */
-  private resolveLogo(html: string): string {
-    if (!this.logoUrl || !html.includes(logoDataUri)) return html;
-    return html.split(logoDataUri).join(this.logoUrl);
+  private resolveAssets(html: string): string {
+    let output = html;
+
+    for (const asset of Object.values(mailAssets)) {
+      if (this.assetBaseUrl) {
+        const base = this.assetBaseUrl.replace(/\/+$/, '');
+        output = output.split(asset.dataUri).join(`${base}/${asset.file}`);
+      } else if (asset === mailAssets.logo && this.logoUrl) {
+        output = output.split(asset.dataUri).join(this.logoUrl);
+      }
+    }
+
+    return output;
   }
 
   private async responseDetail(response: Response): Promise<string> {

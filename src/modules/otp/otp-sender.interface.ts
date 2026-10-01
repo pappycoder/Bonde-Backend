@@ -1,4 +1,5 @@
 import type { OtpChannel } from '@prisma/client';
+import type { VerificationPurpose } from '../../common/mail/templates/verification-code.js';
 
 /**
  * Delivery boundary for one-time codes. The OTP service only talks to this
@@ -10,6 +11,12 @@ export interface OtpSendRequest {
   channel: OtpChannel;
   target: string;
   code: string;
+  /**
+   * What the code authorises. Only the email channel cares — it selects the
+   * subject and body, so a password-reset code no longer arrives worded as an
+   * email-verification confirmation. Ignored by SMS.
+   */
+  purpose?: VerificationPurpose;
 }
 
 export interface OtpSender {

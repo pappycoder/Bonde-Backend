@@ -3,15 +3,20 @@ import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../../config/configuration.js';
 import { MailService } from './mail.service.js';
 import { MailSendError } from './mail.types.js';
-import { logoDataUri } from './templates/assets/logo.js';
+import { mailAssets } from './templates/assets/index.js';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
-function makeService(nodeEnv = 'production', logoUrl?: string) {
+function makeService(nodeEnv = 'production', logoUrl?: string, assetBaseUrl?: string) {
   const config = {
     get: vi.fn((key: keyof AppConfig) => {
       if (key === 'resend')
-        return { apiKey: 're_secret', fromEmail: 'Bonde <noreply@bonde.app>', logoUrl };
+        return {
+          apiKey: 're_secret',
+          fromEmail: 'Bonde <noreply@bonde.app>',
+          logoUrl,
+          assetBaseUrl,
+        };
       if (key === 'nodeEnv') return nodeEnv;
       return undefined;
     }),
@@ -143,7 +148,7 @@ describe('MailService', () => {
     await service.send({
       to: 'a@bonde.app',
       subject: 's',
-      html: `<img src="${logoDataUri}" alt="Bonde" />`,
+      html: `<img src="${mailAssets.logo.dataUri}" alt="Bonde" />`,
     });
   });
 
@@ -152,7 +157,7 @@ describe('MailService', () => {
       'fetch',
       vi.fn(async (_url: RequestInfo | URL, init: RequestInit) => {
         const body = JSON.parse(String(init?.body));
-        expect(body.html).toContain(`src="${logoDataUri}"`);
+        expect(body.html).toContain(`src="${mailAssets.logo.dataUri}"`);
         return new Response(null, { status: 200 });
       }),
     );
@@ -161,7 +166,55 @@ describe('MailService', () => {
     await service.send({
       to: 'a@bonde.app',
       subject: 's',
-      html: `<img src="${logoDataUri}" alt="Bonde" />`,
+      html: `<img src="${mailAssets.logo.dataUri}" alt="Bonde" />`,
+    });
+  });
+
+  it('rewrites every asset when MAIL_ASSET_BASE_URL is set, overriding MAIL_LOGO_URL', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: RequestInfo | URL, init: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        for (const asset of Object.values(mailAssets)) {
+          expect(body.html).toContain(`src="https://cdn.bonde.app/mail/${asset.file}"`);
+        }
+        expect(body.html).not.toContain('data:image/png;base64,');
+        // The per-asset logo override must not win over the base URL.
+        expect(body.html).not.toContain('https://x.supabase.co/logo/logo.png');
+        return new Response(null, { status: 200 });
+      }),
+    );
+    const { service } = makeService(
+      'production',
+      'https://x.supabase.co/logo/logo.png',
+      'https://cdn.bonde.app/mail',
+    );
+
+    await service.send({
+      to: 'a@bonde.app',
+      subject: 's',
+      html: Object.values(mailAssets)
+        .map((asset) => `<img src="${asset.dataUri}" alt="${asset.alt}" />`)
+        .join(''),
+    });
+  });
+
+  it('tolerates a trailing slash on MAIL_ASSET_BASE_URL', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: RequestInfo | URL, init: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        expect(body.html).toContain('src="https://cdn.bonde.app/mail/logo.png"');
+        expect(body.html).not.toContain('mail//logo.png');
+        return new Response(null, { status: 200 });
+      }),
+    );
+    const { service } = makeService('production', undefined, 'https://cdn.bonde.app/mail/');
+
+    await service.send({
+      to: 'a@bonde.app',
+      subject: 's',
+      html: `<img src="${mailAssets.logo.dataUri}" alt="Bonde" />`,
     });
   });
 });

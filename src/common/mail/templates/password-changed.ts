@@ -1,5 +1,5 @@
 import { emailLayout } from './layout.js';
-import { lead, note, paragraph } from './parts.js';
+import type { EmailSection } from './sections.js';
 import type { EmailDoc } from './types.js';
 
 export interface PasswordChangedEmailInput {
@@ -21,16 +21,23 @@ export function passwordChangedEmail(input: PasswordChangedEmailInput): EmailDoc
           input.revokedSessions === 1 ? 'device' : 'devices'
         } that were signed in to your account.`
       : 'No other devices were signed in to your account.';
+
+  const sections: EmailSection[] = [
+    { kind: 'lead', text: `Hi ${first}, your Bonde password was changed successfully.` },
+    { kind: 'paragraph', text: revoked },
+    {
+      kind: 'note',
+      text: 'If you didn’t make this change, contact Bonde support right away.',
+    },
+  ];
+
   return {
     subject: 'Your Bonde password was changed',
     html: emailLayout({
       preheader: 'Your Bonde password was successfully changed.',
       headline: 'Password updated',
       eyebrow: 'Security notice',
-      body:
-        lead(`Hi ${first}, your Bonde password was changed successfully.`) +
-        paragraph(revoked) +
-        note('If you didn’t make this change, contact Bonde support right away.'),
+      sections,
     }),
   };
 }

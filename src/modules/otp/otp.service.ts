@@ -39,6 +39,9 @@ export class OtpService {
 
     const code = await this.generateCode(principal.userId, dto.channel);
     try {
+      // Purpose is intentionally left unset: this endpoint only proves control
+      // of an address/number the caller already owns, so `verify-email` is the
+      // correct default. Auth flows that mean something else pass it explicitly.
       await this.sender.send({ channel: dto.channel, target: dto.target, code });
     } catch (error) {
       if (error instanceof OtpSendError) {

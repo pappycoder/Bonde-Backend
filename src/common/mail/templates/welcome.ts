@@ -1,5 +1,5 @@
 import { emailLayout } from './layout.js';
-import { esc, infoRow, lead } from './parts.js';
+import type { EmailSection } from './sections.js';
 import type { EmailDoc } from './types.js';
 
 export interface WelcomeEmailInput {
@@ -17,28 +17,29 @@ const NEXT_STEPS = [
  * Sent right after the welcome email verification completes and the Bonde
  * account + wallet are provisioned. Best-effort: a delivery failure never
  * fails the verification request.
+ *
+ * `firstName` is passed through raw — the layout escapes it once. Pre-escaping
+ * here would double-encode anything like "Ben & Jerry".
  */
 export function welcomeEmail(input: WelcomeEmailInput): EmailDoc {
   const first = input.firstName.trim() || 'there';
-  const rows = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 0">
-${infoRow('Account number', input.accountNumber)}
-</table>`;
+  const sections: EmailSection[] = [
+    {
+      kind: 'lead',
+      text: 'Your account has been created and is ready to use. Here’s everything you need to get going.',
+    },
+    { kind: 'facts', rows: [{ label: 'Account number', value: input.accountNumber }] },
+    { kind: 'paragraph', text: 'What you can do now' },
+    { kind: 'bullets', items: NEXT_STEPS },
+  ];
 
   return {
     subject: 'Welcome to Bonde',
     html: emailLayout({
       preheader: `Welcome to Bonde, ${first} — your account is ready.`,
-      headline: `Welcome to Bonde, ${esc(first)}`,
+      headline: `Welcome to Bonde, ${first}`,
       eyebrow: 'You’re in',
-      body:
-        lead(
-          'Your account has been created and is ready to use. Here’s everything you need to get going.',
-        ) +
-        rows +
-        `<div style="margin:8px 0 4px;font-size:15px;font-weight:700;color:#101828">What you can do now</div>` +
-        `<ul style="margin:0 0 16px;padding:0 0 0 20px;font-size:15px;line-height:1.6;color:#344054">
-${NEXT_STEPS.map((s) => `<li>${esc(s)}</li>`).join('\n')}
-        </ul>`,
+      sections,
     }),
   };
 }

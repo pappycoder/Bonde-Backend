@@ -41,6 +41,7 @@ import { MAIL_SENDER, type MailMessage, type MailSender } from '../../../common/
 import { welcomeEmail } from '../../../common/mail/templates/welcome.js';
 import { passwordResetEmail } from '../../../common/mail/templates/password-reset.js';
 import { passwordChangedEmail } from '../../../common/mail/templates/password-changed.js';
+import type { VerificationPurpose } from '../../../common/mail/templates/verification-code.js';
 
 /**
  * BFF auth endpoints. Registration + password changes drive Supabase Auth via
@@ -442,7 +443,7 @@ export class AuthService {
     // Always report "sent" — no account enumeration via this endpoint.
     if (!profile) return { status: 'sent' as const };
 
-    await this.dispatchEmailCode(profile.id, profile.email);
+    await this.dispatchEmailCode(profile.id, profile.email, 'recovery');
     return { status: 'sent' as const };
   }
 
@@ -534,11 +535,19 @@ export class AuthService {
   /**
    * Issue a fresh 4-digit email OTP and deliver it, failing closed (503 + code
    * voided) when the sender is down.
+   *
+   * `purpose` reaches the template, not just the audit log: the same code flow
+   * serves signup, resend, sign-in and password reset, and each needs a subject
+   * that says which one it is.
    */
-  private async dispatchEmailCode(userId: string, email: string): Promise<string> {
+  private async dispatchEmailCode(
+    userId: string,
+    email: string,
+    purpose: VerificationPurpose = 'verify-email',
+  ): Promise<string> {
     const code = await this.otp.generateCode(userId, OtpChannel.EMAIL);
     try {
-      await this.sender.send({ channel: OtpChannel.EMAIL, target: email, code });
+      await this.sender.send({ channel: OtpChannel.EMAIL, target: email, code, purpose });
     } catch (error) {
       if (error instanceof OtpSendError) {
         await this.otp.invalidate(userId, OtpChannel.EMAIL);

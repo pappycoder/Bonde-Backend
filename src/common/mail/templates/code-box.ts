@@ -1,16 +1,22 @@
 import { esc } from './parts.js';
+import { brand, font } from './theme.js';
 
 /**
- * A big, spaced-out digits block for one-time codes. Letters are spread so the
- * user can read them back, in a light bordered box matching the card style.
+ * A big, spaced-out digits block for one-time codes.
+ *
+ * `letter-spacing` also adds a trailing gap after the final digit, which shifts
+ * the whole run left of centre — `padding-left` compensates for exactly that.
+ * The tinted background is inline for light mode and re-stated in the dark
+ * block of `layout.ts` via the `.email-code` class.
  */
 export function codeBox(code: string): string {
   return `
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-      <tr>
-        <td align="center" style="background-color:#FBFBFC;border:1px solid #E8EAEF;border-radius:12px;padding:22px 16px">
-          <span style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:30px;font-weight:600;color:#101828;letter-spacing:12px;padding-left:12px">${esc(code)}</span>
-        </td>
-      </tr>
-    </table>`;
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px">
+                    <tr>
+                      <td class="email-code" align="center" bgcolor="${brand.tint}"
+                          style="padding:20px 16px;background-color:${brand.tint};border-radius:12px;text-align:center">
+                        <span class="email-ink" style="display:inline-block;font-family:${font.mono};font-size:32px;line-height:1.2;font-weight:700;letter-spacing:12px;padding-left:12px;color:${brand.ink}">${esc(code)}</span>
+                      </td>
+                    </tr>
+                  </table>`;
 }
