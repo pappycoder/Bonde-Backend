@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
 import { NotificationStatus, NotificationType } from '@prisma/client';
+import type { PushDispatcher, PushMessage } from './push-dispatcher.interface.js';
 import { NotificationsService } from './notifications.service.js';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
@@ -14,7 +15,9 @@ function makeService(
     update?: ReturnType<typeof vi.fn>;
     updateMany?: ReturnType<typeof vi.fn>;
     create?: ReturnType<typeof vi.fn>;
+    pushDeviceFindMany?: ReturnType<typeof vi.fn>;
   } = {},
+  push?: PushDispatcher,
 ) {
   const prisma = {
     notification: {
@@ -25,9 +28,12 @@ function makeService(
       updateMany: delegates.updateMany ?? vi.fn(async () => ({ count: 0 })),
       create: delegates.create ?? vi.fn(async (args) => ({ ...args.data })),
     },
+    pushDevice: {
+      findMany: delegates.pushDeviceFindMany ?? vi.fn(async () => []),
+    },
     $transaction: vi.fn(async (promises: Promise<unknown>[]) => Promise.all(promises)),
   };
-  return { service: new NotificationsService(prisma as never), prisma };
+  return { service: new NotificationsService(prisma as never, push), prisma };
 }
 
 describe('NotificationsService.create', () => {
@@ -42,6 +48,46 @@ describe('NotificationsService.create', () => {
       content: 'C',
       type: NotificationType.SYSTEM,
     });
+  });
+
+  it('sends the best-effort push with entityType/entityId as FCM data', async () => {
+    const sent: PushMessage[] = [];
+    const push: PushDispatcher = {
+      isEnabled: () => true,
+      send: vi.fn(async (message: PushMessage) => void sent.push(message)),
+    };
+    const { service } = makeService(
+      { pushDeviceFindMany: vi.fn(async () => [{ token: 'tok-1' }]) },
+      push,
+    );
+    await service.create({
+      targetUserId: USER_ID,
+      title: 'T',
+      content: 'C',
+      metadata: { action: 'card.create', entityType: 'card', entityId: 'card-1' },
+    });
+    expect(sent).toEqual([
+      {
+        deviceToken: 'tok-1',
+        title: 'T',
+        body: 'C',
+        data: { entityType: 'card', entityId: 'card-1' },
+      },
+    ]);
+  });
+
+  it('omits FCM data when the notification carries no routing metadata', async () => {
+    const sent: PushMessage[] = [];
+    const push: PushDispatcher = {
+      isEnabled: () => true,
+      send: vi.fn(async (message: PushMessage) => void sent.push(message)),
+    };
+    const { service } = makeService(
+      { pushDeviceFindMany: vi.fn(async () => [{ token: 'tok-1' }]) },
+      push,
+    );
+    await service.create({ targetUserId: USER_ID, title: 'T', content: 'C' });
+    expect(sent).toEqual([{ deviceToken: 'tok-1', title: 'T', body: 'C' }]);
   });
 });
 

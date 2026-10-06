@@ -61,7 +61,26 @@ export class NotificationsService {
 
     // Best-effort push — in-app is source of truth; push must never fail the
     // request that produced the notification (mirrors MAIL/OTP convention).
-    await this.dispatchBestEffort(input.targetUserId, input.title, input.content);
+    await this.dispatchBestEffort(
+      input.targetUserId,
+      input.title,
+      input.content,
+      this.toPushData(input.metadata),
+    );
+  }
+
+  /** Folds notification `metadata` into the FCM `data` map used for deep links. */
+  private toPushData(
+    metadata: Prisma.InputJsonValue | undefined,
+  ): Record<string, string> | undefined {
+    if (metadata == null || typeof metadata !== 'object' || Array.isArray(metadata)) {
+      return undefined;
+    }
+    const { entityType, entityId } = metadata as { entityType?: unknown; entityId?: unknown };
+    const data: Record<string, string> = {};
+    if (entityType != null && entityType !== '') data.entityType = String(entityType);
+    if (entityId != null && entityId !== '') data.entityId = String(entityId);
+    return Object.keys(data).length > 0 ? data : undefined;
   }
 
   async registerDevice(input: RegisterDeviceInput): Promise<void> {
@@ -127,14 +146,21 @@ export class NotificationsService {
     return { updated: result.count };
   }
 
-  private async dispatchBestEffort(userId: string, title: string, content: string): Promise<void> {
+  private async dispatchBestEffort(
+    userId: string,
+    title: string,
+    content: string,
+    data?: Record<string, string>,
+  ): Promise<void> {
     if (!this.push.isEnabled()) return;
     const devices = await this.prisma.pushDevice.findMany({
       where: { userId },
       select: { token: true },
     });
     await Promise.allSettled(
-      devices.map((d) => this.push.send({ deviceToken: d.token, title, body: content })),
+      devices.map((d) =>
+        this.push.send({ deviceToken: d.token, title, body: content, ...(data ? { data } : {}) }),
+      ),
     );
   }
 }
