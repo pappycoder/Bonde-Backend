@@ -70,6 +70,17 @@ export const envValidationSchema = Joi.object({
   FLUTTERWAVE_WEBHOOK_SECRET_HASH: Joi.string().required(),
   FLUTTERWAVE_VA_BANK_CODE: Joi.string().max(10).default('090567'),
 
+  /// KYC provider used to verify BVN/NIN. Only Dojah is wired today.
+  KYC_PROVIDER: Joi.string().valid('dojah').default('dojah'),
+  /// HMAC key for hashing identifiers at rest; defaults to CARD_ENCRYPTION_KEY.
+  KYC_HASH_SECRET: Joi.string().hex().length(64).optional(),
+
+  /// Dojah KYC credentials. Optional so environments that do not exercise KYC
+  /// still boot; a verification call without them fails closed with a 503.
+  DOJAH_BASE_URL: Joi.string().uri().default('https://api.dojah.io'),
+  DOJAH_APP_ID: Joi.string().optional().allow(''),
+  DOJAH_SECRET_KEY: Joi.string().optional().allow(''),
+
   PASSCODE_MAX_ATTEMPTS: Joi.number().integer().min(1).default(5),
   PASSCODE_LOCK_MINUTES: Joi.number().integer().min(1).default(15),
 });

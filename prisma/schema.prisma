@@ -137,6 +137,15 @@ enum ProviderEventStatus {
   FAILED
 }
 
+/// Outcome of a user's BVN/NIN identity check. `PENDING` = submitted but not
+/// yet fully verified, `VERIFIED` = both identifiers passed, `FAILED` = the
+/// last attempt was rejected by the provider.
+enum KycStatus {
+  PENDING
+  VERIFIED
+  FAILED
+}
+
 // ---------------------------------------------------------------------------
 // Models — Auth / Identity
 // ---------------------------------------------------------------------------
@@ -175,6 +184,7 @@ model Profile {
   twoFactor           TwoFactor?
   invitesIssued       UserInvite[]  @relation("InviteIssuer")
   broadcastsSent      Broadcast[]   @relation("BroadcastSender")
+  kyc                 KycVerification?
 
   @@map("profiles")
 }
@@ -746,4 +756,34 @@ model ProviderEvent {
   @@unique([provider, reference])
   @@index([transactionId])
   @@map("provider_events")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Identity verification (BVN / NIN)
+// ---------------------------------------------------------------------------
+
+/// A user's one-time KYC result. The raw BVN/NIN are **never** stored — only a
+/// keyed HMAC-SHA-256 digest (so a stolen row cannot be brute-forced or replayed
+/// against the provider) plus per-identifier verification timestamps. The
+/// overall `status` is `VERIFIED` only once both identifiers have passed.
+model KycVerification {
+  id            String    @id @db.Uuid
+  userId        String    @unique @map("user_id") @db.Uuid
+  provider      String    @default("dojah") @db.VarChar(50)
+  /// Keyed HMAC-SHA-256 digest of the BVN, hex-encoded. Null until verified.
+  bvnHash       String?   @map("bvn_hash") @db.VarChar(64)
+  /// Keyed HMAC-SHA-256 digest of the NIN, hex-encoded. Null until verified.
+  ninHash       String?   @map("nin_hash") @db.VarChar(64)
+  bvnVerifiedAt DateTime? @map("bvn_verified_at")
+  ninVerifiedAt DateTime? @map("nin_verified_at")
+  status        KycStatus @default(PENDING)
+  /// Non-sensitive provider response metadata (references, statuses). Never
+  /// contains the identifier values.
+  providerRef   Json      @default("{}") @map("provider_ref")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("kyc_verifications")
 }

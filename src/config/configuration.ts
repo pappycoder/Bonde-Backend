@@ -69,6 +69,16 @@ export interface AppConfig {
     webhookSecretHash: string;
     vaBankCode: string;
   };
+  kyc: {
+    provider: string;
+    /// HMAC key used to digest BVN/NIN before storage (never the raw value).
+    hashSecret: string;
+  };
+  dojah: {
+    baseUrl: string;
+    appId: string;
+    secretKey: string;
+  };
   passcode: {
     maxAttempts: number;
     lockMinutes: number;
@@ -130,6 +140,17 @@ export default (): AppConfig => ({
     secretKey: process.env.FLUTTERWAVE_SECRET_KEY!,
     webhookSecretHash: process.env.FLUTTERWAVE_WEBHOOK_SECRET_HASH!,
     vaBankCode: process.env.FLUTTERWAVE_VA_BANK_CODE ?? '090567',
+  },
+  kyc: {
+    provider: process.env.KYC_PROVIDER ?? 'dojah',
+    // Pepper for the one-way identifiers. Falls back to the app-wide encryption
+    // key so existing deployments keep booting until KYC_HASH_SECRET is set.
+    hashSecret: process.env.KYC_HASH_SECRET ?? process.env.CARD_ENCRYPTION_KEY!,
+  },
+  dojah: {
+    baseUrl: process.env.DOJAH_BASE_URL ?? 'https://api.dojah.io',
+    appId: process.env.DOJAH_APP_ID ?? '',
+    secretKey: process.env.DOJAH_SECRET_KEY ?? '',
   },
   push: {
     fcmServiceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH,

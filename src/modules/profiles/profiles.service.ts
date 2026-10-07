@@ -31,9 +31,20 @@ export class ProfilesService {
   ) {}
 
   async get(userId: string) {
-    const profile = await this.prisma.profile.findUnique({ where: { id: userId } });
+    const profile = await this.prisma.profile.findUnique({
+      where: { id: userId },
+      include: { kyc: true },
+    });
     if (!profile) throw new NotFoundException('Profile not found');
-    return profile;
+    // Surface the identity-verification flags the app reads without leaking the
+    // stored digests: the KYC row itself is dropped, only booleans are added.
+    const { kyc, ...rest } = profile;
+    return {
+      ...rest,
+      bvnVerified: kyc?.bvnVerifiedAt != null,
+      ninVerified: kyc?.ninVerifiedAt != null,
+      identityVerified: kyc?.bvnVerifiedAt != null,
+    };
   }
 
   async update(userId: string, dto: UpdateProfileDto) {

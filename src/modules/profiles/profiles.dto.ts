@@ -53,6 +53,22 @@ export class ProfileDto {
   @ApiProperty({ example: false })
   emailVerified: boolean;
 
+  @ApiProperty({ example: false, description: 'True once the BVN has been verified' })
+  bvnVerified: boolean;
+
+  @ApiProperty({
+    example: false,
+    description:
+      'True once the NIN has been verified (NIN is currently only collected, not checked)',
+  })
+  ninVerified: boolean;
+
+  @ApiProperty({
+    example: false,
+    description: 'True once the BVN has been verified',
+  })
+  identityVerified: boolean;
+
   @ApiProperty({ type: String, nullable: true, example: 'https://…/bonde-avatars/u-…/avatar.jpeg' })
   avatarUrl: string | null;
 
