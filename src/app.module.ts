@@ -56,6 +56,15 @@ import { RedisClient } from './common/redis/redis-client.interface.js';
       useFactory: (config: ConfigService<AppConfig, true>) => ({
         pinoHttp: {
           level: config.get('nodeEnv') === 'production' ? 'info' : 'debug',
+          // Keep request logs useful without copying credentials, cookies,
+          // IP addresses, or arbitrary client supplied headers into Vercel.
+          serializers: {
+            req: (request: { id?: string | number; method?: string; url?: string }) => ({
+              id: request.id,
+              method: request.method,
+              path: request.url?.split('?')[0],
+            }),
+          },
           transport:
             config.get('nodeEnv') !== 'production'
               ? { target: 'pino-pretty', options: { singleLine: true, colorize: true } }
