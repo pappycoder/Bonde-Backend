@@ -46,6 +46,10 @@ interface WriteDto {
   cardType?: string;
   maxSpendLimit?: string;
   monthlyLimit?: string;
+  allowTopUp?: boolean;
+  notifyHalfSpent?: boolean;
+  notifyLowBalance?: boolean;
+  notifyBudgetReached?: boolean;
 }
 
 function defaultExpiration(expirationType: string, from: Date = new Date()): Date {
@@ -104,6 +108,10 @@ export class CardsService {
       nickname?: string;
       maxSpendLimit?: string;
       monthlyLimit?: string;
+      allowTopUp?: boolean;
+      notifyHalfSpent?: boolean;
+      notifyLowBalance?: boolean;
+      notifyBudgetReached?: boolean;
       expirationType?: string;
       expirationDate?: string;
     },
@@ -123,6 +131,10 @@ export class CardsService {
         nickname: dto.nickname?.trim() || null,
         maxSpendLimit: dto.maxSpendLimit ? money(dto.maxSpendLimit) : null,
         monthlyLimit: dto.monthlyLimit ? money(dto.monthlyLimit) : null,
+        allowTopUp: dto.allowTopUp ?? true,
+        notifyHalfSpent: dto.notifyHalfSpent ?? true,
+        notifyLowBalance: dto.notifyLowBalance ?? true,
+        notifyBudgetReached: dto.notifyBudgetReached ?? true,
         expirationType: dto.expirationType ?? 'monthly',
         expirationDate: dto.expirationDate
           ? new Date(dto.expirationDate)
@@ -417,6 +429,10 @@ export class CardsService {
     if (dto.cardType !== undefined) data.cardType = dto.cardType;
     if (dto.maxSpendLimit !== undefined) data.maxSpendLimit = money(dto.maxSpendLimit);
     if (dto.monthlyLimit !== undefined) data.monthlyLimit = money(dto.monthlyLimit);
+    if (dto.allowTopUp !== undefined) data.allowTopUp = dto.allowTopUp;
+    if (dto.notifyHalfSpent !== undefined) data.notifyHalfSpent = dto.notifyHalfSpent;
+    if (dto.notifyLowBalance !== undefined) data.notifyLowBalance = dto.notifyLowBalance;
+    if (dto.notifyBudgetReached !== undefined) data.notifyBudgetReached = dto.notifyBudgetReached;
     if (Object.keys(data).length === 0) {
       throw new BadRequestException(
         event === 'limit' ? 'Provide at least one limit' : 'Provide at least one field',

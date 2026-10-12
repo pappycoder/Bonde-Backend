@@ -28,6 +28,10 @@ const CARD = {
   nickname: null,
   maxSpendLimit: null,
   monthlyLimit: null,
+  allowTopUp: true,
+  notifyHalfSpent: true,
+  notifyLowBalance: true,
+  notifyBudgetReached: true,
   totalSpent: 0,
   balance: 0,
   lastSyncAt: null,
@@ -281,6 +285,21 @@ describe('CardsService.create', () => {
     await expect(service.create(USER_ID, {})).rejects.toThrow(NotFoundException);
     expect(card.create).not.toHaveBeenCalled();
   });
+
+  it('stores budget preferences, defaulting them on', async () => {
+    const { service, card } = makeService();
+    const result = await service.create(USER_ID, {
+      monthlyLimit: '20000',
+      allowTopUp: false,
+      notifyLowBalance: false,
+    });
+    const data = card.create.mock.calls[0][0].data;
+    expect(data.allowTopUp).toBe(false);
+    expect(data.notifyHalfSpent).toBe(true);
+    expect(data.notifyLowBalance).toBe(false);
+    expect(data.notifyBudgetReached).toBe(true);
+    expect(result.allowTopUp).toBe(false);
+  });
 });
 
 describe('CardsService.update', () => {
@@ -312,6 +331,18 @@ describe('CardsService.update', () => {
         }),
       }),
     );
+  });
+
+  it('updates budget preferences and records them in the diff', async () => {
+    const { service, card } = makeService();
+    await service.update(USER_ID, CARD_ID, {
+      allowTopUp: false,
+      notifyBudgetReached: false,
+    });
+    expect(card.update).toHaveBeenCalledWith({
+      where: { id: CARD_ID },
+      data: { allowTopUp: false, notifyBudgetReached: false },
+    });
   });
 
   it('rejects updating a cancelled card', async () => {

@@ -118,6 +118,18 @@ export class CardDto {
   @ApiProperty({ type: String, nullable: true, example: '20000.00' })
   monthlyLimit: string | null;
 
+  @ApiProperty({ example: true, description: 'Budget-locked: top-up permitted' })
+  allowTopUp: boolean;
+
+  @ApiProperty({ example: true, description: 'Notify at 50% of the budget' })
+  notifyHalfSpent: boolean;
+
+  @ApiProperty({ example: true, description: 'Notify on low balance' })
+  notifyLowBalance: boolean;
+
+  @ApiProperty({ example: true, description: 'Notify when the budget is reached' })
+  notifyBudgetReached: boolean;
+
   @ApiProperty({ example: '2500.00', description: 'Cumulative spend through this card' })
   totalSpent: string;
 
@@ -164,6 +176,26 @@ export class CreateCardDto {
   @Matches(DECIMAL_PATTERN, { message: 'monthlyLimit must be a decimal with up to 2 places' })
   monthlyLimit?: string;
 
+  @ApiPropertyOptional({ example: true, description: 'Budget-locked: allow top-ups' })
+  @IsOptional()
+  @IsBoolean()
+  allowTopUp?: boolean;
+
+  @ApiPropertyOptional({ example: true, description: 'Notify at 50% of the budget' })
+  @IsOptional()
+  @IsBoolean()
+  notifyHalfSpent?: boolean;
+
+  @ApiPropertyOptional({ example: true, description: 'Notify on low balance' })
+  @IsOptional()
+  @IsBoolean()
+  notifyLowBalance?: boolean;
+
+  @ApiPropertyOptional({ example: true, description: 'Notify when the budget is reached' })
+  @IsOptional()
+  @IsBoolean()
+  notifyBudgetReached?: boolean;
+
   @ApiPropertyOptional({ enum: ['monthly', 'yearly'], example: 'monthly' })
   @IsOptional()
   @IsIn(['monthly', 'yearly'])
@@ -202,6 +234,26 @@ export class UpdateCardDto {
   @IsOptional()
   @Matches(DECIMAL_PATTERN, { message: 'monthlyLimit must be a decimal with up to 2 places' })
   monthlyLimit?: string;
+
+  @ApiPropertyOptional({ example: true, description: 'Budget-locked: allow top-ups' })
+  @IsOptional()
+  @IsBoolean()
+  allowTopUp?: boolean;
+
+  @ApiPropertyOptional({ example: true, description: 'Notify at 50% of the budget' })
+  @IsOptional()
+  @IsBoolean()
+  notifyHalfSpent?: boolean;
+
+  @ApiPropertyOptional({ example: true, description: 'Notify on low balance' })
+  @IsOptional()
+  @IsBoolean()
+  notifyLowBalance?: boolean;
+
+  @ApiPropertyOptional({ example: true, description: 'Notify when the budget is reached' })
+  @IsOptional()
+  @IsBoolean()
+  notifyBudgetReached?: boolean;
 }
 
 /** Body for `POST /api/cards/:id/merchants`. */
