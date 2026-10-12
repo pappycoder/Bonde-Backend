@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client';
+import { CardRestrictedCategory, LockType } from '@prisma/client';
 
 /**
  * Field kind drives payload coercion/validation in `CrudService`.
@@ -86,7 +87,7 @@ export const CRUD_REGISTRY: readonly CrudModelDef[] = [
       cardId: f('uuid', { required: true }),
       lockType: f('enum', {
         required: true,
-        enumValues: ['SELF_DESTRUCT', 'MERCHANT', 'TIME', 'CATEGORY', 'BUDGET'],
+        enumValues: Object.values(LockType),
       }),
       config: f('json'),
       isActive: f('boolean'),
@@ -102,7 +103,7 @@ export const CRUD_REGISTRY: readonly CrudModelDef[] = [
     fields: {
       id: idField(),
       cardId: f('uuid', { required: true }),
-      category: f('enum', { required: true, enumValues: ['TRAVEL_HOTEL', 'FOOD_RESTAURANT'] }),
+      category: f('enum', { required: true, enumValues: Object.values(CardRestrictedCategory) }),
       isAllowed: f('boolean'),
       createdAt: timestampField(),
     },

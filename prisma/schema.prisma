@@ -34,6 +34,12 @@ enum LockType {
 enum CardRestrictedCategory {
   TRAVEL_HOTEL
   FOOD_RESTAURANT
+  GROCERIES
+  ENTERTAINMENT
+  SHOPPING
+  ELECTRICITY
+  DINING
+  TRAVEL
 }
 
 enum MessageRole {
