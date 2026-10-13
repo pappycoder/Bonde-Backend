@@ -91,6 +91,14 @@ cards receive an encrypted development CVV on creation, or on the first credenti
 read for older local cards. Provider cards use their stored provider CVV; if it is
 unavailable the endpoint returns `null`.
 
+`PATCH /api/cards/:id/rules` saves an existing card's name, limits, budget
+preferences, selected active lock (`lock: { id, config }`), and merchant/category
+allowlists in one database transaction. It checks ownership and refuses cancelled
+cards, preserves unrelated locks and usage counters, and records `rules.update`
+with before/after values and currency for the history log. Optional `merchants`
+replaces the merchant allowlist; optional `categories` replaces allowed categories
+while preserving denied entries. The mobile Edit Rules page uses this endpoint.
+
 See [`.env.example`](./.env.example) for the full reference. Key variables:
 
 | Variable | Required | Description |

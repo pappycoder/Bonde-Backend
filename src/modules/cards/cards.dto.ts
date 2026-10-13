@@ -2,6 +2,9 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CardRestrictedCategory, CardStatus, LockType } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayUnique,
+  IsArray,
   IsBoolean,
   IsIn,
   IsInt,
@@ -10,10 +13,12 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 
 const DECIMAL_PATTERN = /^\d+(\.\d{1,2})?$/;
@@ -376,6 +381,41 @@ export class UpdateCardLockDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+}
+
+export class EditCardRuleLockDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID('4')
+  id: string;
+
+  @ApiProperty({ type: Object, additionalProperties: true })
+  @IsObject()
+  config: Record<string, unknown>;
+}
+
+/** Atomically update the existing card and its selected rule/allowlists. */
+export class UpdateCardRulesDto extends UpdateCardDto {
+  @ApiPropertyOptional({ type: EditCardRuleLockDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => EditCardRuleLockDto)
+  lock?: EditCardRuleLockDto;
+
+  @ApiPropertyOptional({ type: [CreateCardMerchantDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => CreateCardMerchantDto)
+  merchants?: CreateCardMerchantDto[];
+
+  @ApiPropertyOptional({ enum: CardRestrictedCategory, isArray: true })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ArrayUnique()
+  @IsIn(Object.values(CardRestrictedCategory), { each: true })
+  categories?: CardRestrictedCategory[];
 }
 
 /** A composable lock on a card. */

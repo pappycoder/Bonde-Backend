@@ -48,6 +48,7 @@ import {
   UpdateCardDto,
   UpdateCardLimitDto,
   UpdateCardLockDto,
+  UpdateCardRulesDto,
   WithdrawVirtualCardDto,
 } from './cards.dto.js';
 import { CardsService } from './cards.service.js';
@@ -162,6 +163,32 @@ export class CardsController {
         type: NotificationType.CARD,
         title: 'Card updated',
         content: `Your card ending in ${card.cardNumberLast4} was updated. Check the card details to confirm the changes.`,
+      },
+    });
+    return card;
+  }
+
+  @Patch(':id/rules')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Atomically save card rules and allowlists' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: CardDto })
+  @ApiErrorResponse()
+  async updateRules(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: UpdateCardRulesDto,
+  ) {
+    const card = await this.cards.updateRules(principal.userId, id, dto);
+    await this.activity.record({
+      userId: principal.userId,
+      action: 'card.rules.update',
+      entityType: 'card',
+      entityId: id,
+      notify: {
+        type: NotificationType.CARD,
+        title: 'Card rules updated',
+        content: `The rules on your card ending in ${card.cardNumberLast4} were updated.`,
       },
     });
     return card;

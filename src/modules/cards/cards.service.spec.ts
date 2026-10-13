@@ -76,6 +76,7 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     findMany: vi.fn(async () => [CARD]),
     count: vi.fn(async () => 1),
     findFirst: vi.fn(async () => CARD),
+    findFirstOrThrow: vi.fn(async () => CARD),
     create: vi.fn(async (args) => ({ ...CARD, ...args.data })),
     update: vi.fn(async (args) => ({ ...CARD, ...args.data })),
     updateMany: vi.fn(async (_args) => ({ count: 1 })),
@@ -95,6 +96,8 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     create: vi.fn(async (args) => ({ id: CATEGORY_ID, cardId: CARD_ID, ...args.data })),
     update: vi.fn(async (args) => ({ id: CATEGORY_ID, cardId: CARD_ID, ...args.data })),
     delete: vi.fn(async () => ({ id: CATEGORY_ID })),
+    deleteMany: vi.fn(async () => ({ count: 1 })),
+    upsert: vi.fn(async (args) => ({ ...args.create })),
     ...overrides.category,
   };
   const cardProvider = {
@@ -112,6 +115,7 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     findFirst: vi.fn(async () => null),
     create: vi.fn(async (args) => ({ id: MERCHANT_ID, cardId: CARD_ID, ...args.data })),
     delete: vi.fn(async () => ({ id: MERCHANT_ID })),
+    deleteMany: vi.fn(async () => ({ count: 1 })),
     ...overrides.merchant,
   };
   const transaction = {
@@ -120,7 +124,11 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     ...overrides.transaction,
   };
   const prisma = {
-    $transaction: vi.fn(async (ops: Array<Promise<unknown>>) => Promise.all(ops)),
+    $transaction: vi.fn(
+      async (
+        ops: Array<Promise<unknown>> | ((tx: unknown) => Promise<unknown>),
+      ): Promise<unknown> => (typeof ops === 'function' ? ops(prisma) : Promise.all(ops)),
+    ),
     card,
     cardLock,
     cardCategory,
@@ -132,6 +140,7 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
   const config = { get: vi.fn((key: string) => (key === 'nodeEnv' ? 'test' : ENC_KEY)) };
   const service = new CardsService(prisma as never, config as never);
   return {
+    prisma,
     service,
     card,
     cardLock,
@@ -153,6 +162,191 @@ describe('CardsService.list', () => {
       expect.objectContaining({ where: { userId: USER_ID } }),
     );
   });
+});
+
+describe('CardsService.updateRules', () => {
+  function withRule(lockType: string, config = {}) {
+    return makeService({
+      lock: {
+        findMany: vi.fn(async () => [
+          { id: LOCK_ID, cardId: CARD_ID, lockType, config, isActive: true },
+        ]),
+      },
+    } as never);
+  }
+
+  it('checks ownership before modifying anything', async () => {
+    const { service, card, cardLock } = makeService({
+      card: { findFirst: vi.fn(async () => null) },
+    } as never);
+    await expect(service.updateRules(USER_ID, CARD_ID, { nickname: 'Changed' })).rejects.toThrow(
+      NotFoundException,
+    );
+    expect(cardLock.findMany).not.toHaveBeenCalled();
+    expect(card.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses to edit destroyed cards', async () => {
+    const { service, card } = makeService({
+      card: { findFirst: vi.fn(async () => ({ ...CARD, status: CardStatus.CANCELLED })) },
+    } as never);
+    await expect(service.updateRules(USER_ID, CARD_ID, { nickname: 'Changed' })).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(card.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('saves the existing self-destruct rule, preserves counters, and records before/after limits', async () => {
+    const { service, prisma, cardLock, cardHistory, card } = withRule('SELF_DESTRUCT', {
+      usageLimit: 2,
+      usageCount: 1,
+    });
+    await service.updateRules(USER_ID, CARD_ID, {
+      nickname: 'Updated',
+      maxSpendLimit: '100.00',
+      lock: { id: LOCK_ID, config: { usageLimit: 5, usageCount: 0 } },
+    });
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function));
+    expect(cardLock.update).toHaveBeenCalledWith({
+      where: { id: LOCK_ID },
+      data: { config: { usageLimit: 5, usageCount: 1 } },
+    });
+    expect(card.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: CARD_ID, userId: USER_ID, status: { not: 'CANCELLED' } },
+        data: { nickname: 'Updated', maxSpendLimit: '100.00' },
+      }),
+    );
+    expect(cardHistory.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          event: 'rules.update',
+          changes: expect.objectContaining({
+            currency: 'NGN',
+            before: expect.objectContaining({ maxSpendLimit: null }),
+            after: expect.objectContaining({ maxSpendLimit: '100.00' }),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('rejects a rule that does not belong to the card', async () => {
+    const { service, cardLock } = withRule('SELF_DESTRUCT');
+    await expect(
+      service.updateRules(USER_ID, CARD_ID, {
+        maxSpendLimit: '100.00',
+        lock: { id: randomId(), config: { usageLimit: 2 } },
+      }),
+    ).rejects.toThrow(BadRequestException);
+    expect(cardLock.update).not.toHaveBeenCalled();
+  });
+
+  for (const usageLimit of [0, -1, 1.5, '2']) {
+    it(`rejects invalid usage limit ${usageLimit}`, async () => {
+      const { service, card } = withRule('SELF_DESTRUCT');
+      await expect(
+        service.updateRules(USER_ID, CARD_ID, {
+          maxSpendLimit: '100.00',
+          lock: { id: LOCK_ID, config: { usageLimit } },
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(card.updateMany).not.toHaveBeenCalled();
+    });
+  }
+
+  it('requires a maximum limit on restricted cards', async () => {
+    const { service } = withRule('SELF_DESTRUCT');
+    await expect(
+      service.updateRules(USER_ID, CARD_ID, { lock: { id: LOCK_ID, config: { usageLimit: 2 } } }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('accepts a rule-only save without an empty card update', async () => {
+    const { service, card } = withRule('SELF_DESTRUCT', { usageLimit: 2 });
+    card.findFirst.mockResolvedValue({
+      ...CARD,
+      maxSpendLimit: new Prisma.Decimal('100.00'),
+    } as never);
+    await service.updateRules(USER_ID, CARD_ID, {
+      lock: { id: LOCK_ID, config: { usageLimit: 3 } },
+    });
+    expect(card.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { updatedAt: expect.any(Date) } }),
+    );
+  });
+
+  it('validates time order and budget consistency', async () => {
+    const time = withRule('TIME');
+    await expect(
+      time.service.updateRules(USER_ID, CARD_ID, {
+        maxSpendLimit: '100.00',
+        lock: {
+          id: LOCK_ID,
+          config: { start: '2026-10-20T00:00:00Z', end: '2026-10-19T00:00:00Z' },
+        },
+      }),
+    ).rejects.toThrow(BadRequestException);
+    const budget = withRule('BUDGET');
+    await expect(
+      budget.service.updateRules(USER_ID, CARD_ID, {
+        monthlyLimit: '100.00',
+        lock: { id: LOCK_ID, config: { monthlyLimit: '50.00' } },
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('replaces merchant selections while retaining unchanged merchant records', async () => {
+    const { service, cardMerchant } = withRule('MERCHANT');
+    cardMerchant.findMany.mockResolvedValue([{ id: MERCHANT_ID, merchantName: 'Amazon' }] as never);
+    await service.updateRules(USER_ID, CARD_ID, {
+      maxSpendLimit: '100.00',
+      merchants: [{ merchantName: 'Amazon' }, { merchantName: 'Netflix' }],
+    });
+    expect(cardMerchant.deleteMany).toHaveBeenCalledWith({
+      where: { cardId: CARD_ID, merchantName: { notIn: ['Amazon', 'Netflix'] } },
+    });
+    expect(cardMerchant.create).toHaveBeenCalledTimes(1);
+    expect(cardMerchant.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ cardId: CARD_ID, merchantName: 'Netflix' }),
+      }),
+    );
+  });
+
+  it('updates category allowlists without removing denied entries', async () => {
+    const { service, cardCategory } = withRule('CATEGORY');
+    await service.updateRules(USER_ID, CARD_ID, {
+      maxSpendLimit: '100.00',
+      categories: ['GROCERIES'],
+    });
+    expect(cardCategory.deleteMany).toHaveBeenCalledWith({
+      where: { cardId: CARD_ID, isAllowed: true, category: { notIn: ['GROCERIES'] } },
+    });
+    expect(cardCategory.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { cardId_category: { cardId: CARD_ID, category: 'GROCERIES' } },
+        update: { isAllowed: true },
+      }),
+    );
+  });
+
+  it('does not write history or card changes if a rule write fails', async () => {
+    const { service, cardLock, card, cardHistory } = withRule('SELF_DESTRUCT');
+    cardLock.update.mockRejectedValue(new Error('Database unavailable'));
+    await expect(
+      service.updateRules(USER_ID, CARD_ID, {
+        maxSpendLimit: '100.00',
+        lock: { id: LOCK_ID, config: { usageLimit: 2 } },
+      }),
+    ).rejects.toThrow('Database unavailable');
+    expect(card.updateMany).not.toHaveBeenCalled();
+    expect(cardHistory.create).not.toHaveBeenCalled();
+  });
+
+  function randomId() {
+    return 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  }
 });
 
 describe('CardsService.get', () => {

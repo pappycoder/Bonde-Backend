@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Atomic owner-scoped card rule editing via `PATCH /api/cards/:id/rules`, with
+  validation, merchant/category replacement, preserved usage counters, and
+  before/after history snapshots.
+
 - Development-only provider fallback for local agent-card creation when no active
   card provider is configured. The fallback is inactive and reused by name;
   production, test, and provider-issued card creation still require a provider.

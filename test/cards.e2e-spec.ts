@@ -110,6 +110,56 @@ describe('Cards self-service (e2e)', () => {
     expect(resumed.body.status).toBe('ACTIVE');
   });
 
+  it('saves the existing card rules and merchant allowlist together', async () => {
+    const lock = await ctx.http
+      .post(`/cards/${SEED_CARD_ID}/locks`)
+      .send({ lockType: 'MERCHANT' })
+      .expect(201);
+    await ctx.http
+      .post(`/cards/${SEED_CARD_ID}/merchants`)
+      .send({ merchantName: 'Amazon', merchantCode: 'amazon' })
+      .expect(201);
+    const saved = await ctx.http
+      .patch(`/cards/${SEED_CARD_ID}/rules`)
+      .send({
+        nickname: 'Updated merchant card',
+        maxSpendLimit: '100.00',
+        lock: { id: lock.body.id, config: {} },
+        merchants: [{ merchantName: 'Netflix' }],
+      })
+      .expect(200);
+    expect(saved.body).toMatchObject({
+      id: SEED_CARD_ID,
+      nickname: 'Updated merchant card',
+      maxSpendLimit: '100.00',
+    });
+    expect(saved.body).not.toHaveProperty('cardNumberEncrypted');
+    const merchants = await ctx.http.get(`/cards/${SEED_CARD_ID}/merchants`).expect(200);
+    expect(merchants.body.map((entry: { merchantName: string }) => entry.merchantName)).toEqual([
+      'Netflix',
+    ]);
+    const history = await ctx.http.get(`/cards/${SEED_CARD_ID}/history`).expect(200);
+    expect(
+      history.body.find((entry: { event: string }) => entry.event === 'rules.update'),
+    ).toMatchObject({ changes: { after: { maxSpendLimit: '100.00', merchants: ['Netflix'] } } });
+  });
+
+  it('rejects invalid or foreign rule edits without changing the card', async () => {
+    const original = await ctx.http.get(`/cards/${SEED_CARD_ID}`).expect(200);
+    await ctx.http
+      .patch(`/cards/${SEED_CARD_ID}/rules`)
+      .send({ nickname: 'Must not save', lock: { id: randomUUID(), config: {} } })
+      .expect(400);
+    const unchanged = await ctx.http.get(`/cards/${SEED_CARD_ID}`).expect(200);
+    expect(unchanged.body.nickname).toBe(original.body.nickname);
+    await ctx.raw
+      .patch(`/api/cards/${SEED_CARD_ID}/rules`)
+      .send({ nickname: 'No auth' })
+      .expect(401);
+    ctx.setPrincipal({ userId: SEED_OTHER_ID });
+    await ctx.http.patch(`/cards/${SEED_CARD_ID}/rules`).send({ nickname: 'Foreign' }).expect(404);
+  });
+
   it('rejects pausing a cancelled card (400)', async () => {
     const cancelled = await seedCardFor(SEED_USER_ID, 'CANCELLED');
     await ctx.http.patch(`/cards/${cancelled.id}/pause`).expect(400);

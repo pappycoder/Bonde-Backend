@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Card, Transaction } from '@prisma/client';
-import { CardStatus, Prisma } from '@prisma/client';
+import { CardStatus, LockType, Prisma } from '@prisma/client';
 import { randomInt, randomUUID } from 'node:crypto';
 import { decrypt, encrypt } from '../../common/crypto/aes-gcm.js';
 import { AppConfig } from '../../config/configuration.js';
@@ -20,6 +20,7 @@ import {
 import { qWhere } from '../../common/paging/search.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { generateLuhnPan, last4 } from './card-number.js';
+import type { UpdateCardRulesDto } from './cards.dto.js';
 
 interface PagedOptions {
   page?: number;
@@ -195,6 +196,173 @@ export class CardsService {
 
   async update(userId: string, cardId: string, dto: WriteDto) {
     return this.applyUpdate(userId, cardId, dto, 'update');
+  }
+
+  async updateRules(userId: string, cardId: string, dto: UpdateCardRulesDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const card = await tx.card.findFirst({ where: { id: cardId, userId } });
+      if (!card) throw new NotFoundException('Card not found');
+      if (card.status === CardStatus.CANCELLED) {
+        throw new BadRequestException('Cannot update a cancelled card');
+      }
+      const locks = await tx.cardLock.findMany({ where: { cardId } });
+      const lock = dto.lock ? locks.find((entry) => entry.id === dto.lock!.id) : undefined;
+      if (dto.lock && (!lock || !lock.isActive)) {
+        throw new BadRequestException('The rule is not active on this card');
+      }
+      const config = dto.lock?.config;
+      if (lock && config) {
+        if (lock.lockType === LockType.SELF_DESTRUCT) {
+          if (!Number.isSafeInteger(config.usageLimit) || Number(config.usageLimit) < 1) {
+            throw new BadRequestException('Usage limit must be a positive integer');
+          }
+        }
+        if (lock.lockType === LockType.TIME) {
+          const start = typeof config.start === 'string' ? Date.parse(config.start) : NaN;
+          const end = typeof config.end === 'string' ? Date.parse(config.end) : NaN;
+          if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+            throw new BadRequestException('Provide a valid start and end time');
+          }
+        }
+        if (
+          lock.lockType === LockType.BUDGET &&
+          (typeof config.monthlyLimit !== 'string' || config.monthlyLimit !== dto.monthlyLimit)
+        ) {
+          throw new BadRequestException('Budget rule must match the card monthly limit');
+        }
+      }
+      const activeTypes = new Set(
+        locks.filter((entry) => entry.isActive).map((entry) => entry.lockType),
+      );
+      if (
+        [LockType.SELF_DESTRUCT, LockType.MERCHANT, LockType.TIME, LockType.CATEGORY].some((type) =>
+          activeTypes.has(type),
+        ) &&
+        Number(dto.maxSpendLimit ?? card.maxSpendLimit) <= 0
+      ) {
+        throw new BadRequestException('Maximum spending limit is required');
+      }
+      for (const value of [dto.maxSpendLimit, dto.monthlyLimit]) {
+        if (value !== undefined && (!/^\d+(\.\d{1,2})?$/.test(value) || Number(value) <= 0)) {
+          throw new BadRequestException('Spending limits must be positive decimal amounts');
+        }
+      }
+      if (activeTypes.has(LockType.BUDGET) && Number(dto.monthlyLimit ?? card.monthlyLimit) <= 0) {
+        throw new BadRequestException('Monthly budget is required');
+      }
+      if (dto.merchants !== undefined && !activeTypes.has(LockType.MERCHANT)) {
+        throw new BadRequestException('This card has no active merchant rule');
+      }
+      if (dto.categories !== undefined && !activeTypes.has(LockType.CATEGORY)) {
+        throw new BadRequestException('This card has no active category rule');
+      }
+      const names = dto.merchants?.map((merchant) => merchant.merchantName.trim());
+      if (
+        names &&
+        (!names.length || names.some((name) => !name) || new Set(names).size !== names.length)
+      ) {
+        throw new BadRequestException('Provide distinct, non-empty allowed merchants');
+      }
+      if (dto.categories && !dto.categories.length) {
+        throw new BadRequestException('Select at least one allowed category');
+      }
+
+      const data: Prisma.CardUpdateInput = {};
+      const before: Record<string, unknown> = {};
+      const after: Record<string, unknown> = {};
+      for (const key of [
+        'nickname',
+        'maxSpendLimit',
+        'monthlyLimit',
+        'allowTopUp',
+        'notifyHalfSpent',
+        'notifyLowBalance',
+        'notifyBudgetReached',
+      ] as const) {
+        if (dto[key] === undefined) continue;
+        const value = key === 'nickname' ? dto.nickname!.trim() || null : dto[key];
+        before[key] =
+          key === 'maxSpendLimit' || key === 'monthlyLimit'
+            ? card[key] === null
+              ? null
+              : money(card[key]!)
+            : card[key];
+        after[key] = value;
+        Object.assign(data, {
+          [key]: key === 'maxSpendLimit' || key === 'monthlyLimit' ? money(value as string) : value,
+        });
+      }
+      if (dto.cardType !== undefined)
+        throw new BadRequestException('Card type cannot be changed when editing rules');
+      if (!Object.keys(data).length && !dto.lock && !dto.merchants && !dto.categories) {
+        throw new BadRequestException('Provide at least one change');
+      }
+      if (!Object.keys(data).length) data.updatedAt = new Date();
+      if (lock && config) {
+        before.lock = { id: lock.id, config: lock.config };
+        const editableKeys =
+          lock.lockType === LockType.SELF_DESTRUCT
+            ? ['usageLimit']
+            : lock.lockType === LockType.TIME
+              ? ['start', 'end']
+              : lock.lockType === LockType.BUDGET
+                ? ['monthlyLimit']
+                : [];
+        const editableConfig = Object.fromEntries(
+          Object.entries(config).filter(([key]) => editableKeys.includes(key)),
+        );
+        const merged = { ...(lock.config as Record<string, unknown>), ...editableConfig };
+        after.lock = { id: lock.id, config: merged };
+        await tx.cardLock.update({
+          where: { id: lock.id },
+          data: { config: merged as Prisma.InputJsonValue },
+        });
+      }
+      if (dto.merchants && names) {
+        const existing = await tx.cardMerchant.findMany({ where: { cardId } });
+        before.merchants = existing.map((merchant) => merchant.merchantName);
+        after.merchants = names;
+        await tx.cardMerchant.deleteMany({ where: { cardId, merchantName: { notIn: names } } });
+        for (const merchant of dto.merchants) {
+          const merchantName = merchant.merchantName.trim();
+          if (!existing.some((entry) => entry.merchantName === merchantName)) {
+            await tx.cardMerchant.create({
+              data: { id: randomUUID(), cardId, merchantName, merchantCode: merchant.merchantCode },
+            });
+          }
+        }
+      }
+      if (dto.categories) {
+        const existing = await tx.cardCategory.findMany({ where: { cardId, isAllowed: true } });
+        before.categories = existing.map((entry) => entry.category);
+        after.categories = dto.categories;
+        await tx.cardCategory.deleteMany({
+          where: { cardId, isAllowed: true, category: { notIn: dto.categories } },
+        });
+        for (const category of dto.categories) {
+          await tx.cardCategory.upsert({
+            where: { cardId_category: { cardId, category } },
+            create: { id: randomUUID(), cardId, category, isAllowed: true },
+            update: { isAllowed: true },
+          });
+        }
+      }
+      const result = await tx.card.updateMany({
+        where: { id: cardId, userId, status: { not: CardStatus.CANCELLED } },
+        data,
+      });
+      if (result.count !== 1) throw new BadRequestException('Card is no longer editable');
+      await tx.cardHistory.create({
+        data: {
+          id: randomUUID(),
+          cardId,
+          event: 'rules.update',
+          changes: { before, after, currency: card.currency } as Prisma.InputJsonValue,
+        },
+      });
+      const updated = await tx.card.findFirstOrThrow({ where: { id: cardId, userId } });
+      return this.toView(updated);
+    });
   }
 
   async pause(userId: string, cardId: string) {
@@ -495,7 +663,7 @@ export class CardsService {
     }
 
     const updated = await this.prisma.card.update({ where: { id: cardId }, data });
-    await this.recordHistory(cardId, event, { before, after });
+    await this.recordHistory(cardId, event, { before, after, currency: card.currency });
     return this.toView(updated);
   }
 
