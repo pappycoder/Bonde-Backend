@@ -7,8 +7,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import type { Card, Transaction } from '@prisma/client';
 import { CardStatus, Prisma } from '@prisma/client';
-import { randomUUID } from 'node:crypto';
-import { encrypt } from '../../common/crypto/aes-gcm.js';
+import { randomInt, randomUUID } from 'node:crypto';
+import { decrypt, encrypt } from '../../common/crypto/aes-gcm.js';
 import { AppConfig } from '../../config/configuration.js';
 import { money } from '../../common/money/money.js';
 import { parsePaging, toPageResult } from '../../common/paging/paging.js';
@@ -101,6 +101,33 @@ export class CardsService {
     return this.toView(card);
   }
 
+  /** Sensitive credentials are only available through this owned-card read. */
+  async credentials(userId: string, cardId: string) {
+    let card = await this.assertOwnedCard(userId, cardId);
+    if (
+      !card.cardCvvEncrypted &&
+      card.issuer === 'bonde' &&
+      this.config.get('nodeEnv', { infer: true }) === 'development'
+    ) {
+      // Older local development cards predate CVV storage. Persist one once;
+      // a concurrent reader reuses the value written by the winning request.
+      const encryptedCvv = this.encrypt(randomInt(1000).toString().padStart(3, '0'));
+      const updated = await this.prisma.card.updateMany({
+        where: { id: cardId, userId, issuer: 'bonde', cardCvvEncrypted: null },
+        data: { cardCvvEncrypted: encryptedCvv },
+      });
+      card =
+        updated.count > 0
+          ? { ...card, cardCvvEncrypted: encryptedCvv }
+          : await this.assertOwnedCard(userId, cardId);
+    }
+    const key = this.config.get('encryption.cardKey', { infer: true });
+    return {
+      cardNumber: decrypt(card.cardNumberEncrypted, key),
+      cvv: card.cardCvvEncrypted ? decrypt(card.cardCvvEncrypted, key) : null,
+    };
+  }
+
   async create(
     userId: string,
     dto: {
@@ -143,6 +170,10 @@ export class CardsService {
         userId,
         providerId: provider.id,
         cardNumberEncrypted: this.encrypt(pan),
+        cardCvvEncrypted:
+          this.config.get('nodeEnv', { infer: true }) === 'development'
+            ? this.encrypt(randomInt(1000).toString().padStart(3, '0'))
+            : null,
         cardNumberLast4: last4(pan),
         cardType: dto.cardType ?? 'virtual',
         nickname: dto.nickname?.trim() || null,

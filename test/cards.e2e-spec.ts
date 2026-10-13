@@ -66,6 +66,20 @@ describe('Cards self-service (e2e)', () => {
     expect(res.body).toMatchObject({ id: SEED_CARD_ID, status: 'ACTIVE' });
   });
 
+  it('reveals credentials only to the owner and forbids caching', async () => {
+    const created = await ctx.http.post('/cards').send({ nickname: 'Credential test' }).expect(201);
+    expect(created.body).not.toHaveProperty('cardNumber');
+    expect(created.body).not.toHaveProperty('cvv');
+    const credentials = await ctx.http.get(`/cards/${created.body.id}/credentials`).expect(200);
+    expect(credentials.headers['cache-control']).toBe('no-store');
+    expect(credentials.body.cardNumber).toMatch(/^\d{16}$/);
+    expect(credentials.body.cardNumber.slice(-4)).toBe(created.body.cardNumberLast4);
+    expect(credentials.body.cvv).toBeNull();
+    await ctx.raw.get(`/api/cards/${created.body.id}/credentials`).expect(401);
+    ctx.setPrincipal({ userId: SEED_OTHER_ID });
+    await ctx.http.get(`/cards/${created.body.id}/credentials`).expect(404);
+  });
+
   it('404s a card the user does not own', async () => {
     const foreign = await seedCardFor(SEED_OTHER_ID);
     const res = await ctx.http.get(`/cards/${foreign.id}`).expect(404);

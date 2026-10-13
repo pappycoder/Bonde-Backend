@@ -83,6 +83,14 @@ This supports local agent-card creation without a live issuer. These cards are
 local records, not spendable provider-issued cards. Production and test retain
 the active-provider requirement; `POST /api/cards/issued` has no fallback.
 
+Authenticated owners can read their card number and stored CVV through
+`GET /api/cards/:id/credentials`. This separate endpoint checks ownership, records
+the access event without credential values, and sends `Cache-Control: no-store`.
+Ordinary card/list responses continue to omit credentials. Development-only local
+cards receive an encrypted development CVV on creation, or on the first credential
+read for older local cards. Provider cards use their stored provider CVV; if it is
+unavailable the endpoint returns `null`.
+
 See [`.env.example`](./.env.example) for the full reference. Key variables:
 
 | Variable | Required | Description |

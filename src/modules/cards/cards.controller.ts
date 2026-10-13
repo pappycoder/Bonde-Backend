@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Inject,
@@ -27,6 +28,7 @@ import { ActivityService } from '../activity/activity.service.js';
 import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
 import {
   CardCategoryDto,
+  CardCredentialsDto,
   CardDto,
   CardHistoryDto,
   CardMerchantDto,
@@ -104,6 +106,26 @@ export class CardsController {
     });
     await this.sendCardRegisteredBestEffort(principal, card);
     return card;
+  }
+
+  @Get(':id/credentials')
+  @Header('Cache-Control', 'no-store')
+  @ApiOperation({ summary: 'Read card credentials (authenticated owner only)' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: CardCredentialsDto })
+  @ApiErrorResponse()
+  async credentials(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    const credentials = await this.cards.credentials(principal.userId, id);
+    await this.activity.record({
+      userId: principal.userId,
+      action: 'card.credentials.view',
+      entityType: 'card',
+      entityId: id,
+    });
+    return credentials;
   }
 
   @Get(':id')

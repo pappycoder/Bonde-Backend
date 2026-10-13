@@ -19,6 +19,15 @@ import {
 const DECIMAL_PATTERN = /^\d+(\.\d{1,2})?$/;
 const CARD_TYPES = ['virtual'];
 
+/** Owner-only credentials; excluded from ordinary card/list responses. */
+export class CardCredentialsDto {
+  @ApiProperty({ description: 'Full card number for the authenticated owner' })
+  cardNumber: string;
+
+  @ApiProperty({ type: String, nullable: true, description: 'Null if no CVV was stored' })
+  cvv: string | null;
+}
+
 /** Query parameters for `GET /api/cards`. */
 export class ListCardsQueryDto {
   @ApiPropertyOptional({

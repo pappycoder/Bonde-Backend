@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { CardStatus, Prisma } from '@prisma/client';
-import { decrypt } from '../../common/crypto/aes-gcm.js';
+import { decrypt, encrypt } from '../../common/crypto/aes-gcm.js';
 import { luhnCheckDigit } from '../accounts/account-number.js';
 import { CardsService } from './cards.service.js';
 
@@ -78,6 +78,7 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     findFirst: vi.fn(async () => CARD),
     create: vi.fn(async (args) => ({ ...CARD, ...args.data })),
     update: vi.fn(async (args) => ({ ...CARD, ...args.data })),
+    updateMany: vi.fn(async (_args) => ({ count: 1 })),
     ...overrides.card,
   };
   const cardLock = {
@@ -250,6 +251,14 @@ describe('CardsService categories', () => {
 });
 
 describe('CardsService.create', () => {
+  it('stores an encrypted development CVV without exposing it in card responses', async () => {
+    const { service, card, config } = makeService();
+    config.get.mockImplementation((key) => (key === 'nodeEnv' ? 'development' : ENC_KEY));
+    const result = await service.create(USER_ID, {});
+    expect(decrypt(card.create.mock.calls[0][0].data.cardCvvEncrypted, ENC_KEY)).toMatch(/^\d{3}$/);
+    expect(result).not.toHaveProperty('cardCvvEncrypted');
+    expect(result).not.toHaveProperty('cvv');
+  });
   it('creates a virtual card with an encrypted Luhn PAN and never returns it', async () => {
     const { service, card, cardProvider, cardHistory } = makeService();
     const result = await service.create(USER_ID, { cardType: 'virtual' });
@@ -359,6 +368,89 @@ describe('CardsService.create', () => {
     expect(data.notifyLowBalance).toBe(false);
     expect(data.notifyBudgetReached).toBe(true);
     expect(result.allowTopUp).toBe(false);
+  });
+});
+
+describe('CardsService.credentials', () => {
+  it('backfills a stored CVV only for older local development cards', async () => {
+    const { service, card, config } = makeService();
+    config.get.mockImplementation((key) => (key === 'nodeEnv' ? 'development' : ENC_KEY));
+    card.findFirst.mockResolvedValue({
+      ...CARD,
+      issuer: 'bonde',
+      cardNumberEncrypted: encrypt('4242424242424242', ENC_KEY),
+      cardCvvEncrypted: null,
+    } as never);
+    const result = await service.credentials(USER_ID, CARD_ID);
+    expect(result.cvv).toMatch(/^\d{3}$/);
+    expect(card.updateMany).toHaveBeenCalledWith({
+      where: { id: CARD_ID, userId: USER_ID, issuer: 'bonde', cardCvvEncrypted: null },
+      data: { cardCvvEncrypted: expect.any(String) },
+    });
+    expect(decrypt(card.updateMany.mock.calls[0][0].data.cardCvvEncrypted, ENC_KEY)).toBe(
+      result.cvv,
+    );
+  });
+
+  it('reuses a development CVV written by a concurrent reader', async () => {
+    const { service, card, config } = makeService();
+    config.get.mockImplementation((key) => (key === 'nodeEnv' ? 'development' : ENC_KEY));
+    const source = {
+      ...CARD,
+      issuer: 'bonde',
+      cardNumberEncrypted: encrypt('4242424242424242', ENC_KEY),
+    };
+    card.findFirst
+      .mockResolvedValueOnce({ ...source, cardCvvEncrypted: null } as never)
+      .mockResolvedValueOnce({ ...source, cardCvvEncrypted: encrypt('456', ENC_KEY) } as never);
+    card.updateMany.mockResolvedValue({ count: 0 });
+    expect((await service.credentials(USER_ID, CARD_ID)).cvv).toBe('456');
+  });
+
+  it('does not invent a CVV for a provider-issued card', async () => {
+    const { service, card, config } = makeService();
+    config.get.mockImplementation((key) => (key === 'nodeEnv' ? 'development' : ENC_KEY));
+    card.findFirst.mockResolvedValue({
+      ...CARD,
+      issuer: 'flutterwave',
+      cardNumberEncrypted: encrypt('4242424242424242', ENC_KEY),
+      cardCvvEncrypted: null,
+    } as never);
+    expect((await service.credentials(USER_ID, CARD_ID)).cvv).toBeNull();
+    expect(card.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('decrypts PAN and CVV only after checking card ownership', async () => {
+    const { service, card } = makeService();
+    card.findFirst.mockResolvedValue({
+      ...CARD,
+      cardNumberEncrypted: encrypt('4242424242424242', ENC_KEY),
+      cardCvvEncrypted: encrypt('123', ENC_KEY),
+    } as never);
+    expect(await service.credentials(USER_ID, CARD_ID)).toEqual({
+      cardNumber: '4242424242424242',
+      cvv: '123',
+    });
+    expect(card.findFirst).toHaveBeenCalledWith({ where: { id: CARD_ID, userId: USER_ID } });
+  });
+
+  it('does not expose credentials for a missing or foreign card', async () => {
+    const { service, card } = makeService();
+    card.findFirst.mockResolvedValue(null);
+    await expect(service.credentials(USER_ID, CARD_ID)).rejects.toThrow(NotFoundException);
+  });
+
+  it('returns null for a legacy card without a stored CVV', async () => {
+    const { service, card } = makeService();
+    card.findFirst.mockResolvedValue({
+      ...CARD,
+      cardNumberEncrypted: encrypt('4242424242424242', ENC_KEY),
+      cardCvvEncrypted: null,
+    } as never);
+    expect(await service.credentials(USER_ID, CARD_ID)).toEqual({
+      cardNumber: '4242424242424242',
+      cvv: null,
+    });
   });
 });
 
