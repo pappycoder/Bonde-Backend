@@ -77,6 +77,12 @@ authenticated `GET /api/auth/me`. Email verification and password reset use
 
 ## Environment variables
 
+With `NODE_ENV=development`, `POST /api/cards` automatically creates or reuses
+an inactive `Bonde Development` provider record if no active provider exists.
+This supports local agent-card creation without a live issuer. These cards are
+local records, not spendable provider-issued cards. Production and test retain
+the active-provider requirement; `POST /api/cards/issued` has no fallback.
+
 See [`.env.example`](./.env.example) for the full reference. Key variables:
 
 | Variable | Required | Description |

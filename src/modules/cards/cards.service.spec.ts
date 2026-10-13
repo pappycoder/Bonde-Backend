@@ -98,6 +98,7 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
   };
   const cardProvider = {
     findFirst: vi.fn(async () => ({ id: PROVIDER_ID, isActive: true })),
+    upsert: vi.fn(async (args) => ({ ...args.create })),
     ...overrides.provider,
   };
   const cardHistory = {
@@ -127,7 +128,7 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     cardMerchant,
     transaction,
   };
-  const config = { get: vi.fn(() => ENC_KEY) };
+  const config = { get: vi.fn((key: string) => (key === 'nodeEnv' ? 'test' : ENC_KEY)) };
   const service = new CardsService(prisma as never, config as never);
   return {
     service,
@@ -138,6 +139,7 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     cardHistory,
     cardMerchant,
     transaction,
+    config,
   };
 }
 
@@ -283,6 +285,64 @@ describe('CardsService.create', () => {
     const { service, card, cardProvider } = makeService();
     cardProvider.findFirst.mockResolvedValue(null);
     await expect(service.create(USER_ID, {})).rejects.toThrow(NotFoundException);
+    expect(card.create).not.toHaveBeenCalled();
+    expect(cardProvider.upsert).not.toHaveBeenCalled();
+  });
+
+  it('prefers an existing active provider in development', async () => {
+    const { service, card, cardProvider, config } = makeService();
+    config.get.mockImplementation((key) => (key === 'nodeEnv' ? 'development' : ENC_KEY));
+
+    await service.create(USER_ID, {});
+
+    expect(card.create.mock.calls[0][0].data.providerId).toBe(PROVIDER_ID);
+    expect(cardProvider.upsert).not.toHaveBeenCalled();
+  });
+
+  it('creates an inactive fallback provider for local cards in development', async () => {
+    const { service, card, cardProvider, config } = makeService();
+    config.get.mockImplementation((key) => (key === 'nodeEnv' ? 'development' : ENC_KEY));
+    cardProvider.findFirst.mockResolvedValue(null);
+
+    await service.create(USER_ID, { nickname: 'Development card' });
+
+    const fallback = cardProvider.upsert.mock.calls[0][0];
+    expect(fallback).toEqual({
+      where: { name: 'Bonde Development' },
+      create: {
+        id: expect.any(String),
+        name: 'Bonde Development',
+        baseUrl: 'http://localhost',
+        isActive: false,
+        config: { developmentOnly: true },
+      },
+      update: {},
+    });
+    expect(card.create.mock.calls[0][0].data.providerId).toBe(fallback.create.id);
+  });
+
+  it('reuses the development provider on subsequent creates', async () => {
+    const { service, card, cardProvider, config } = makeService();
+    config.get.mockImplementation((key) => (key === 'nodeEnv' ? 'development' : ENC_KEY));
+    cardProvider.findFirst.mockResolvedValue(null);
+    cardProvider.upsert.mockResolvedValue({ id: PROVIDER_ID, isActive: false } as never);
+
+    await service.create(USER_ID, {});
+    await service.create(USER_ID, {});
+
+    expect(cardProvider.upsert).toHaveBeenCalledTimes(2);
+    for (const [args] of card.create.mock.calls) {
+      expect(args.data.providerId).toBe(PROVIDER_ID);
+    }
+  });
+
+  it('keeps production creation blocked when no active provider exists', async () => {
+    const { service, card, cardProvider, config } = makeService();
+    config.get.mockImplementation((key) => (key === 'nodeEnv' ? 'production' : ENC_KEY));
+    cardProvider.findFirst.mockResolvedValue(null);
+
+    await expect(service.create(USER_ID, {})).rejects.toThrow(NotFoundException);
+    expect(cardProvider.upsert).not.toHaveBeenCalled();
     expect(card.create).not.toHaveBeenCalled();
   });
 

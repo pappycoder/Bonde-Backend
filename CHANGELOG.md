@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Development-only provider fallback for local agent-card creation when no active
+  card provider is configured. The fallback is inactive and reused by name;
+  production, test, and provider-issued card creation still require a provider.
+
 - **Transactional email redesign**:
   - New shared design system under `src/common/mail/templates/`: `theme.ts`
     (light + dark palette, 560px card, header gradient, system font stacks),

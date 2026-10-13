@@ -116,7 +116,24 @@ export class CardsService {
       expirationDate?: string;
     },
   ) {
-    const provider = await this.prisma.cardProvider.findFirst({ where: { isActive: true } });
+    // TODO: Remove dev fallback once a real card provider is configured in production.
+    let provider = await this.prisma.cardProvider.findFirst({ where: { isActive: true } });
+    if (!provider && this.config.get('nodeEnv', { infer: true }) === 'development') {
+      // This record only satisfies the local card's foreign key; it never
+      // represents a live issuer. Keep it inactive so other environments and
+      // provider-issued card flows cannot pick it as an active provider.
+      provider = await this.prisma.cardProvider.upsert({
+        where: { name: 'Bonde Development' },
+        create: {
+          id: randomUUID(),
+          name: 'Bonde Development',
+          baseUrl: 'http://localhost',
+          isActive: false,
+          config: { developmentOnly: true },
+        },
+        update: {},
+      });
+    }
     if (!provider) throw new NotFoundException('No card provider is configured');
 
     const pan = generateLuhnPan();
