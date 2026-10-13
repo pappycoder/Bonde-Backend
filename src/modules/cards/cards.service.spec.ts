@@ -357,6 +357,59 @@ describe('CardsService.get', () => {
   });
 });
 
+describe('CardsService.listLocks usage count', () => {
+  it('counts settled card payments across the full history', async () => {
+    const { service, cardLock, transaction } = makeService();
+    cardLock.findMany.mockResolvedValue([
+      {
+        id: LOCK_ID,
+        cardId: CARD_ID,
+        lockType: 'SELF_DESTRUCT',
+        config: { usageLimit: 5 },
+        isActive: true,
+      },
+    ] as never);
+    transaction.count.mockResolvedValue(2);
+    const locks = await service.listLocks(USER_ID, CARD_ID);
+    expect(locks[0].config).toEqual({ usageLimit: 5, usageCount: 2 });
+    expect(transaction.count).toHaveBeenCalledWith({
+      where: {
+        userId: USER_ID,
+        cardId: CARD_ID,
+        type: 'PAYMENT',
+        status: 'SUCCESS',
+        approvalStatus: 'APPROVED',
+      },
+    });
+    expect(cardLock.update).not.toHaveBeenCalled();
+  });
+
+  it('uses a recorded counter when one exists', async () => {
+    const { service, cardLock, transaction } = makeService();
+    cardLock.findMany.mockResolvedValue([
+      {
+        id: LOCK_ID,
+        cardId: CARD_ID,
+        lockType: 'SELF_DESTRUCT',
+        config: { usageLimit: 5, usageCount: 0 },
+        isActive: true,
+      },
+    ] as never);
+    const locks = await service.listLocks(USER_ID, CARD_ID);
+    expect(locks[0].config).toEqual({ usageLimit: 5, usageCount: 0 });
+    expect(transaction.count).not.toHaveBeenCalled();
+  });
+
+  it('does not count usage for unrelated lock types', async () => {
+    const { service, cardLock, transaction } = makeService();
+    cardLock.findMany.mockResolvedValue([
+      { id: LOCK_ID, cardId: CARD_ID, lockType: 'MERCHANT', config: {}, isActive: true },
+    ] as never);
+    await service.listLocks(USER_ID, CARD_ID);
+    expect(transaction.count).not.toHaveBeenCalled();
+  });
+});
+
 describe('CardsService.pause', () => {
   it('pauses an active card', async () => {
     const { service, card } = makeService();

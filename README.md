@@ -99,6 +99,10 @@ with before/after values and currency for the history log. Optional `merchants`
 replaces the merchant allowlist; optional `categories` replaces allowed categories
 while preserving denied entries. The mobile Edit Rules page uses this endpoint.
 
+Self-destruct lock reads include `config.usageCount`. If no recorded counter exists,
+the API counts successful, approved card payments across the entire history for
+the mobile `current/limit` display. This read does not mutate the lock.
+
 See [`.env.example`](./.env.example) for the full reference. Key variables:
 
 | Variable | Required | Description |

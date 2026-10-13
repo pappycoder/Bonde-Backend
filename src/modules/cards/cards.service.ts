@@ -500,7 +500,22 @@ export class CardsService {
 
   async listLocks(userId: string, cardId: string) {
     await this.assertOwnedCard(userId, cardId);
-    return this.prisma.cardLock.findMany({ where: { cardId }, orderBy: { createdAt: 'asc' } });
+    const locks = await this.prisma.cardLock.findMany({
+      where: { cardId },
+      orderBy: { createdAt: 'asc' },
+    });
+    return Promise.all(
+      locks.map(async (lock) => {
+        if (lock.lockType !== LockType.SELF_DESTRUCT) return lock;
+        const config = lock.config as Record<string, unknown>;
+        if (Number.isSafeInteger(config.usageCount) && Number(config.usageCount) >= 0) return lock;
+        // Count the full card payment history, independent of UI pagination.
+        const usageCount = await this.prisma.transaction.count({
+          where: { userId, cardId, type: 'PAYMENT', status: 'SUCCESS', approvalStatus: 'APPROVED' },
+        });
+        return { ...lock, config: { ...config, usageCount } };
+      }),
+    );
   }
 
   async getLock(userId: string, cardId: string, lockId: string) {
