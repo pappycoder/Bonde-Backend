@@ -607,15 +607,43 @@ export class CardsController {
 
   @Post(':id/cancel')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Terminate a Flutterwave-issued card (balance must be zero)' })
+  @ApiOperation({ summary: 'Destroy your card (balance must be zero)' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: CardDto })
   @ApiErrorResponse()
-  cancelCard(
+  async cancelCard(
     @CurrentUser() principal: AuthPrincipal,
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ) {
-    return this.issuedCards.cancel(principal.userId, id);
+    const card = await this.cards.get(principal.userId, id);
+    if (card.issuer === 'flutterwave') return this.issuedCards.cancel(principal.userId, id);
+    const cancelled = await this.cards.cancel(principal.userId, id);
+    await this.activity.record({
+      userId: principal.userId,
+      action: 'card.destroy',
+      entityType: 'card',
+      entityId: id,
+    });
+    return cancelled;
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete a destroyed card; transaction records are retained' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: CardsDeleteResponseDto })
+  @ApiErrorResponse()
+  async deleteCard(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    const result = await this.cards.delete(principal.userId, id);
+    await this.activity.record({
+      userId: principal.userId,
+      action: 'card.delete',
+      entityType: 'card',
+      entityId: id,
+    });
+    return result;
   }
 
   @Post(':id/transactions/sync')

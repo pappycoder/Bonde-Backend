@@ -391,6 +391,59 @@ export class CardsService {
     return this.toView(updated);
   }
 
+  async cancel(userId: string, cardId: string) {
+    const card = await this.assertOwnedCard(userId, cardId);
+    if (card.status === CardStatus.CANCELLED) return this.toView(card);
+    if (card.issuer !== 'bonde' || card.externalReferenceId) {
+      throw new BadRequestException('This card must be destroyed through its issuer');
+    }
+    if (new Prisma.Decimal(card.balance).gt(0)) {
+      throw new BadRequestException('Card balance must be zero before destroying');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const result = await tx.card.updateMany({
+        where: {
+          id: cardId,
+          userId,
+          issuer: 'bonde',
+          externalReferenceId: null,
+          balance: 0,
+          status: { not: CardStatus.CANCELLED },
+        },
+        data: { status: CardStatus.CANCELLED },
+      });
+      if (result.count !== 1) {
+        const current = await tx.card.findFirst({ where: { id: cardId, userId } });
+        if (!current) throw new NotFoundException('Card not found');
+        if (current.status === CardStatus.CANCELLED) return this.toView(current);
+        throw new BadRequestException('Card is no longer eligible for destruction');
+      }
+      await tx.cardHistory.create({
+        data: { id: randomUUID(), cardId, event: 'cancel', changes: {} },
+      });
+      const updated = await tx.card.findFirstOrThrow({ where: { id: cardId, userId } });
+      return this.toView(updated);
+    });
+  }
+
+  async delete(userId: string, cardId: string) {
+    const card = await this.assertOwnedCard(userId, cardId);
+    if (card.status !== CardStatus.CANCELLED) {
+      throw new BadRequestException('Destroy this card before deleting it');
+    }
+    if (new Prisma.Decimal(card.balance).gt(0)) {
+      throw new BadRequestException('Card balance must be zero before deleting');
+    }
+    // Transaction.cardId uses ON DELETE SET NULL: payments and their approvals
+    // remain in the ledger. Only the destroyed card and its rules are removed.
+    const result = await this.prisma.card.deleteMany({
+      where: { id: cardId, userId, status: CardStatus.CANCELLED, balance: 0 },
+    });
+    if (result.count !== 1)
+      throw new BadRequestException('Card is no longer eligible for deletion');
+    return { deleted: true as const, id: cardId };
+  }
+
   async updateLimit(
     userId: string,
     cardId: string,

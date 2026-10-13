@@ -80,6 +80,7 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     create: vi.fn(async (args) => ({ ...CARD, ...args.data })),
     update: vi.fn(async (args) => ({ ...CARD, ...args.data })),
     updateMany: vi.fn(async (_args) => ({ count: 1 })),
+    deleteMany: vi.fn(async (_args) => ({ count: 1 })),
     ...overrides.card,
   };
   const cardLock = {
@@ -407,6 +408,89 @@ describe('CardsService.listLocks usage count', () => {
     ] as never);
     await service.listLocks(USER_ID, CARD_ID);
     expect(transaction.count).not.toHaveBeenCalled();
+  });
+});
+
+describe('CardsService destruction and deletion', () => {
+  it('destroys local cards and records the cancellation', async () => {
+    const { service, card, cardHistory } = makeService();
+    card.findFirstOrThrow.mockResolvedValue({ ...CARD, status: CardStatus.CANCELLED });
+    const result = await service.cancel(USER_ID, CARD_ID);
+    expect(result.status).toBe(CardStatus.CANCELLED);
+    expect(card.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: CARD_ID,
+          userId: USER_ID,
+          issuer: 'bonde',
+          balance: 0,
+        }),
+        data: { status: CardStatus.CANCELLED },
+      }),
+    );
+    expect(cardHistory.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ event: 'cancel', cardId: CARD_ID }),
+      }),
+    );
+  });
+
+  it('does not locally cancel provider cards', async () => {
+    const { service, card } = makeService();
+    card.findFirst.mockResolvedValue({ ...CARD, issuer: 'flutterwave' });
+    await expect(service.cancel(USER_ID, CARD_ID)).rejects.toThrow(BadRequestException);
+    expect(card.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('makes local destruction idempotent', async () => {
+    const { service, card, cardHistory } = makeService();
+    card.findFirst.mockResolvedValue({ ...CARD, status: CardStatus.CANCELLED });
+    expect((await service.cancel(USER_ID, CARD_ID)).status).toBe(CardStatus.CANCELLED);
+    expect(card.updateMany).not.toHaveBeenCalled();
+    expect(cardHistory.create).not.toHaveBeenCalled();
+  });
+
+  for (const status of [CardStatus.ACTIVE, CardStatus.PAUSED]) {
+    it(`requires destruction before deleting ${status} cards`, async () => {
+      const { service, card } = makeService();
+      card.findFirst.mockResolvedValue({ ...CARD, status });
+      await expect(service.delete(USER_ID, CARD_ID)).rejects.toThrow(
+        'Destroy this card before deleting it',
+      );
+      expect(card.deleteMany).not.toHaveBeenCalled();
+    });
+  }
+
+  it('deletes only owned, destroyed cards with zero balance', async () => {
+    const { service, card } = makeService();
+    card.findFirst.mockResolvedValue({ ...CARD, status: CardStatus.CANCELLED });
+    expect(await service.delete(USER_ID, CARD_ID)).toEqual({ deleted: true, id: CARD_ID });
+    expect(card.deleteMany).toHaveBeenCalledWith({
+      where: { id: CARD_ID, userId: USER_ID, status: CardStatus.CANCELLED, balance: 0 },
+    });
+  });
+
+  it('does not destroy or delete a card with remaining funds', async () => {
+    const { service, card } = makeService();
+    card.findFirst.mockResolvedValue({ ...CARD, balance: new Prisma.Decimal('100') } as never);
+    await expect(service.cancel(USER_ID, CARD_ID)).rejects.toThrow(BadRequestException);
+    card.findFirst.mockResolvedValue({
+      ...CARD,
+      balance: new Prisma.Decimal('100'),
+      status: CardStatus.CANCELLED,
+    } as never);
+    await expect(service.delete(USER_ID, CARD_ID)).rejects.toThrow(BadRequestException);
+    expect(card.updateMany).not.toHaveBeenCalled();
+    expect(card.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('blocks a foreign card from destruction and deletion', async () => {
+    const { service, card } = makeService();
+    card.findFirst.mockResolvedValue(null as never);
+    await expect(service.cancel(USER_ID, CARD_ID)).rejects.toThrow(NotFoundException);
+    await expect(service.delete(USER_ID, CARD_ID)).rejects.toThrow(NotFoundException);
+    expect(card.updateMany).not.toHaveBeenCalled();
+    expect(card.deleteMany).not.toHaveBeenCalled();
   });
 });
 

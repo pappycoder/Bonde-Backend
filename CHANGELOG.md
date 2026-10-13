@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Local card destruction and owner-scoped deletion after destruction. Deletion
+  preserves transaction records and requires zero remaining card balance.
+
 - Atomic owner-scoped card rule editing via `PATCH /api/cards/:id/rules`, with
   validation, merchant/category replacement, preserved usage counters, and
   before/after history snapshots.

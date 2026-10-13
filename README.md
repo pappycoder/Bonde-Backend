@@ -103,6 +103,12 @@ Self-destruct lock reads include `config.usageCount`. If no recorded counter exi
 the API counts successful, approved card payments across the entire history for
 the mobile `current/limit` display. This read does not mutate the lock.
 
+`POST /api/cards/:id/cancel` destroys local cards or terminates provider-issued
+cards through their issuer. `DELETE /api/cards/:id` only removes an owned card
+after its status is `CANCELLED`. Both require zero remaining balance. Card
+deletion retains transactions and approvals; transaction card references become
+null, and the deletion is recorded in the audit log.
+
 See [`.env.example`](./.env.example) for the full reference. Key variables:
 
 | Variable | Required | Description |

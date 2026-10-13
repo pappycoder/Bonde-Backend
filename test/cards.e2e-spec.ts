@@ -165,6 +165,37 @@ describe('Cards self-service (e2e)', () => {
     await ctx.http.patch(`/cards/${cancelled.id}/pause`).expect(400);
   });
 
+  it('requires destruction before deletion and retains transactions afterwards', async () => {
+    const transaction = await ctx.prisma.transaction.findUniqueOrThrow({
+      where: { id: SEED_TRANSACTION_ID },
+    });
+    await ctx.http.delete(`/cards/${SEED_CARD_ID}`).expect(400);
+    const destroyed = await ctx.http.post(`/cards/${SEED_CARD_ID}/cancel`).expect(200);
+    expect(destroyed.body.status).toBe('CANCELLED');
+    await ctx.http.post(`/cards/${SEED_CARD_ID}/cancel`).expect(200);
+    const history = await ctx.http.get(`/cards/${SEED_CARD_ID}/history`).expect(200);
+    expect(
+      history.body.filter((entry: { event: string }) => entry.event === 'cancel'),
+    ).toHaveLength(1);
+    const deleted = await ctx.http.delete(`/cards/${SEED_CARD_ID}`).expect(200);
+    expect(deleted.body).toEqual({ deleted: true, id: SEED_CARD_ID });
+    await ctx.http.get(`/cards/${SEED_CARD_ID}`).expect(404);
+    const retained = await ctx.prisma.transaction.findUniqueOrThrow({
+      where: { id: SEED_TRANSACTION_ID },
+    });
+    expect(retained.cardId).toBeNull();
+    expect(retained.amount.toString()).toBe(transaction.amount.toString());
+    expect(retained.userId).toBe(transaction.userId);
+  });
+
+  it('protects destruction and deletion with authentication and ownership', async () => {
+    await ctx.raw.post(`/api/cards/${SEED_CARD_ID}/cancel`).expect(401);
+    await ctx.raw.delete(`/api/cards/${SEED_CARD_ID}`).expect(401);
+    ctx.setPrincipal({ userId: SEED_OTHER_ID });
+    await ctx.http.post(`/cards/${SEED_CARD_ID}/cancel`).expect(404);
+    await ctx.http.delete(`/cards/${SEED_CARD_ID}`).expect(404);
+  });
+
   it('changes card limits and requires at least one', async () => {
     const ok = await ctx.http
       .patch(`/cards/${SEED_CARD_ID}/limit`)
