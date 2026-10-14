@@ -16,8 +16,9 @@ export interface DepositAccountView {
 
 export interface WithdrawalRequestInput {
   amount: string;
-  accountNumber: string;
-  bankCode: string;
+  bankAccountId?: string;
+  accountNumber?: string;
+  bankCode?: string;
   currency?: string;
   narration?: string;
 }

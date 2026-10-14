@@ -38,6 +38,7 @@ type AnyPrisma = PrismaService | PrismaClient;
 const PHYSICAL_TABLES = [
   'provider_events',
   'virtual_accounts',
+  'withdrawal_bank_accounts',
   'transaction_approvals',
   'transactions',
   'transaction_thresholds',

@@ -19,6 +19,11 @@ import {
  * domain services run on top.
  */
 export interface FlutterwaveGateway {
+  listBanks(): Promise<Array<{ name: string; code: string }>>;
+  resolveBankAccount(
+    bankCode: string,
+    accountNumber: string,
+  ): Promise<{ accountNumber: string; accountName: string }>;
   createVirtualAccount(params: CreateVirtualAccountParams): Promise<VirtualAccountData>;
   initiateTransfer(params: InitiateTransferParams): Promise<TransferData>;
   getTransfer(transferId: number): Promise<TransferData>;
@@ -51,6 +56,25 @@ export class FlutterwaveClient implements FlutterwaveGateway {
     const fw = config.get('flutterwave');
     this.baseUrl = fw.baseUrl.replace(/\/+$/, '');
     this.secretKey = fw.secretKey;
+  }
+
+  async listBanks() {
+    const banks = await this.request<Array<{ name: string; code: string }>>('/banks/NG');
+    return banks.map(({ name, code }) => ({ name, code: String(code) }));
+  }
+
+  async resolveBankAccount(bankCode: string, accountNumber: string) {
+    const data = await this.request<{ account_number: string; account_name: string }>(
+      '/accounts/resolve',
+      {
+        method: 'POST',
+        body: { account_bank: bankCode, account_number: accountNumber },
+      },
+    );
+    if (!data.account_name?.trim() || data.account_number !== accountNumber) {
+      throw new FlutterwaveError('VALIDATION', 'Bank account could not be verified');
+    }
+    return { accountNumber: data.account_number, accountName: data.account_name };
   }
 
   async createVirtualAccount(params: CreateVirtualAccountParams): Promise<VirtualAccountData> {

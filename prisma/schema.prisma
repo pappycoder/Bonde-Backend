@@ -187,6 +187,7 @@ model Profile {
   transactionApprovals TransactionApproval[]
   virtualAccounts     VirtualAccount[]
   authSessions        AuthSession[]
+  withdrawalBankAccounts WithdrawalBankAccount[]
   twoFactor           TwoFactor?
   invitesIssued       UserInvite[]  @relation("InviteIssuer")
   broadcastsSent      Broadcast[]   @relation("BroadcastSender")
@@ -302,6 +303,23 @@ model Account {
   wallets   Wallet[]
 
   @@map("accounts")
+}
+
+/// Provider-verified external bank accounts saved by the authenticated owner.
+model WithdrawalBankAccount {
+  id            String   @id @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  bankCode      String   @map("bank_code") @db.VarChar(10)
+  bankName      String   @map("bank_name") @db.VarChar(255)
+  accountNumber String   @map("account_number") @db.VarChar(10)
+  accountName   String   @map("account_name") @db.VarChar(255)
+  verifiedAt    DateTime @map("verified_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  user          Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, bankCode, accountNumber])
+  @@map("withdrawal_bank_accounts")
 }
 
 /// Wallet linked 1:1 to an account. Balance is authoritative (local).

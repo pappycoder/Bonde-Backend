@@ -1,4 +1,14 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Param,
+  ParseUUIDPipe,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -13,7 +23,18 @@ import { ApiErrorResponse } from '../../common/errors/api-error-response.decorat
 import { StrictThrottle } from '../../common/throttling/strict-throttle.decorator.js';
 import { VirtualAccountsService } from './virtual-accounts.service.js';
 import { WithdrawalsService } from './withdrawals.service.js';
-import { CreateWithdrawalDto, DepositAccountDto, WithdrawalResponseDto } from './funding.dto.js';
+import {
+  BankDto,
+  SavedBankAccountDto,
+  DeleteBankAccountResponseDto,
+  ResolveBankAccountDto,
+  ResolvedBankAccountDto,
+  CreateWithdrawalDto,
+  DepositAccountDto,
+  WithdrawalResponseDto,
+} from './funding.dto.js';
+
+import { BankAccountsService } from './bank-accounts.service.js';
 
 /**
  * Wallet funding surface: read the user's deposit account (a Flutterwave
@@ -27,7 +48,54 @@ export class FundingController {
     private readonly virtualAccounts: VirtualAccountsService,
     private readonly withdrawals: WithdrawalsService,
     private readonly activity: ActivityService,
+    private readonly banks: BankAccountsService,
   ) {}
+
+  @Get('bank-accounts')
+  @ApiOperation({ summary: 'List your saved withdrawal bank accounts' })
+  @ApiOkResponse({ type: [SavedBankAccountDto] })
+  @ApiErrorResponse()
+  savedBankAccounts(@CurrentUser() principal: AuthPrincipal) {
+    return this.banks.saved(principal.userId);
+  }
+
+  @Post('bank-accounts')
+  @StrictThrottle()
+  @ApiOperation({ summary: 'Verify and save a withdrawal bank account for your user' })
+  @ApiCreatedResponse({ type: SavedBankAccountDto })
+  @ApiErrorResponse()
+  saveBankAccount(@CurrentUser() principal: AuthPrincipal, @Body() dto: ResolveBankAccountDto) {
+    return this.banks.save(principal.userId, dto.bankCode, dto.accountNumber);
+  }
+
+  @Delete('bank-accounts/:id')
+  @ApiOperation({ summary: 'Remove one of your saved withdrawal bank accounts' })
+  @ApiOkResponse({ type: DeleteBankAccountResponseDto })
+  @ApiErrorResponse()
+  removeBankAccount(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.banks.remove(principal.userId, id);
+  }
+
+  @Get('banks')
+  @ApiOperation({ summary: 'List supported Nigerian withdrawal banks' })
+  @ApiOkResponse({ type: [BankDto] })
+  @ApiErrorResponse()
+  listBanks() {
+    return this.banks.list();
+  }
+
+  @Post('resolve-account')
+  @StrictThrottle()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify a Nigerian withdrawal bank account' })
+  @ApiOkResponse({ type: ResolvedBankAccountDto })
+  @ApiErrorResponse()
+  resolveAccount(@Body() dto: ResolveBankAccountDto) {
+    return this.banks.resolve(dto.bankCode, dto.accountNumber);
+  }
 
   @Get('deposit-account')
   @ApiOperation({ summary: 'Get your funding virtual account (creates one per user)' })

@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BadGatewayException, BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma, ProviderEventStatus, TransactionStatus } from '@prisma/client';
 import { WithdrawalsService } from './withdrawals.service.js';
 import type { TransferDisburseData } from '../flutterwave/flutterwave.types.js';
@@ -48,7 +53,14 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     update: vi.fn(async (args) => ({ id: WALLET_ID, ...args.data })),
     ...overrides.wallet,
   };
-  const delegates = { providerEvent, transaction, transactionThreshold, wallet };
+  const withdrawalBankAccount = { findFirst: vi.fn(async () => null) };
+  const delegates = {
+    providerEvent,
+    transaction,
+    transactionThreshold,
+    wallet,
+    withdrawalBankAccount,
+  };
   const prisma = {
     ...delegates,
     $transaction: vi.fn(async (arg: unknown) => {
@@ -59,7 +71,16 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
   const client = { initiateTransfer: vi.fn(async () => ({ status: 'NEW' })) };
   const activity = { record: vi.fn(async () => undefined) };
   const service = new WithdrawalsService(prisma as never, activity as never, client as never);
-  return { service, prisma, client, activity, transaction, wallet, providerEvent };
+  return {
+    service,
+    prisma,
+    client,
+    activity,
+    transaction,
+    wallet,
+    providerEvent,
+    withdrawalBankAccount,
+  };
 }
 
 const DTO = {
@@ -223,5 +244,35 @@ describe('WithdrawalsService.handleTransferReversal', () => {
       expect.objectContaining({ data: { status: TransactionStatus.FAIL } }),
     );
     expect(wallet.update).toHaveBeenCalled();
+  });
+});
+
+describe('Saved bank withdrawals', () => {
+  it('uses stored details for an account owned by the authenticated user', async () => {
+    const { service, withdrawalBankAccount, client } = makeService();
+    withdrawalBankAccount.findFirst.mockResolvedValue({
+      accountNumber: '0690000034',
+      bankCode: '044',
+    } as never);
+    await service.request(USER_ID, {
+      amount: '2000.00',
+      bankAccountId: 'saved-account',
+      accountNumber: 'injected-number',
+      bankCode: 'injected-code',
+    });
+    expect(withdrawalBankAccount.findFirst).toHaveBeenCalledWith({
+      where: { id: 'saved-account', userId: USER_ID },
+    });
+    expect(client.initiateTransfer).toHaveBeenCalledWith(
+      expect.objectContaining({ accountNumber: '0690000034', accountBank: '044' }),
+    );
+  });
+  it('rejects another user account before reserving money or calling the provider', async () => {
+    const { service, prisma, client } = makeService();
+    await expect(
+      service.request(USER_ID, { amount: '2000.00', bankAccountId: 'not-owned' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(client.initiateTransfer).not.toHaveBeenCalled();
   });
 });

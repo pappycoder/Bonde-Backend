@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, Matches, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsOptional, Matches, MaxLength, IsUUID, ValidateIf } from 'class-validator';
 
 const DECIMAL_PATTERN = /^\d+(\.\d{1,2})?$/;
 const CURRENCY_PATTERN = /^[A-Z]{3}$/;
@@ -33,15 +33,25 @@ export class CreateWithdrawalDto {
   @Matches(DECIMAL_PATTERN, { message: 'amount must be a decimal with up to 2 places' })
   amount: string;
 
-  @ApiProperty({ example: '058' })
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description: 'An account saved by this authenticated user',
+  })
+  @IsOptional()
+  @IsUUID('4')
+  bankAccountId?: string;
+
+  @ApiPropertyOptional({ example: '0690000034' })
+  @ValidateIf((dto: CreateWithdrawalDto) => !dto.bankAccountId || dto.accountNumber !== undefined)
   @IsNotEmpty()
   @Matches(/^\d{3,10}$/, { message: 'accountNumber must be a bank account number' })
-  accountNumber: string;
+  accountNumber?: string;
 
-  @ApiProperty({ example: '044' })
+  @ApiPropertyOptional({ example: '044' })
+  @ValidateIf((dto: CreateWithdrawalDto) => !dto.bankAccountId || dto.bankCode !== undefined)
   @IsNotEmpty()
   @MaxLength(10)
-  bankCode: string;
+  bankCode?: string;
 
   @ApiPropertyOptional({ example: 'NGN', default: 'NGN' })
   @IsOptional()
@@ -66,4 +76,49 @@ export class WithdrawalResponseDto {
 
   @ApiProperty({ example: 'PENDING' })
   status: string;
+}
+
+export class ResolveBankAccountDto {
+  @ApiProperty({ example: '044' })
+  @Matches(/^\d{3,10}$/)
+  bankCode: string;
+
+  @ApiProperty({ example: '0690000034' })
+  @Matches(/^\d{10}$/)
+  accountNumber: string;
+}
+
+export class BankDto {
+  @ApiProperty({ example: 'Access Bank' })
+  name: string;
+
+  @ApiProperty({ example: '044' })
+  code: string;
+}
+
+export class ResolvedBankAccountDto {
+  @ApiProperty({ example: '0690000034' })
+  accountNumber: string;
+
+  @ApiProperty({ example: 'BONDE USER' })
+  accountName: string;
+}
+
+export class SavedBankAccountDto extends ResolvedBankAccountDto {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+  @ApiProperty({ example: '044' })
+  bankCode: string;
+  @ApiProperty({ example: 'Access Bank' })
+  bankName: string;
+  @ApiProperty({ format: 'date-time' })
+  verifiedAt: Date;
+  @ApiProperty({ format: 'date-time' })
+  createdAt: Date;
+}
+export class DeleteBankAccountResponseDto {
+  @ApiProperty({ example: true })
+  deleted: boolean;
+  @ApiProperty({ format: 'uuid' })
+  id: string;
 }

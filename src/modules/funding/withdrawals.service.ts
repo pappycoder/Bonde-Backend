@@ -69,6 +69,19 @@ export class WithdrawalsService {
       throw new ConflictException('A withdrawal is already in progress');
     }
 
+    let accountNumber = dto.accountNumber;
+    let bankCode = dto.bankCode;
+    if (dto.bankAccountId) {
+      const saved = await this.prisma.withdrawalBankAccount.findFirst({
+        where: { id: dto.bankAccountId, userId },
+      });
+      if (!saved) throw new NotFoundException('Saved bank account not found');
+      accountNumber = saved.accountNumber;
+      bankCode = saved.bankCode;
+    }
+    if (!accountNumber || !bankCode)
+      throw new BadRequestException('Choose a withdrawal bank account');
+
     const thresholdWarning = await this.computeThresholdWarning(userId, amount);
 
     const reference = `bonde_wd_${randomUUID()}`;
@@ -83,8 +96,8 @@ export class WithdrawalsService {
 
     try {
       await this.client.initiateTransfer({
-        accountBank: dto.bankCode,
-        accountNumber: dto.accountNumber,
+        accountBank: bankCode,
+        accountNumber,
         amount: Number(amount),
         currency,
         reference,

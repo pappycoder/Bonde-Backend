@@ -5,6 +5,7 @@ import { FLUTTERWAVE_CLIENT } from '../src/modules/flutterwave/flutterwave.clien
 import {
   bootE2EApp,
   SEED_USER_ID,
+  SEED_OTHER_ID,
   seedBaseFixtures,
   truncateAll,
   type BootedE2EApp,
@@ -52,6 +53,68 @@ describe('Funding (deposit accounts, withdrawals, webhooks) e2e', () => {
     const res = await ctx.http.get('/wallet').expect(200);
     return res.body.balance;
   }
+
+  describe('withdrawal bank discovery and verification', () => {
+    it('bank listing requires authentication', async () => {
+      await ctx.raw.get('/wallet/banks').expect(401);
+      const response = await ctx.http.get('/wallet/banks').expect(200);
+      expect(response.body).toEqual([{ name: 'Test Bank', code: '044' }]);
+    });
+    it('account verification requires authentication and maps verified details', async () => {
+      const body = { bankCode: '044', accountNumber: '0690000034' };
+      await ctx.raw.post('/wallet/resolve-account').send(body).expect(401);
+      const response = await ctx.http.post('/wallet/resolve-account').send(body).expect(200);
+      expect(response.body).toEqual({ accountNumber: '0690000034', accountName: 'TEST USER' });
+    });
+    it('rejects invalid bank codes and account numbers', async () => {
+      await ctx.http
+        .post('/wallet/resolve-account')
+        .send({ bankCode: 'ACCESS', accountNumber: '123' })
+        .expect(400);
+    });
+  });
+
+  describe('user-linked withdrawal accounts', () => {
+    it('persists a verified account and deduplicates repeated saves for its owner', async () => {
+      const body = { bankCode: '044', accountNumber: '0690000034' };
+      const first = await ctx.http.post('/wallet/bank-accounts').send(body).expect(201);
+      const second = await ctx.http.post('/wallet/bank-accounts').send(body).expect(201);
+      expect(second.body.id).toBe(first.body.id);
+      expect(
+        await ctx.prisma.withdrawalBankAccount.findUnique({ where: { id: first.body.id } }),
+      ).toMatchObject({ userId: SEED_USER_ID });
+      const listed = await ctx.http.get('/wallet/bank-accounts').expect(200);
+      expect(listed.body).toHaveLength(1);
+      expect(listed.body[0]).toMatchObject({
+        id: first.body.id,
+        bankName: 'Test Bank',
+        accountName: 'TEST USER',
+      });
+    });
+    it('other users cannot list or remove an owner account', async () => {
+      const saved = await ctx.http
+        .post('/wallet/bank-accounts')
+        .send({ bankCode: '044', accountNumber: '0690000034' })
+        .expect(201);
+      ctx.setPrincipal({ userId: SEED_OTHER_ID });
+      expect((await ctx.http.get('/wallet/bank-accounts').expect(200)).body).toEqual([]);
+      await ctx.http.delete(`/wallet/bank-accounts/${saved.body.id}`).expect(404);
+      expect(await ctx.prisma.withdrawalBankAccount.count()).toBe(1);
+    });
+    it('withdraws to the authenticated owner saved account ID', async () => {
+      const saved = await ctx.http
+        .post('/wallet/bank-accounts')
+        .send({ bankCode: '044', accountNumber: '0690000034' })
+        .expect(201);
+      await ctx.http
+        .post('/wallet/withdrawals')
+        .send({ bankAccountId: saved.body.id, amount: '100.00' })
+        .expect(201);
+      expect(stub.initiateTransfer).toHaveBeenCalledWith(
+        expect.objectContaining({ accountNumber: '0690000034', accountBank: '044' }),
+      );
+    });
+  });
 
   describe('GET /wallet/deposit-account', () => {
     it('returns an authed-required virtual account and reuses it across calls', async () => {

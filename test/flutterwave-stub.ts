@@ -37,6 +37,12 @@ export function makeFlutterwaveStub() {
   });
 
   const stub: FlutterwaveGateway = {
+    async listBanks() {
+      return [{ name: 'Test Bank', code: '044' }];
+    },
+    async resolveBankAccount(_bankCode, accountNumber) {
+      return { accountNumber, accountName: 'TEST USER' };
+    },
     createVirtualAccount: vi.fn(
       async (params: CreateVirtualAccountParams): Promise<VirtualAccountData> => ({
         id: nextId++,

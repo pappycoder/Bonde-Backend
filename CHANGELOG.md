@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- User-linked, provider-verified withdrawal bank accounts with owner-scoped
+  listing, saving and removal. Withdrawals accept a saved account ID and use
+  owner-checked bank details stored on the server.
+
+- Authenticated wallet bank listing and account-name verification through
+  Flutterwave (`GET /api/wallet/banks`, `POST /api/wallet/resolve-account`).
+
 - Local card destruction and owner-scoped deletion after destruction. Deletion
   preserves transaction records and requires zero remaining card balance.
 
