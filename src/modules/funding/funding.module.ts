@@ -1,3 +1,4 @@
+import { WalletInsightsService } from './wallet-insights.service.js';
 import { BankAccountsService } from './bank-accounts.service.js';
 import { Module } from '@nestjs/common';
 import { FlutterwaveModule } from '../flutterwave/flutterwave.module.js';
@@ -17,7 +18,13 @@ import { WithdrawalsService } from './withdrawals.service.js';
 @Module({
   imports: [FlutterwaveModule, ActivityModule],
   controllers: [FlutterwaveWebhookController, FundingController],
-  providers: [BankAccountsService, VirtualAccountsService, DepositsService, WithdrawalsService],
+  providers: [
+    WalletInsightsService,
+    BankAccountsService,
+    VirtualAccountsService,
+    DepositsService,
+    WithdrawalsService,
+  ],
   exports: [DepositsService, WithdrawalsService],
 })
 export class FundingModule {}

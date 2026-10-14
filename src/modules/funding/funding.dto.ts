@@ -1,5 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, Matches, MaxLength, IsUUID, ValidateIf } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsOptional,
+  Matches,
+  MaxLength,
+  IsUUID,
+  ValidateIf,
+  IsIn,
+} from 'class-validator';
 
 const DECIMAL_PATTERN = /^\d+(\.\d{1,2})?$/;
 const CURRENCY_PATTERN = /^[A-Z]{3}$/;
@@ -121,4 +129,43 @@ export class DeleteBankAccountResponseDto {
   deleted: boolean;
   @ApiProperty({ format: 'uuid' })
   id: string;
+}
+
+export class UpdateMonthlyBudgetDto {
+  @ApiProperty({ example: '5000.00' })
+  @Matches(/^\d{1,13}(\.\d{1,2})?$/)
+  monthlyBudget: string;
+}
+export class CategorizeWalletTransactionDto {
+  @ApiProperty({
+    enum: ['GROCERIES', 'ENTERTAINMENT', 'TRAVEL', 'DINING', 'SHOPPING', 'ELECTRICITY'],
+  })
+  @IsIn(['GROCERIES', 'ENTERTAINMENT', 'TRAVEL', 'DINING', 'SHOPPING', 'ELECTRICITY'])
+  category: string;
+}
+export class WalletCategoryResponseDto {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+  @ApiProperty({ example: 'GROCERIES' })
+  category: string;
+}
+export class WalletBudgetAllocationDto {
+  id: string;
+  cardName: string;
+  last4: string;
+  monthlyLimit: string;
+  spent: string;
+  lockTypes: string[];
+}
+export class WalletBudgetDto {
+  walletId: string;
+  currency: string;
+  @ApiProperty({ nullable: true, type: String, example: '5000.00' })
+  monthlyBudget: string | null;
+  spent: string;
+  periodStart: string;
+  resetAt: string;
+  daysRemaining: number;
+  @ApiProperty({ type: [WalletBudgetAllocationDto] })
+  allocations: WalletBudgetAllocationDto[];
 }

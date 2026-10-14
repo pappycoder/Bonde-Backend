@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- User-scoped monthly wallet budget targets and current-month card allocation
+  totals, plus atomic transaction category assignment that preserves financial
+  and provider metadata.
+
 - User-linked, provider-verified withdrawal bank accounts with owner-scoped
   listing, saving and removal. Withdrawals accept a saved account ID and use
   owner-checked bank details stored on the server.

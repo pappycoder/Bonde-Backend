@@ -1,3 +1,4 @@
+import { WalletInsightsService } from './wallet-insights.service.js';
 import {
   Body,
   Controller,
@@ -8,6 +9,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Patch,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -25,6 +27,10 @@ import { VirtualAccountsService } from './virtual-accounts.service.js';
 import { WithdrawalsService } from './withdrawals.service.js';
 import {
   BankDto,
+  WalletBudgetDto,
+  UpdateMonthlyBudgetDto,
+  CategorizeWalletTransactionDto,
+  WalletCategoryResponseDto,
   SavedBankAccountDto,
   DeleteBankAccountResponseDto,
   ResolveBankAccountDto,
@@ -49,7 +55,44 @@ export class FundingController {
     private readonly withdrawals: WithdrawalsService,
     private readonly activity: ActivityService,
     private readonly banks: BankAccountsService,
+    private readonly insights: WalletInsightsService,
   ) {}
+
+  @Get('budget')
+  @ApiOperation({ summary: 'Read your monthly budget and card allocations' })
+  @ApiOkResponse({ type: WalletBudgetDto })
+  @ApiErrorResponse()
+  budget(@CurrentUser() principal: AuthPrincipal) {
+    return this.insights.budget(principal.userId);
+  }
+
+  @Patch('budget')
+  @ApiOperation({ summary: 'Update your monthly wallet budget target' })
+  @ApiOkResponse({ type: WalletBudgetDto })
+  @ApiErrorResponse()
+  async updateBudget(@CurrentUser() principal: AuthPrincipal, @Body() dto: UpdateMonthlyBudgetDto) {
+    const budget = await this.insights.updateBudget(principal.userId, dto.monthlyBudget);
+    await this.activity.record({
+      userId: principal.userId,
+      action: 'wallet.budget.update',
+      entityType: 'wallet',
+      entityId: budget.walletId,
+      metadata: { monthlyBudget: dto.monthlyBudget },
+    });
+    return budget;
+  }
+
+  @Patch('transactions/:id/category')
+  @ApiOperation({ summary: 'Categorize one of your outgoing wallet transactions' })
+  @ApiOkResponse({ type: WalletCategoryResponseDto })
+  @ApiErrorResponse()
+  categorize(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: CategorizeWalletTransactionDto,
+  ) {
+    return this.insights.categorize(principal.userId, id, dto.category);
+  }
 
   @Get('bank-accounts')
   @ApiOperation({ summary: 'List your saved withdrawal bank accounts' })

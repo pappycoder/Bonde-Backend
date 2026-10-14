@@ -327,6 +327,7 @@ model Wallet {
   id        String   @id @db.Uuid
   accountId String   @unique @map("account_id") @db.Uuid
   balance   Decimal  @default(0) @db.Decimal(15, 2)
+  monthlyBudget Decimal? @map("monthly_budget") @db.Decimal(15, 2)
   currency  String   @default("NGN") @db.VarChar(3)
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")

@@ -116,6 +116,54 @@ describe('Funding (deposit accounts, withdrawals, webhooks) e2e', () => {
     });
   });
 
+  describe('wallet budget and categorization', () => {
+    it('persists a monthly budget on the authenticated owner wallet', async () => {
+      const result = await ctx.http
+        .patch('/wallet/budget')
+        .send({ monthlyBudget: '5000.25' })
+        .expect(200);
+      expect(result.body).toMatchObject({ monthlyBudget: '5000.25', currency: 'NGN' });
+      expect((await ctx.http.get('/wallet/budget').expect(200)).body.monthlyBudget).toBe('5000.25');
+      ctx.setPrincipal({ userId: SEED_OTHER_ID });
+      await ctx.http.patch('/wallet/budget').send({ monthlyBudget: '7000.00' }).expect(404);
+    });
+    it('categorization preserves financial/provider metadata and rejects another owner', async () => {
+      const transaction = await ctx.prisma.transaction.findFirstOrThrow({
+        where: { userId: SEED_USER_ID },
+      });
+      await ctx.prisma.transaction.update({
+        where: { id: transaction.id },
+        data: { type: 'PAYMENT', metadata: { providerReference: 'ref-1', retained: true } },
+      });
+      await ctx.http
+        .patch(`/wallet/transactions/${transaction.id}/category`)
+        .send({ category: 'GROCERIES' })
+        .expect(200);
+      const updated = await ctx.prisma.transaction.findUniqueOrThrow({
+        where: { id: transaction.id },
+      });
+      expect(updated.metadata).toEqual({
+        providerReference: 'ref-1',
+        retained: true,
+        walletCategory: 'GROCERIES',
+      });
+      expect(updated.amount.toString()).toBe(transaction.amount.toString());
+      expect(updated.status).toBe(transaction.status);
+      ctx.setPrincipal({ userId: SEED_OTHER_ID });
+      await ctx.http
+        .patch(`/wallet/transactions/${transaction.id}/category`)
+        .send({ category: 'TRAVEL' })
+        .expect(404);
+    });
+    it('rejects unknown categories and zero monthly budgets', async () => {
+      await ctx.http.patch('/wallet/budget').send({ monthlyBudget: '0.00' }).expect(400);
+      await ctx.http
+        .patch('/wallet/transactions/11111111-1111-4111-8111-111111111111/category')
+        .send({ category: 'UNKNOWN' })
+        .expect(400);
+    });
+  });
+
   describe('GET /wallet/deposit-account', () => {
     it('returns an authed-required virtual account and reuses it across calls', async () => {
       await ctx.raw.get('/wallet/deposit-account').expect(401);
