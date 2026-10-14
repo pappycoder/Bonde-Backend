@@ -797,3 +797,37 @@ model KycVerification {
 
   @@map("kyc_verifications")
 }
+
+// ---------------------------------------------------------------------------
+// Models — Public marketing site (Bonde-Web)
+// ---------------------------------------------------------------------------
+
+/// A visitor who asked to be notified about Bonde before the app launches.
+/// Email is unique so a repeat signup is idempotent rather than duplicated.
+/// Rows have no owning profile — the waitlist is deliberately pre-account.
+model WaitlistSignup {
+  id        String   @id @db.Uuid
+  email     String   @unique @db.VarChar(254)
+  name      String?  @db.VarChar(255)
+  /// Optional attribution, e.g. the section/UTM the signup came from.
+  source    String?  @db.VarChar(64)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("waitlist_signups")
+}
+
+/// A message submitted through the public contact form. Kept separate from
+/// support tickets (which belong to an authenticated profile).
+model ContactMessage {
+  id        String   @id @db.Uuid
+  name      String   @db.VarChar(255)
+  email     String   @db.VarChar(254)
+  subject   String?  @db.VarChar(255)
+  message   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([email])
+  @@index([createdAt])
+  @@map("contact_messages")
+}

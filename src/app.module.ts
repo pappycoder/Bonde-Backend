@@ -17,6 +17,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { InvitesModule } from './modules/invites/invites.module.js';
 import { BroadcastsModule } from './modules/broadcasts/broadcasts.module.js';
+import { MarketingModule } from './modules/marketing/marketing.module.js';
 import { ProfilesModule } from './modules/profiles/profiles.module.js';
 import { OtpModule } from './modules/otp/otp.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
@@ -121,6 +122,7 @@ import { RedisClient } from './common/redis/redis-client.interface.js';
     AuthModule,
     InvitesModule,
     BroadcastsModule,
+    MarketingModule,
     ProfilesModule,
     OtpModule,
     NotificationsModule,

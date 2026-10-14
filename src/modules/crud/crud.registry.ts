@@ -223,6 +223,35 @@ export const CRUD_REGISTRY: readonly CrudModelDef[] = [
       createdAt: timestampField(),
     },
   },
+  {
+    modelName: 'WaitlistSignup',
+    resource: 'waitlist',
+    label: 'Waitlist signup',
+    methods: ['list', 'get'],
+    searchable: ['email', 'name'],
+    fields: {
+      id: idField(),
+      email: serverField('string'),
+      name: serverField('string'),
+      source: serverField('string'),
+      createdAt: timestampField(),
+    },
+  },
+  {
+    modelName: 'ContactMessage',
+    resource: 'contacts',
+    label: 'Contact message',
+    methods: ['list', 'get'],
+    searchable: ['name', 'email', 'subject'],
+    fields: {
+      id: idField(),
+      name: serverField('string'),
+      email: serverField('string'),
+      subject: serverField('string'),
+      message: serverField('string'),
+      createdAt: timestampField(),
+    },
+  },
 ];
 
 export const CRUD_RESOURCES: readonly string[] = CRUD_REGISTRY.map((def) => def.resource);

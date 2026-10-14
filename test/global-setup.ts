@@ -19,8 +19,8 @@ const RETRY_MS = 500;
  * 2. Applies `prisma migrate deploy` against that local instance.
  * 3. Seeds the baseline fixtures every suite depends on.
  * 4. Flushes the Redis throttler databases so rate-limit counters never leak
- *    between runs (suites pin dedicated DBs: rate-limit scratch=12, app=13,
- *    429-proof=14, OTP=15, auth=10, invites=11; the shared default is 0).
+ *    between runs (suites pin dedicated DBs: marketing=9, rate-limit scratch=12,
+ *    app=13, 429-proof=14, OTP=15, auth=10, invites=11; the shared default is 0).
  */
 export async function setup(): Promise<void> {
   await deployMigrations();
@@ -89,7 +89,7 @@ async function seedLocalDatabase(): Promise<void> {
 async function flushRedisKeyDatabases(): Promise<void> {
   // 0-15: a stock Redis has 16 databases, and an out-of-range index surfaces as
   // an unhandled ioredis error event rather than a rejected promise.
-  for (const db of [0, 10, 11, 12, 13, 14, 15]) {
+  for (const db of [0, 9, 10, 11, 12, 13, 14, 15]) {
     let redis: Redis | undefined;
     try {
       redis = new Redis({ host: '127.0.0.1', port: 6379, db });

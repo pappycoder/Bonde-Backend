@@ -53,6 +53,8 @@ const PHYSICAL_TABLES = [
   'card_providers',
   'user_invites',
   'broadcasts',
+  'waitlist_signups',
+  'contact_messages',
   'auth_sessions',
   'two_factors',
   'support_messages',

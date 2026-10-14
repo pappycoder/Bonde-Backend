@@ -75,8 +75,18 @@ describe('CRUD registry invariants', () => {
     }
   });
 
-  it('registers exactly the nine safe resources', () => {
-    expect(CRUD_REGISTRY).toHaveLength(9);
+  it('marks the website waitlist and contacts read-only', () => {
+    for (const resource of ['waitlist', 'contacts']) {
+      const def = CRUD_REGISTRY.find((entry) => entry.resource === resource)!;
+      expect(def.methods).toEqual(['list', 'get']);
+      for (const field of Object.values(def.fields)) {
+        expect(field.writable, `${resource}.${field}`).toBe(false);
+      }
+    }
+  });
+
+  it('registers exactly the eleven safe resources', () => {
+    expect(CRUD_REGISTRY).toHaveLength(11);
     expect(CRUD_RESOURCES).toEqual(
       expect.arrayContaining([
         'card-locks',
@@ -88,6 +98,8 @@ describe('CRUD registry invariants', () => {
         'notifications',
         'card-providers',
         'audit-logs',
+        'waitlist',
+        'contacts',
       ]),
     );
   });

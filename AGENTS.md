@@ -218,6 +218,26 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
 - Credentials (codes) and personal data (limits, account numbers) are fine in
   emails; the PAN never is — only `cardNumberLast4` may be shown.
 
+## Public marketing site (Bonde-Web)
+- `src/modules/marketing/` serves the public website (Bonde-Web). Two
+  **unauthenticated** writes, both `@Public()` + `@StrictThrottle()`:
+  `POST /api/waitlist` (`{ email, name?, source? }`, 201, idempotent per email —
+  a repeat answers `alreadyJoined: true` without a new row or email) and
+  `POST /api/contact` (`{ name, email, subject?, message }`, 201).
+- Both persist synchronously (`waitlist_signups`, `contact_messages`) and then
+  notify `CONTACT_INBOX_EMAIL` (default `usebonde@gmail.com`) **best-effort** via
+  the `MAIL_SENDER` token — the row is the source of truth, so a mail outage
+  never fails a visitor's submission. Templates: `contact-message.ts`,
+  `waitlist-signup.ts`. Writes are audited
+  (`marketing.waitlist.join`, `marketing.contact.create`) and successful sends
+  are audited (`mail.waitlist`, `mail.contact`).
+- Admin read access is **registry-driven**, not a dedicated controller:
+  `waitlist` and `contacts` are registered **read-only** (`list`, `get`) in
+  `crud.registry.ts`, so `GET /api/admin/waitlist` and `GET /api/admin/contacts`
+  (paged, `q`, `orderBy=createdAt:desc`) come from `CrudService`; POST/PATCH/
+  DELETE answer 405.
+- Rows carry no owning profile — the waitlist is deliberately pre-account.
+
 ## Admin CRUD (registry-driven data-grid)
 - `src/modules/crud/` exposes `POST/GET/PATCH/DELETE /api/admin/:resource[/:id]`
   — admin mutates most tables through a generic, field-safe layer. The **source
@@ -479,6 +499,8 @@ src/
     otp/           app-level phone/email verification (send/verify)
     invites/       admin-issued single-use join links (issue/revoke + public
                    accept; acceptance provisions exactly like verification)
+    marketing/     public website waitlist + contact writes (admin reads via the
+                   read-only `waitlist`/`contacts` CRUD registry resources)
     notifications/ mobile notification feed (list/read/read-all)
     audit/         append-only AuditLogService.record + self-service audit-logs
     activity/      ActivityService.record — one-call audit + in-app notification

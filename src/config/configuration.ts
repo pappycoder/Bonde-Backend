@@ -12,6 +12,8 @@ export interface AppConfig {
   publicUrl: string;
   /** Base URL of the Next.js admin console (where invite links point). */
   adminAppUrl: string;
+  /** Inbox that receives public website waitlist + contact notifications. */
+  contactInboxEmail: string;
   supabase: {
     url: string;
     anonKey: string;
@@ -94,6 +96,7 @@ export default (): AppConfig => ({
     .filter(Boolean),
   publicUrl: process.env.PUBLIC_URL ?? 'http://localhost:3001',
   adminAppUrl: process.env.ADMIN_APP_URL ?? 'http://localhost:3000',
+  contactInboxEmail: process.env.CONTACT_INBOX_EMAIL ?? 'usebonde@gmail.com',
   supabase: {
     url: process.env.SUPABASE_URL!,
     anonKey: process.env.SUPABASE_ANON_KEY!,
