@@ -1,3 +1,5 @@
+import { ChatAgent } from '../src/modules/chats/chat-agent.js';
+import { vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -20,6 +22,43 @@ describe('Chats self-service (e2e)', () => {
 
   afterEach(async () => {
     await ctx.close();
+  });
+
+  it('assistant replies require ownership and an actual configured agent', async () => {
+    const message = await ctx.prisma.message.create({
+      data: { id: randomUUID(), chatId: SEED_CHAT_ID, role: 'USER', content: 'Find headphones' },
+    });
+    await ctx.http
+      .post(`/chats/${SEED_CHAT_ID}/respond`)
+      .send({ messageId: message.id })
+      .expect(503);
+    ctx.setPrincipal({ userId: SEED_OTHER_ID });
+    await ctx.http
+      .post(`/chats/${SEED_CHAT_ID}/respond`)
+      .send({ messageId: message.id })
+      .expect(404);
+  });
+
+  it('persists actual structured results and reuses a reply on retry', async () => {
+    const agent = ctx.app.get<ChatAgent>(ChatAgent);
+    const reply = vi.spyOn(agent, 'reply').mockResolvedValue({
+      text: 'Found options',
+      items: [{ title: 'Headphones', merchant: 'Shop', amount: '349.00', currency: 'USD' }],
+    });
+    const message = await ctx.prisma.message.create({
+      data: { id: randomUUID(), chatId: SEED_CHAT_ID, role: 'USER', content: 'Find headphones' },
+    });
+    const first = await ctx.http
+      .post(`/chats/${SEED_CHAT_ID}/respond`)
+      .send({ messageId: message.id })
+      .expect(200);
+    const second = await ctx.http
+      .post(`/chats/${SEED_CHAT_ID}/respond`)
+      .send({ messageId: message.id })
+      .expect(200);
+    expect(first.body.id).toBe(second.body.id);
+    expect(JSON.parse(first.body.content).items).toHaveLength(1);
+    expect(reply).toHaveBeenCalledTimes(1);
   });
 
   async function seedChatFor(userId: string) {

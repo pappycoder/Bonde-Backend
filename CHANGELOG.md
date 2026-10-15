@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Provider-neutral structured chat replies and owner/chat-bound purchase
+  decisions with quote checks, guarded approval updates, and persisted results.
+  AI generation remains unavailable until a real ChatAgent integration is bound.
+
 - User-scoped monthly wallet budget targets and current-month card allocation
   totals, plus atomic transaction category assignment that preserves financial
   and provider metadata.

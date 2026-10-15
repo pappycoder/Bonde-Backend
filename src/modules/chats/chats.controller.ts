@@ -1,3 +1,10 @@
+import { ChatRepliesService } from './chat-replies.service.js';
+import {
+  RespondToMessageDto,
+  ChatItemDecisionDto,
+  ChatDecisionResponseDto,
+} from './chat-replies.dto.js';
+import { StrictThrottle } from '../../common/throttling/strict-throttle.decorator.js';
 import {
   Body,
   Controller,
@@ -48,6 +55,7 @@ export class ChatsController {
   constructor(
     private readonly chats: ChatsService,
     private readonly audit: AuditLogService,
+    private readonly replies: ChatRepliesService,
   ) {}
 
   @Get()
@@ -132,6 +140,50 @@ export class ChatsController {
       metadata: { chatId: id },
     });
     return message;
+  }
+
+  @Post(':id/respond')
+  @StrictThrottle()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Generate an assistant reply to an owned user message' })
+  @ApiOkResponse({ type: MessageDto })
+  @ApiErrorResponse()
+  respond(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: RespondToMessageDto,
+  ) {
+    return this.replies.respond(principal.userId, id, dto.messageId);
+  }
+
+  @Post(':id/messages/:messageId/items/:itemId/decision')
+  @StrictThrottle()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Approve or decline a server-owned chat purchase proposal' })
+  @ApiOkResponse({ type: ChatDecisionResponseDto })
+  @ApiErrorResponse()
+  async decide(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Param('messageId', new ParseUUIDPipe({ version: '4' })) messageId: string,
+    @Param('itemId', new ParseUUIDPipe({ version: '4' })) itemId: string,
+    @Body() dto: ChatItemDecisionDto,
+  ) {
+    const decision = await this.replies.decide(
+      principal.userId,
+      id,
+      messageId,
+      itemId,
+      dto.decision,
+    );
+    await this.audit.record({
+      userId: principal.userId,
+      action: 'chat.item.decision',
+      entityType: 'chat',
+      entityId: id,
+      metadata: { messageId, itemId, decision: dto.decision },
+    });
+    return decision;
   }
 
   @Patch(':id')
