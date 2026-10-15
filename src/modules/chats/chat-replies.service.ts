@@ -51,14 +51,24 @@ export class ChatRepliesService {
     for (const item of reply.items) {
       if (new Prisma.Decimal(item.amount).lte(0))
         throw new BadGatewayException('The AI service returned an invalid price');
-      if (
-        item.specifications &&
-        (Object.keys(item.specifications).length > 20 ||
-          Object.entries(item.specifications).some(
-            ([key, value]) => key.length > 100 || typeof value !== 'string' || value.length > 500,
-          ))
-      )
-        throw new BadGatewayException('The AI service returned invalid specifications');
+      for (const attributes of [
+        item.specifications,
+        item.preview?.selection,
+        item.preview?.attributes,
+      ]) {
+        if (
+          attributes &&
+          (Object.keys(attributes).length > 20 ||
+            Object.entries(attributes).some(
+              ([key, value]) => key.length > 100 || typeof value !== 'string' || value.length > 500,
+            ))
+        )
+          throw new BadGatewayException('The AI service returned invalid specifications');
+      }
+      if (item.preview?.recurringAmount && new Prisma.Decimal(item.preview.recurringAmount).lte(0))
+        throw new BadGatewayException('The AI service returned an invalid recurring price');
+      if (item.preview?.autoRenew && !['SUBSCRIPTION', 'SOFTWARE'].includes(item.preview.mode))
+        throw new BadGatewayException('The AI service returned invalid renewal details');
       item.id = randomUUID();
       item.decision = 'PENDING';
     }

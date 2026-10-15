@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Validated retail, flight, subscription and software payment preview metadata
+  in structured chat replies, with separate recurring rates and payable totals.
+
 - Provider-neutral structured chat replies and owner/chat-bound purchase
   decisions with quote checks, guarded approval updates, and persisted results.
   AI generation remains unavailable until a real ChatAgent integration is bound.

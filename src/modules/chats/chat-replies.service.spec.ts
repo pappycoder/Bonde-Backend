@@ -116,6 +116,70 @@ describe('chat assistant replies', () => {
     expect(reply.replyTo).toBe(USER_MESSAGE);
     expect(reply.items[0].decision).toBe('PENDING');
   });
+  const endpoint = {
+    code: 'JFK',
+    airport: 'John F. Kennedy',
+    date: '20 Oct 2026',
+    time: '21:30 EDT',
+  };
+  it.each([
+    { mode: 'RETAIL', selection: { Color: 'Cream', Size: 'M' }, delivery: 'Standard delivery' },
+    {
+      mode: 'FLIGHT',
+      departure: endpoint,
+      arrival: { ...endpoint, code: 'LHR' },
+      baggage: '1 checked bag',
+    },
+    {
+      mode: 'SUBSCRIPTION',
+      plan: 'Premium',
+      recurringAmount: '22.00',
+      billing: 'Monthly',
+      autoRenew: true,
+    },
+    {
+      mode: 'SOFTWARE',
+      seats: '1 seat',
+      features: ['Templates', 'Cloud storage'],
+      recurringAmount: '15.00',
+    },
+  ])('persists $mode preview metadata without replacing the payable total', async (preview) => {
+    const { service, agent, prisma } = setup();
+    agent.reply.mockResolvedValue({
+      text: 'Found options',
+      items: [{ title: 'Option', merchant: 'Shop', amount: '349.00', currency: 'USD', preview }],
+    } as never);
+    prisma.message.findMany
+      .mockResolvedValueOnce([
+        { id: USER_MESSAGE, role: 'USER', content: 'Find an option' },
+      ] as never)
+      .mockResolvedValueOnce([]);
+    const result = await service.respond(USER, CHAT, USER_MESSAGE);
+    const item = JSON.parse(result.content).items[0];
+    expect(item.preview).toEqual(preview);
+    expect(item.amount).toBe('349.00');
+  });
+  it.each([
+    { mode: 'UNKNOWN' },
+    { mode: 'FLIGHT' },
+    { mode: 'FLIGHT', departure: { ...endpoint, time: 123 }, arrival: endpoint },
+    { mode: 'RETAIL', selection: { Quantity: { unsafe: true } } },
+    { mode: 'SUBSCRIPTION', attributes: { Resolution: 4 } },
+    { mode: 'SOFTWARE', features: ['Valid', { invalid: true }] },
+    { mode: 'SOFTWARE', recurringAmount: '-1.00' },
+    { mode: 'SUBSCRIPTION', recurringAmount: '0.00' },
+    { mode: 'RETAIL', autoRenew: true },
+  ])('rejects malformed payment preview %# before persisting', async (preview) => {
+    const { service, agent, prisma } = setup();
+    agent.reply.mockResolvedValue({
+      text: 'Found options',
+      items: [{ title: 'Option', merchant: 'Shop', amount: '349.00', currency: 'USD', preview }],
+    } as never);
+    await expect(service.respond(USER, CHAT, USER_MESSAGE)).rejects.toBeInstanceOf(
+      BadGatewayException,
+    );
+    expect(prisma.message.create).not.toHaveBeenCalled();
+  });
   it('rejects invalid item prices before saving an assistant reply', async () => {
     const { service, agent, prisma } = setup();
     agent.reply.mockResolvedValue({

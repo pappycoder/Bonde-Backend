@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { PaymentPreviewDto } from './payment-preview.dto.js';
 import {
   ArrayMaxSize,
   IsArray,
@@ -15,6 +16,10 @@ import {
 } from 'class-validator';
 
 export class ChatProductDto {
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PaymentPreviewDto)
+  preview?: PaymentPreviewDto;
   @IsOptional()
   @IsUUID('4')
   id?: string;
