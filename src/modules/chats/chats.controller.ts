@@ -1,3 +1,5 @@
+import { ChatCheckoutService } from './chat-checkout.service.js';
+import { ChatCheckoutDto, StartChatCheckoutDto } from './chat-checkout.dto.js';
 import { ChatRepliesService } from './chat-replies.service.js';
 import {
   RespondToMessageDto,
@@ -56,6 +58,7 @@ export class ChatsController {
     private readonly chats: ChatsService,
     private readonly audit: AuditLogService,
     private readonly replies: ChatRepliesService,
+    private readonly checkout: ChatCheckoutService,
   ) {}
 
   @Get()
@@ -184,6 +187,68 @@ export class ChatsController {
       metadata: { messageId, itemId, decision: dto.decision },
     });
     return decision;
+  }
+
+  @Post(':id/messages/:messageId/items/:itemId/checkout')
+  @StrictThrottle()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Start checkout for an approved chat purchase' })
+  @ApiOkResponse({ type: ChatCheckoutDto })
+  @ApiErrorResponse()
+  async startCheckout(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Param('messageId', new ParseUUIDPipe({ version: '4' })) messageId: string,
+    @Param('itemId', new ParseUUIDPipe({ version: '4' })) itemId: string,
+    @Body() dto: StartChatCheckoutDto,
+  ) {
+    const result = await this.checkout.start(principal.userId, id, messageId, itemId, dto);
+    await this.audit.record({
+      userId: principal.userId,
+      action: 'chat.checkout.start',
+      entityType: 'chat',
+      entityId: id,
+      metadata: { messageId, itemId, transactionId: result.transactionId },
+    });
+    return result;
+  }
+
+  @Get(':id/messages/:messageId/items/:itemId/checkout')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get confirmed checkout progress' })
+  @ApiOkResponse({ type: ChatCheckoutDto })
+  @ApiErrorResponse()
+  async checkoutStatus(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Param('messageId', new ParseUUIDPipe({ version: '4' })) messageId: string,
+    @Param('itemId', new ParseUUIDPipe({ version: '4' })) itemId: string,
+  ) {
+    const result = await this.checkout.progress(principal.userId, id, messageId, itemId);
+    return result;
+  }
+
+  @Post(':id/messages/:messageId/items/:itemId/checkout/cancel')
+  @StrictThrottle()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Request cancellation of a chat checkout' })
+  @ApiOkResponse({ type: ChatCheckoutDto })
+  @ApiErrorResponse()
+  async cancelCheckout(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Param('messageId', new ParseUUIDPipe({ version: '4' })) messageId: string,
+    @Param('itemId', new ParseUUIDPipe({ version: '4' })) itemId: string,
+  ) {
+    const result = await this.checkout.progress(principal.userId, id, messageId, itemId, true);
+    await this.audit.record({
+      userId: principal.userId,
+      action: 'chat.checkout.cancel',
+      entityType: 'chat',
+      entityId: id,
+      metadata: { messageId, itemId, transactionId: result.transactionId },
+    });
+    return result;
   }
 
   @Patch(':id')

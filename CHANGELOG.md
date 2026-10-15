@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Owner-scoped chat checkout start/status/cancel endpoints with stable purchase
+  identity, locked payment-method selection, reconciliation-gated success and a
+  merchant/one-time-card integration boundary that defaults to unavailable.
+
 - Validated retail, flight, subscription and software payment preview metadata
   in structured chat replies, with separate recurring rates and payable totals.
 
