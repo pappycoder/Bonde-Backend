@@ -682,6 +682,17 @@ describe('AuthService forgot-password', () => {
     });
   });
 
+  it('returns 503 and invalidates the reset code when email delivery fails', async () => {
+    const { service, prisma, otp } = makeService({
+      senderFail: () => {
+        throw new OtpSendError('delivery failed');
+      },
+    });
+    seedProfile(prisma);
+    await expect(service.forgotPassword(EMAIL)).rejects.toThrow(ServiceUnavailableException);
+    expect(otp.invalidate).toHaveBeenCalledWith(USER_ID, OtpChannel.EMAIL);
+  });
+
   it('verifies the reset OTP and returns a one-time reset token', async () => {
     const { service, prisma } = makeService();
     seedProfile(prisma);

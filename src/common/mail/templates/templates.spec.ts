@@ -8,6 +8,7 @@ import { welcomeEmail } from './welcome.js';
 import { cardRegisteredEmail } from './card-registered.js';
 import { passwordResetEmail } from './password-reset.js';
 import { passwordChangedEmail } from './password-changed.js';
+import { waitlistConfirmationEmail } from './waitlist-confirmation.js';
 import { inviteEmail } from './invite.js';
 
 /** Every anchor the shared footer contributes: 3 social icons + 1 support link. */
@@ -20,6 +21,11 @@ const EXTRA_ANCHORS: Record<string, number> = { invite: 1 };
 function allDocs() {
   return {
     'verification-code': verificationCodeEmail('1234', 'verify-email'),
+    'waitlist-confirmation': waitlistConfirmationEmail({
+      email: 'amina@example.com',
+      name: 'Amina',
+      alreadyJoined: false,
+    }),
     welcome: welcomeEmail({ firstName: 'Amina', accountNumber: '1234567890' }),
     'card-registered': cardRegisteredEmail({
       firstName: 'Amina',
@@ -64,6 +70,19 @@ describe('email templates', () => {
       expect(asset.dataUri).toMatch(/^data:image\/png;base64,/);
       expect(asset.alt.length).toBeGreaterThan(0);
     }
+  });
+
+  it('confirms existing waitlist membership and escapes visitor input', () => {
+    const doc = waitlistConfirmationEmail({
+      email: 'amina@example.com',
+      name: '<script>unsafe</script>',
+      alreadyJoined: true,
+    });
+    expect(doc.subject).toContain('already on');
+    expect(doc.html).toContain('amina@example.com');
+    expect(doc.html).toContain('early access');
+    expect(doc.html).toContain('&lt;script&gt;');
+    expect(doc.html).not.toContain('<script>');
   });
 
   describe('shared layout', () => {

@@ -1,5 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { MAIL_SENDER, type MailMessage, type MailSender } from '../src/common/mail/mail.types.js';
+import {
+  MAIL_SENDER,
+  MailSendError,
+  type MailMessage,
+  type MailSender,
+} from '../src/common/mail/mail.types.js';
 import { bootE2EApp, seedBaseFixtures, truncateAll, type BootedE2EApp } from './e2e-app.js';
 import { SEED_USER_ID } from './db.js';
 
@@ -22,7 +27,12 @@ process.env.THROTTLE_STRICT_BLOCK_DURATION = '60000';
 
 class CaptureMail implements MailSender {
   readonly sent: MailMessage[] = [];
+  failNext = false;
   async send(message: MailMessage): Promise<void> {
+    if (this.failNext) {
+      this.failNext = false;
+      throw new MailSendError('Simulated delivery failure');
+    }
     this.sent.push(message);
   }
 }
@@ -43,33 +53,59 @@ describe('Marketing (e2e)', () => {
     await truncateAll(ctx.prisma);
     await seedBaseFixtures(ctx.prisma);
     mail.sent.length = 0;
+    mail.failNext = false;
   });
 
-  it('joins the waitlist, persists the signup and notifies the inbox', async () => {
+  it('persists the signup, confirms the visitor and notifies the inbox', async () => {
     const res = await ctx.raw
       .post('/waitlist')
       .send({ email: 'Ada@Example.com', name: 'Ada', source: 'hero' })
       .expect(201);
 
-    expect(res.body).toMatchObject({ status: 'joined', email: 'ada@example.com', alreadyJoined: false });
+    expect(res.body).toMatchObject({
+      status: 'joined',
+      email: 'ada@example.com',
+      alreadyJoined: false,
+    });
 
     const row = await ctx.prisma.waitlistSignup.findUniqueOrThrow({
       where: { email: 'ada@example.com' },
     });
     expect(row).toMatchObject({ name: 'Ada', source: 'hero' });
 
-    expect(mail.sent).toHaveLength(1);
-    expect(mail.sent[0]!.to).toBe('usebonde@gmail.com');
-    expect(mail.sent[0]!.html).toContain('ada@example.com');
+    expect(mail.sent).toHaveLength(2);
+    expect(mail.sent[0]!.to).toBe('ada@example.com');
+    expect(mail.sent[0]!.subject).toContain('on the Bonde waitlist');
+    expect(mail.sent[1]!.to).toBe('usebonde@gmail.com');
+    expect(mail.sent[1]!.html).toContain('ada@example.com');
   });
 
-  it('is idempotent: a repeat signup does not duplicate or re-notify', async () => {
+  it('confirms a repeat signup without duplicating rows or notifying the team again', async () => {
     await ctx.raw.post('/waitlist').send({ email: 'ada@example.com' }).expect(201);
     const again = await ctx.raw.post('/waitlist').send({ email: 'ada@example.com' }).expect(201);
 
     expect(again.body.alreadyJoined).toBe(true);
     expect(await ctx.prisma.waitlistSignup.count({ where: { email: 'ada@example.com' } })).toBe(1);
+    expect(mail.sent).toHaveLength(3);
+    expect(mail.sent[2]!.to).toBe('ada@example.com');
+    expect(mail.sent[2]!.subject).toContain('already on');
+  });
+
+  it('keeps a place when confirmation fails and retries confirmation on resubmission', async () => {
+    mail.failNext = true;
+    await ctx.raw.post('/waitlist').send({ email: 'ada@example.com' }).expect(201);
+    expect(await ctx.prisma.waitlistSignup.count({ where: { email: 'ada@example.com' } })).toBe(1);
+    const failed = await ctx.prisma.auditLog.findFirst({
+      where: { action: 'mail.waitlist_confirmation' },
+    });
+    expect(failed?.metadata).toMatchObject({ sent: false });
     expect(mail.sent).toHaveLength(1);
+    expect(mail.sent[0]!.to).toBe('usebonde@gmail.com');
+
+    const retry = await ctx.raw.post('/waitlist').send({ email: 'ada@example.com' }).expect(201);
+    expect(retry.body.alreadyJoined).toBe(true);
+    expect(mail.sent).toHaveLength(2);
+    expect(mail.sent[1]!.to).toBe('ada@example.com');
   });
 
   it('rejects an invalid waitlist email (400)', async () => {
@@ -106,10 +142,7 @@ describe('Marketing (e2e)', () => {
   });
 
   it('rejects a contact message without a body (400)', async () => {
-    await ctx.raw
-      .post('/contact')
-      .send({ name: 'Chidi', email: 'chidi@example.com' })
-      .expect(400);
+    await ctx.raw.post('/contact').send({ name: 'Chidi', email: 'chidi@example.com' }).expect(400);
     expect(mail.sent).toHaveLength(0);
   });
 
@@ -120,9 +153,9 @@ describe('Marketing (e2e)', () => {
       .send({ name: 'Chidi', email: 'chidi@example.com', message: 'Hello' })
       .expect(201);
 
-    const actions = (
-      await ctx.prisma.auditLog.findMany({ select: { action: true } })
-    ).map((row) => row.action);
+    const actions = (await ctx.prisma.auditLog.findMany({ select: { action: true } })).map(
+      (row) => row.action,
+    );
     expect(actions).toContain('marketing.waitlist.join');
     expect(actions).toContain('marketing.contact.create');
   });

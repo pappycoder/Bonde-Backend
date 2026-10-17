@@ -157,10 +157,9 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   (`MailSender`, `POST /api/emails`, 10s timeout, fail-closed `MailSendError`
   whose message includes the Resend status + response snippet for server-side
   visibility) is provided under the `MAIL_SENDER` token in the `@Global()`
-  `MailModule` (`{ provide: MAIL_SENDER, useExisting: MailService }`). In
-  `development` only, a failed delivery is logged (recipient, subject, full body
-  — where an OTP code is visible) and treated as sent so local testing never
-  blocks on Resend; `test` and `production` stay fail-closed. Feature code must
+  `MailModule` (`{ provide: MAIL_SENDER, useExisting: MailService }`). Delivery
+  failures throw in every environment, including development; never report a
+  logged message as delivered or log credential email bodies. Feature code must
   inject **`MAIL_SENDER`**, never Resend directly — e2e overrides the token
   with a capture stub to keep real email out of tests (auth + cards suites do).
 - Templates live in `src/common/mail/templates/` — pure TS renderers (no new
@@ -222,13 +221,16 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
 - `src/modules/marketing/` serves the public website (Bonde-Web). Two
   **unauthenticated** writes, both `@Public()` + `@StrictThrottle()`:
   `POST /api/waitlist` (`{ email, name?, source? }`, 201, idempotent per email —
-  a repeat answers `alreadyJoined: true` without a new row or email) and
+  a repeat answers `alreadyJoined: true` without a new row or team notification,
+  and resends the visitor’s membership confirmation) and
   `POST /api/contact` (`{ name, email, subject?, message }`, 201).
 - Both persist synchronously (`waitlist_signups`, `contact_messages`) and then
   notify `CONTACT_INBOX_EMAIL` (default `usebonde@gmail.com`) **best-effort** via
   the `MAIL_SENDER` token — the row is the source of truth, so a mail outage
-  never fails a visitor's submission. Templates: `contact-message.ts`,
-  `waitlist-signup.ts`. Writes are audited
+  never fails a visitor's submission. Waitlist submissions also send a branded
+  confirmation to the visitor, with distinct copy for repeat signups. Templates: `contact-message.ts`,
+  `waitlist-signup.ts`, `waitlist-confirmation.ts`. Confirmation delivery attempts
+  are audited as `mail.waitlist_confirmation` with a `sent` flag. Writes are audited
   (`marketing.waitlist.join`, `marketing.contact.create`) and successful sends
   are audited (`mail.waitlist`, `mail.contact`).
 - Admin read access is **registry-driven**, not a dedicated controller:

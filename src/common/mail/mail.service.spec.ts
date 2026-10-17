@@ -95,7 +95,7 @@ describe('MailService', () => {
     );
   });
 
-  it('logs the message and succeeds instead of failing in development', async () => {
+  it('fails closed instead of pretending delivery succeeded in development', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => new Response('{"message":"unverified domain"}', { status: 403 })),
@@ -104,10 +104,10 @@ describe('MailService', () => {
 
     await expect(
       service.send({ to: 'amina@bonde.app', subject: 'Your Bonde code', html: '<p>1234</p>' }),
-    ).resolves.toBeUndefined();
+    ).rejects.toBeInstanceOf(MailSendError);
   });
 
-  it('logs a network failure and succeeds instead of failing in development', async () => {
+  it('reports network failures in development', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => {
@@ -118,7 +118,7 @@ describe('MailService', () => {
 
     await expect(
       service.send({ to: 'amina@bonde.app', subject: 'Your Bonde code', html: '<p>5678</p>' }),
-    ).resolves.toBeUndefined();
+    ).rejects.toBeInstanceOf(MailSendError);
   });
 
   it('aborts the request after the send timeout', async () => {

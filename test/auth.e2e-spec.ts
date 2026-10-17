@@ -405,6 +405,17 @@ describe('Auth endpoints (e2e)', () => {
     expect(sent).toHaveLength(0);
   });
 
+  it('fails closed and voids the reset OTP when reset-email delivery fails', async () => {
+    await ctx.raw
+      .post('/auth/register')
+      .send({ fullName: 'New User', email: EMAIL, password: PASSWORD })
+      .expect(201);
+    failNextSend = true;
+    await ctx.raw.post('/auth/forgot-password').send({ email: EMAIL }).expect(503);
+    const active = await ctx.prisma.otpCode.count({ where: { channel: 'EMAIL', used: false } });
+    expect(active).toBe(0);
+  });
+
   it('fails closed with 503 when the sender is down (register)', async () => {
     failNextSend = true;
     const res = await ctx.raw

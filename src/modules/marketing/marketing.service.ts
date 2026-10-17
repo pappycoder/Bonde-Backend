@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { AuditLogService } from '../audit/audit-log.service.js';
 import { MAIL_SENDER, type MailSender } from '../../common/mail/mail.types.js';
 import { contactMessageEmail } from '../../common/mail/templates/contact-message.js';
+import { waitlistConfirmationEmail } from '../../common/mail/templates/waitlist-confirmation.js';
 import { waitlistSignupEmail } from '../../common/mail/templates/waitlist-signup.js';
 import type { AppConfig } from '../../config/configuration.js';
 import type { CreateContactMessageDto, JoinWaitlistDto } from './marketing.dto.js';
@@ -41,9 +42,10 @@ export class MarketingService {
   async joinWaitlist(dto: JoinWaitlistDto): Promise<WaitlistJoinResult> {
     const existing = await this.prisma.waitlistSignup.findUnique({
       where: { email: dto.email },
-      select: { id: true },
+      select: { id: true, name: true },
     });
     if (existing) {
+      await this.confirmWaitlist(existing.id, dto.email, existing.name, true);
       return { status: 'joined', email: dto.email, alreadyJoined: true };
     }
 
@@ -63,6 +65,8 @@ export class MarketingService {
       entityId: id,
       metadata: { email: dto.email, source: dto.source ?? null },
     });
+
+    await this.confirmWaitlist(id, dto.email, dto.name || null, false);
 
     const mail = waitlistSignupEmail({
       email: dto.email,
@@ -102,6 +106,33 @@ export class MarketingService {
     await this.notifyInbox('mail.contact', id, dto.email, mail.subject, mail.html);
 
     return { status: 'received', id };
+  }
+
+  /** Confirmation failures never discard a saved place; resubmitting retries delivery. */
+  private async confirmWaitlist(
+    id: string,
+    email: string,
+    name: string | null,
+    alreadyJoined: boolean,
+  ): Promise<void> {
+    const message = waitlistConfirmationEmail({ email, name, alreadyJoined });
+    let sent = false;
+    try {
+      await this.mail.send({ to: email, ...message });
+      sent = true;
+    } catch (error) {
+      this.logger.warn(
+        `Waitlist confirmation failed (${error instanceof Error ? error.message : String(error)})`,
+      );
+    }
+    await this.audit
+      .record({
+        action: 'mail.waitlist_confirmation',
+        entityType: 'mail',
+        entityId: id,
+        metadata: { to: email, sent, alreadyJoined },
+      })
+      .catch(() => undefined);
   }
 
   /**

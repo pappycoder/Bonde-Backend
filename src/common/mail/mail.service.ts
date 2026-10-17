@@ -15,9 +15,8 @@ const RESEND_ERROR_SNIPPET = 160;
  * should inject the `MAIL_SENDER` token — tests override it to capture
  * messages and to keep real email out of the test environment.
  *
- * In `development` only, a failed delivery is logged (recipient, subject, and
- * full body — where an OTP code is visible) and treated as sent, so local
- * testing never blocks on Resend. `test` and `production` stay fail-closed.
+ * Delivery failures are reported in every environment; logging a message never
+ * counts as delivery and credential bodies must not be written to logs.
  */
 @Injectable()
 export class MailService implements MailSender {
@@ -25,7 +24,6 @@ export class MailService implements MailSender {
   private readonly fromEmail: string;
   private readonly logoUrl?: string;
   private readonly assetBaseUrl?: string;
-  private readonly devFallback: boolean;
   private readonly logger = new Logger('MailService');
 
   constructor(config: ConfigService<AppConfig, true>) {
@@ -34,7 +32,6 @@ export class MailService implements MailSender {
     this.fromEmail = resend.fromEmail;
     this.logoUrl = resend.logoUrl;
     this.assetBaseUrl = resend.assetBaseUrl;
-    this.devFallback = config.get('nodeEnv') === 'development';
   }
 
   async send(message: MailMessage): Promise<void> {
@@ -55,33 +52,21 @@ export class MailService implements MailSender {
         }),
         signal: controller.signal,
       });
-      const detail = await this.responseDetail(response);
       if (!response.ok) {
-        this.handleFailure(detail, message);
-        return;
+        throw new MailSendError(await this.responseDetail(response));
       }
     } catch (error) {
-      if (error instanceof MailSendError) {
-        this.handleFailure(error.message, message);
-        return;
-      }
-      const detail = `Email delivery failed: ${error instanceof Error ? error.message : String(error)}`;
-      this.handleFailure(detail, message);
+      const failure =
+        error instanceof MailSendError
+          ? error
+          : new MailSendError(
+              `Email delivery failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+      this.logger.error(failure.message);
+      throw failure;
     } finally {
       clearTimeout(timer);
     }
-  }
-
-  private handleFailure(detail: string, message: MailMessage): never | void {
-    if (this.devFallback) {
-      this.logger.warn(
-        `[dev-fallback] Resend unreachable (${detail}); logged instead of sent. ` +
-          `To: ${message.to} — ${message.subject}`,
-      );
-      this.logger.warn(message.html);
-      return;
-    }
-    throw new MailSendError(detail);
   }
 
   /**

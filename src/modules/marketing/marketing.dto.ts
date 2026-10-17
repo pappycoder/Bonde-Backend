@@ -3,7 +3,9 @@ import { IsEmail, IsOptional, IsString, Length, MaxLength } from 'class-validato
 
 /** Trim then lowercase — emails are normalized everywhere in the API. */
 const normalizeEmail = ({ value }: { value: unknown }): string =>
-  String(value ?? '').trim().toLowerCase();
+  String(value ?? '')
+    .trim()
+    .toLowerCase();
 
 /** Trim a free-text field, collapsing surrounding whitespace. */
 const trim = ({ value }: { value: unknown }): string => String(value ?? '').trim();
