@@ -173,3 +173,42 @@ src/
 ## License
 
 UNLICENSED — proprietary.
+
+
+## Demo transaction history for mobile UI testing
+
+Use an existing test account with a provisioned wallet. This development-only
+helper writes 26 marked transaction records through Prisma; it does not call
+payment providers, create approvals, send notifications, or update wallet
+balances. It refuses to run with NODE_ENV=production. It uses DATABASE_URL from
+the backend environment, so check that this is the intended development database.
+
+```bash
+# Preview first (no writes).
+pnpm demo:transactions --email tester@example.com
+
+# Seed. Stable IDs prevent duplicates on repeated runs.
+pnpm demo:transactions --email tester@example.com --apply
+
+# Optional: pin the fixture's most recent calendar day for reproducible dates.
+pnpm demo:transactions --email tester@example.com --date 2026-10-20 --apply
+
+# Preview cleanup, then remove only this account's tagged fixture IDs.
+pnpm demo:transactions --email tester@example.com --remove
+pnpm demo:transactions --email tester@example.com --remove --apply
+
+pnpm test:demo-transactions
+```
+
+Refresh the Transactions tab after seeding. Examples cover multiple pages,
+NGN/USD amounts, successful/pending/failed/declined states, deposits, withdrawals,
+payments and transfers. Categories include Transport (TRAVEL), Bill & utilities
+(ELECTRICITY), Dining, Health, Shopping and Groceries. The extended layouts have
+matching metadata for payment reversal, BONDE Premium, AI credit purchase and
+AI credit refund, including links to seeded original transactions.
+
+Descriptions begin with [DEMO], and metadata.demoSeed identifies this fixture
+set. Transaction-derived analytics will include these examples until cleanup;
+wallet balances and card spending counters are not reconciled to this synthetic
+history. Dates span the anchor day back through 62 days. Re-running preserves
+existing fixture rows; remove and reseed to regenerate dates or edited examples.
