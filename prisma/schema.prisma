@@ -168,6 +168,9 @@ model Profile {
   emailVerified Boolean @default(false) @map("email_verified")
   avatarUrl String?  @map("avatar_url")
   onboardingCompletedAt DateTime? @map("onboarding_completed_at")
+  /// Trusted subscription entitlement; never writable through self-service profile updates.
+  cardPlan String @default("FREE") @map("card_plan") @db.VarChar(16)
+  cardPlanExpiresAt DateTime? @map("card_plan_expires_at")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -373,6 +376,7 @@ model Card {
   cardNumberLast4       String     @map("card_number_last4") @db.VarChar(4)
   cardCvvEncrypted      String?    @map("card_cvv_encrypted")
   cardType              String     @default("virtual") @map("card_type") @db.VarChar(20)
+  creationLockType      LockType? @map("creation_lock_type")
   issuer                String     @default("bonde") @db.VarChar(20)
   currency              String     @default("NGN") @db.VarChar(3)
   nameOnCard            String?    @map("name_on_card") @db.VarChar(100)

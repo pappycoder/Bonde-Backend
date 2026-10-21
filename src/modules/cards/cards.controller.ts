@@ -87,6 +87,23 @@ export class CardsController {
     });
   }
 
+  @Get('creation-access')
+  @ApiOperation({ summary: 'Current plan, retained cards and creation capacity' })
+  @ApiErrorResponse()
+  creationAccess(@CurrentUser() principal: AuthPrincipal) {
+    return this.cards.creationAccess(principal.userId);
+  }
+
+  @Get(':id/availability')
+  @ApiOperation({ summary: 'Owned-card expiry, usage and current UTC-month budget status' })
+  @ApiErrorResponse()
+  availability(
+    @CurrentUser() principal: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.cards.availability(principal.userId, id);
+  }
+
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a virtual card (PAN never returned)' })

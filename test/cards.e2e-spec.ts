@@ -31,6 +31,8 @@ describe('Cards self-service (e2e)', () => {
     ctx = await bootE2EApp({ overrides: [{ token: MAIL_SENDER, useValue: mailSender }] });
     await truncateAll(ctx.prisma);
     await seedBaseFixtures(ctx.prisma);
+    // Existing lifecycle scenarios exercise Premium; Free capacity is tested separately.
+    await ctx.prisma.profile.update({ where: { id: SEED_USER_ID }, data: { cardPlan: 'PREMIUM' } });
   });
 
   afterEach(async () => {
@@ -52,6 +54,66 @@ describe('Cards self-service (e2e)', () => {
       },
     });
   }
+
+  it('enforces Free capacity and reserves rule-based slots before rules are posted', async () => {
+    await ctx.prisma.profile.update({ where: { id: SEED_USER_ID }, data: { cardPlan: 'FREE' } });
+    await ctx.http.post('/cards').send({ nickname: 'Extra Standard' }).expect(403);
+    await ctx.http
+      .post('/cards')
+      .send({ nickname: 'Rules one', ruleType: 'SELF_DESTRUCT' })
+      .expect(201);
+    await ctx.http.post('/cards').send({ nickname: 'Rules two', ruleType: 'MERCHANT' }).expect(201);
+    await ctx.http.post('/cards').send({ ruleType: 'BUDGET', monthlyLimit: '100' }).expect(403);
+    const summary = await ctx.http.get('/cards/creation-access').expect(200);
+    expect(summary.body).toMatchObject({
+      standard: { active: 1, limit: 1 },
+      ruleBased: { active: 2, limit: 2 },
+      retained: false,
+    });
+    await ctx.http.get('/cards').expect(200);
+    await ctx.http.patch(`/cards/${SEED_CARD_ID}/pause`).expect(200);
+    await ctx.http.patch(`/cards/${SEED_CARD_ID}/resume`).expect(200);
+    await ctx.http.get(`/cards/${SEED_CARD_ID}/history`).expect(200);
+  });
+
+  it('retains cards after Premium expires and never changes their lifecycle state', async () => {
+    for (let i = 0; i < 6; i++) {
+      const card = await seedCardFor(SEED_USER_ID);
+      await ctx.prisma.card.update({
+        where: { id: card.id },
+        data: { creationLockType: 'SELF_DESTRUCT' },
+      });
+    }
+    await ctx.prisma.profile.update({
+      where: { id: SEED_USER_ID },
+      data: { cardPlan: 'PREMIUM', cardPlanExpiresAt: new Date('2020-01-01') },
+    });
+    const summary = await ctx.http.get('/cards/creation-access').expect(200);
+    expect(summary.body).toMatchObject({
+      subscriptionExpired: true,
+      retained: true,
+      standard: { active: 1 },
+      ruleBased: { active: 6 },
+    });
+    await ctx.http.post('/cards').send({ ruleType: 'SELF_DESTRUCT' }).expect(403);
+    expect(await ctx.prisma.card.count({ where: { userId: SEED_USER_ID, status: 'ACTIVE' } })).toBe(
+      7,
+    );
+  });
+
+  it('serializes concurrent creation at the last Free slot', async () => {
+    await ctx.prisma.profile.update({ where: { id: SEED_USER_ID }, data: { cardPlan: 'FREE' } });
+    await ctx.prisma.card.update({ where: { id: SEED_CARD_ID }, data: { status: 'CANCELLED' } });
+    const results = await Promise.all([
+      ctx.http.post('/cards').send({ nickname: 'A' }),
+      ctx.http.post('/cards').send({ nickname: 'B' }),
+    ]);
+    expect(results.map((result) => result.status).sort()).toEqual([201, 403]);
+  });
+
+  it('does not allow owners to grant themselves Premium', async () => {
+    await ctx.http.patch('/profile').send({ cardPlan: 'PREMIUM' }).expect(400);
+  });
 
   it('lists only the current user’s cards and never exposes the PAN', async () => {
     await seedCardFor(SEED_OTHER_ID);

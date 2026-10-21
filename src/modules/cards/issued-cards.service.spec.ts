@@ -116,6 +116,7 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     prisma as never,
     fwCards as unknown as FlutterwaveCardsService,
     activity as never,
+    { assertCreation: vi.fn(async () => {}) } as never,
   );
   return { service, prisma, fwCards, activity, card, transaction, wallet, providerEvent };
 }

@@ -130,6 +130,7 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
         ops: Array<Promise<unknown>> | ((tx: unknown) => Promise<unknown>),
       ): Promise<unknown> => (typeof ops === 'function' ? ops(prisma) : Promise.all(ops)),
     ),
+    $queryRaw: vi.fn(async () => []),
     card,
     cardLock,
     cardCategory,
@@ -139,7 +140,11 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     transaction,
   };
   const config = { get: vi.fn((key: string) => (key === 'nodeEnv' ? 'test' : ENC_KEY)) };
-  const service = new CardsService(prisma as never, config as never);
+  const service = new CardsService(
+    prisma as never,
+    config as never,
+    { assertCreation: vi.fn(async () => {}) } as never,
+  );
   return {
     prisma,
     service,

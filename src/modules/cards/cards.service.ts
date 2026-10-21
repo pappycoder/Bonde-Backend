@@ -19,6 +19,7 @@ import {
 } from '../../common/paging/filter.js';
 import { qWhere } from '../../common/paging/search.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { CardAccessService } from './card-access.service.js';
 import { generateLuhnPan, last4 } from './card-number.js';
 import type { UpdateCardRulesDto } from './cards.dto.js';
 
@@ -69,6 +70,7 @@ export class CardsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<AppConfig, true>,
+    private readonly access: CardAccessService,
   ) {}
 
   async list(userId: string, options: PagedOptions = {}) {
@@ -142,56 +144,71 @@ export class CardsService {
       notifyBudgetReached?: boolean;
       expirationType?: string;
       expirationDate?: string;
+      ruleType?: LockType;
     },
   ) {
-    // TODO: Remove dev fallback once a real card provider is configured in production.
-    let provider = await this.prisma.cardProvider.findFirst({ where: { isActive: true } });
-    if (!provider && this.config.get('nodeEnv', { infer: true }) === 'development') {
-      // This record only satisfies the local card's foreign key; it never
-      // represents a live issuer. Keep it inactive so other environments and
-      // provider-issued card flows cannot pick it as an active provider.
-      provider = await this.prisma.cardProvider.upsert({
-        where: { name: 'Bonde Development' },
-        create: {
-          id: randomUUID(),
-          name: 'Bonde Development',
-          baseUrl: 'http://localhost',
-          isActive: false,
-          config: { developmentOnly: true },
-        },
-        update: {},
-      });
-    }
-    if (!provider) throw new NotFoundException('No card provider is configured');
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "profiles" WHERE "id" = ${userId}::uuid FOR UPDATE`;
+      await this.access.assertCreation(userId, dto.ruleType, tx);
+      // TODO: Remove dev fallback once a real card provider is configured in production.
+      let provider = await tx.cardProvider.findFirst({ where: { isActive: true } });
+      if (!provider && this.config.get('nodeEnv', { infer: true }) === 'development') {
+        // This record only satisfies the local card's foreign key; it never
+        // represents a live issuer. Keep it inactive so other environments and
+        // provider-issued card flows cannot pick it as an active provider.
+        provider = await tx.cardProvider.upsert({
+          where: { name: 'Bonde Development' },
+          create: {
+            id: randomUUID(),
+            name: 'Bonde Development',
+            baseUrl: 'http://localhost',
+            isActive: false,
+            config: { developmentOnly: true },
+          },
+          update: {},
+        });
+      }
+      if (!provider) throw new NotFoundException('No card provider is configured');
 
-    const pan = generateLuhnPan();
-    const card = await this.prisma.card.create({
-      data: {
-        id: randomUUID(),
-        userId,
-        providerId: provider.id,
-        cardNumberEncrypted: this.encrypt(pan),
-        cardCvvEncrypted:
-          this.config.get('nodeEnv', { infer: true }) === 'development'
-            ? this.encrypt(randomInt(1000).toString().padStart(3, '0'))
-            : null,
-        cardNumberLast4: last4(pan),
-        cardType: dto.cardType ?? 'virtual',
-        nickname: dto.nickname?.trim() || null,
-        maxSpendLimit: dto.maxSpendLimit ? money(dto.maxSpendLimit) : null,
-        monthlyLimit: dto.monthlyLimit ? money(dto.monthlyLimit) : null,
-        allowTopUp: dto.allowTopUp ?? true,
-        notifyHalfSpent: dto.notifyHalfSpent ?? true,
-        notifyLowBalance: dto.notifyLowBalance ?? true,
-        notifyBudgetReached: dto.notifyBudgetReached ?? true,
-        expirationType: dto.expirationType ?? 'monthly',
-        expirationDate: dto.expirationDate
-          ? new Date(dto.expirationDate)
-          : defaultExpiration(dto.expirationType ?? 'monthly'),
-      },
+      const pan = generateLuhnPan();
+      const card = await tx.card.create({
+        data: {
+          id: randomUUID(),
+          userId,
+          providerId: provider.id,
+          cardNumberEncrypted: this.encrypt(pan),
+          cardCvvEncrypted:
+            this.config.get('nodeEnv', { infer: true }) === 'development'
+              ? this.encrypt(randomInt(1000).toString().padStart(3, '0'))
+              : null,
+          cardNumberLast4: last4(pan),
+          creationLockType: dto.ruleType,
+          cardType: dto.cardType ?? 'virtual',
+          nickname: dto.nickname?.trim() || null,
+          maxSpendLimit: dto.maxSpendLimit ? money(dto.maxSpendLimit) : null,
+          monthlyLimit: dto.monthlyLimit ? money(dto.monthlyLimit) : null,
+          allowTopUp: dto.allowTopUp ?? true,
+          notifyHalfSpent: dto.notifyHalfSpent ?? true,
+          notifyLowBalance: dto.notifyLowBalance ?? true,
+          notifyBudgetReached: dto.notifyBudgetReached ?? true,
+          expirationType: dto.expirationType ?? 'monthly',
+          expirationDate: dto.expirationDate
+            ? new Date(dto.expirationDate)
+            : defaultExpiration(dto.expirationType ?? 'monthly'),
+        },
+      });
+      await tx.cardHistory.create({
+        data: { id: randomUUID(), cardId: card.id, event: 'create', changes: {} },
+      });
+      return this.toView(card);
     });
-    await this.recordHistory(card.id, 'create', {});
-    return this.toView(card);
+  }
+
+  creationAccess(userId: string) {
+    return this.access.summary(userId);
+  }
+  availability(userId: string, id: string) {
+    return this.access.cardStatus(userId, id);
   }
 
   async update(userId: string, cardId: string, dto: WriteDto) {
@@ -583,21 +600,38 @@ export class CardsService {
     cardId: string,
     dto: { lockType: string; config?: Record<string, unknown>; isActive?: boolean },
   ) {
-    await this.assertOwnedCard(userId, cardId);
     try {
-      const lock = await this.prisma.cardLock.create({
-        data: {
-          id: randomUUID(),
-          cardId,
-          lockType: dto.lockType as never,
-          config: (dto.config ?? {}) as Prisma.InputJsonValue,
-          isActive: dto.isActive ?? true,
-        },
+      return await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "profiles" WHERE "id" = ${userId}::uuid FOR UPDATE`;
+        const card = await tx.card.findFirst({ where: { id: cardId, userId } });
+        if (!card) throw new NotFoundException('Card not found');
+        const existing = await tx.cardLock.findFirst({ where: { cardId } });
+        if (card.creationLockType == null && !existing) {
+          await this.access.assertCreation(userId, dto.lockType as LockType, tx);
+          await tx.card.update({
+            where: { id: cardId },
+            data: { creationLockType: dto.lockType as LockType },
+          });
+        }
+        const lock = await tx.cardLock.create({
+          data: {
+            id: randomUUID(),
+            cardId,
+            lockType: dto.lockType as never,
+            config: (dto.config ?? {}) as Prisma.InputJsonValue,
+            isActive: dto.isActive ?? true,
+          },
+        });
+        await tx.cardHistory.create({
+          data: {
+            id: randomUUID(),
+            cardId,
+            event: 'lock.create',
+            changes: { lock: { lockType: lock.lockType, lockId: lock.id } },
+          },
+        });
+        return lock;
       });
-      await this.recordHistory(cardId, 'lock.create', {
-        lock: { lockType: lock.lockType, lockId: lock.id },
-      });
-      return lock;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException('A lock of this type already exists on this card');

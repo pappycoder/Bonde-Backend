@@ -168,6 +168,14 @@ export class CardDto {
 
 /** Body for `POST /api/cards`. */
 export class CreateCardDto {
+  @ApiPropertyOptional({
+    enum: LockType,
+    description: 'Reserves the correct rule-based card slot before rule setup',
+  })
+  @IsOptional()
+  @IsIn(Object.values(LockType))
+  ruleType?: LockType;
+
   @ApiPropertyOptional({ example: 'virtual', description: 'Only virtual cards can be created' })
   @IsOptional()
   @IsIn(CARD_TYPES)

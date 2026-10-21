@@ -13,6 +13,7 @@ import {
 } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { money } from '../../common/money/money.js';
+import { CardAccessService } from './card-access.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { ActivityService } from '../activity/activity.service.js';
 import { FlutterwaveCardsService } from '../flutterwave/flutterwave-cards.service.js';
@@ -34,6 +35,7 @@ export class IssuedCardsService {
     private readonly prisma: PrismaService,
     private readonly fwCards: FlutterwaveCardsService,
     private readonly activity: ActivityService,
+    private readonly access: CardAccessService,
   ) {}
 
   async issue(
@@ -52,6 +54,7 @@ export class IssuedCardsService {
       nameOnCard?: string;
     },
   ) {
+    await this.access.assertCreation(userId);
     const profile = await this.prisma.profile.findUnique({ where: { id: userId } });
     if (!profile) throw new NotFoundException('Profile not found');
     const wallet = await this.prisma.wallet.findFirst({ where: { account: { userId } } });
