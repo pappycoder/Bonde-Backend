@@ -33,11 +33,11 @@ export class CardAccessService {
     return {
       plan: premium ? 'PREMIUM' : 'FREE',
       subscriptionExpired,
-      standard: { active: standard, limit: premium ? null : 1 },
-      ruleBased: { active: ruleBased, limit: premium ? null : 2 },
+      standard: { active: standard, limit: premium ? 15 : 1 },
+      ruleBased: { active: ruleBased, limit: premium ? 15 : 2 },
       retained: !premium && (standard > 1 || ruleBased > 2),
-      canCreateStandard: premium || (standard < 1 && ruleBased <= 2),
-      canCreateRuleBased: premium || (ruleBased < 2 && standard <= 1),
+      canCreateStandard: premium ? cards.length < 15 : standard < 1 && ruleBased <= 2,
+      canCreateRuleBased: premium ? cards.length < 15 : ruleBased < 2 && standard <= 1,
     };
   }
 

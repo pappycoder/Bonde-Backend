@@ -7,6 +7,12 @@
  */
 export interface AppConfig {
   nodeEnv: string;
+  profileHub: {
+    billingEnabled: boolean;
+    termsUrl: string | null;
+    privacyUrl: string | null;
+    subscriptionTermsUrl: string | null;
+  };
   port: number;
   corsOrigins: string[];
   publicUrl: string;
@@ -89,6 +95,12 @@ export interface AppConfig {
 
 export default (): AppConfig => ({
   nodeEnv: process.env.NODE_ENV ?? 'development',
+  profileHub: {
+    billingEnabled: (process.env.PROFILE_BILLING_ENABLED ?? 'true').toLowerCase() === 'true',
+    termsUrl: process.env.TERMS_URL || 'https://www.usebonde.com',
+    privacyUrl: process.env.PRIVACY_URL || 'https://www.usebonde.com',
+    subscriptionTermsUrl: process.env.SUBSCRIPTION_TERMS_URL || 'https://www.usebonde.com',
+  },
   port: Number(process.env.PORT ?? 3001),
   corsOrigins: (process.env.CORS_ORIGINS ?? '')
     .split(',')

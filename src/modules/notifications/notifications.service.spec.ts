@@ -15,11 +15,13 @@ function makeService(
     update?: ReturnType<typeof vi.fn>;
     updateMany?: ReturnType<typeof vi.fn>;
     create?: ReturnType<typeof vi.fn>;
+    preferences?: Record<string, boolean>;
     pushDeviceFindMany?: ReturnType<typeof vi.fn>;
   } = {},
   push?: PushDispatcher,
 ) {
   const prisma = {
+    profile: { findUnique: vi.fn(async () => ({ preferences: delegates.preferences ?? {} })) },
     notification: {
       findMany: delegates.findMany ?? vi.fn(async () => []),
       count: delegates.count ?? vi.fn(async () => 0),
@@ -146,5 +148,53 @@ describe('NotificationsService.markAllRead', () => {
       where: { userId: USER_ID, status: NotificationStatus.UNREAD },
       data: { status: NotificationStatus.READ, readAt: expect.any(Date) },
     });
+  });
+});
+
+describe('Notification preferences', () => {
+  it('keeps in-app transaction records while suppressing disabled push categories', async () => {
+    const send = vi.fn();
+    const push: PushDispatcher = { isEnabled: () => true, send };
+    const { service, prisma } = makeService(
+      {
+        preferences: { transactionUpdates: false },
+        pushDeviceFindMany: vi.fn(async () => [{ token: 'device' }]),
+      },
+      push,
+    );
+    await service.create({
+      targetUserId: USER_ID,
+      title: 'Payment',
+      content: 'Settled',
+      type: NotificationType.TRANSACTION,
+    });
+    expect(prisma.notification.create).toHaveBeenCalledOnce();
+    expect(send).not.toHaveBeenCalled();
+  });
+  it('never suppresses security alerts and requires opt-in for product news', async () => {
+    const send = vi.fn();
+    const push: PushDispatcher = { isEnabled: () => true, send };
+    const { service } = makeService(
+      {
+        preferences: { transactionUpdates: false },
+        pushDeviceFindMany: vi.fn(async () => [{ token: 'device' }]),
+      },
+      push,
+    );
+    await service.create({
+      targetUserId: USER_ID,
+      title: 'Password changed',
+      content: 'Security',
+      type: NotificationType.TRANSACTION,
+      metadata: { action: 'auth.password.change' },
+    });
+    expect(send).toHaveBeenCalledOnce();
+    await service.create({
+      targetUserId: USER_ID,
+      title: 'Product news',
+      content: 'News',
+      metadata: { action: 'product.news' },
+    });
+    expect(send).toHaveBeenCalledOnce();
   });
 });

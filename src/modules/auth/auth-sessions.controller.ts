@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swa
 import { CurrentUser } from './decorators/current-user.decorator.js';
 import type { AuthPrincipal } from './principal/auth-principal.js';
 import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
+import { StrictThrottle } from '../../common/throttling/strict-throttle.decorator.js';
 import { AuthSessionsService } from './services/auth-sessions.service.js';
 import { AuthSessionListResponseDto, RevokeSessionResponseDto } from './auth.dto.js';
 
@@ -23,6 +24,17 @@ export class AuthSessionsController {
   @ApiErrorResponse()
   async list(@CurrentUser() user: AuthPrincipal) {
     return { sessions: await this.sessions.list(user) };
+  }
+
+  @Delete()
+  @StrictThrottle()
+  async revokeOthers(@CurrentUser() user: AuthPrincipal) {
+    if (!user.sessionId) return { revoked: 0 };
+    return {
+      revoked: await this.sessions.revokeAll(user, 'user_requested', {
+        exceptSessionId: user.sessionId,
+      }),
+    };
   }
 
   @Delete(':id')

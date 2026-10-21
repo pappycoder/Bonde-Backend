@@ -83,6 +83,13 @@ describe('CardAccessService', () => {
       canCreateRuleBased: true,
     });
   });
+  it('caps Premium at 15 active cards', async () => {
+    const { service } = setup({ premium: true, cards: Array(15).fill(standard) });
+    expect(await service.summary('owner')).toMatchObject({
+      canCreateStandard: false,
+      canCreateRuleBased: false,
+    });
+  });
   it('requires an owned card before reporting its availability', async () => {
     const { service, db } = setup();
     db.card.findFirst.mockResolvedValueOnce(null as never);

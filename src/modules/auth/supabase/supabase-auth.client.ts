@@ -43,6 +43,8 @@ export interface SupabaseSession {
 }
 
 export interface SupabaseAuthGateway {
+  requestEmailChange?(accessToken: string, email: string): Promise<void>;
+  getUser?(userId: string): Promise<SupabaseUser>;
   /** Create an auth.users row via the Admin API. */
   signUp(input: {
     email: string;
@@ -199,6 +201,22 @@ export class SupabaseAuthClient implements SupabaseAuthGateway {
     });
   }
 
+  async requestEmailChange(accessToken: string, email: string): Promise<void> {
+    await this.request<GoTrueUser>('/user', {
+      method: 'PUT',
+      useServiceRole: false,
+      accessToken,
+      body: { email },
+    });
+  }
+  async getUser(userId: string): Promise<SupabaseUser> {
+    return this.toUser(
+      await this.request<GoTrueUser>(`/admin/users/${userId}`, {
+        method: 'GET',
+        useServiceRole: true,
+      }),
+    );
+  }
   private async token(
     grantType: 'password' | 'refresh_token',
     body: Record<string, unknown>,
@@ -228,6 +246,7 @@ export class SupabaseAuthClient implements SupabaseAuthGateway {
     init: {
       method: 'GET' | 'POST' | 'PUT';
       useServiceRole: boolean;
+      accessToken?: string;
       body?: Record<string, unknown>;
     },
   ): Promise<T> {
@@ -239,7 +258,11 @@ export class SupabaseAuthClient implements SupabaseAuthGateway {
         headers: {
           apikey: this.anonKey,
           'content-type': 'application/json',
-          ...(init.useServiceRole ? { authorization: `Bearer ${this.serviceRoleKey}` } : {}),
+          ...(init.useServiceRole
+            ? { authorization: `Bearer ${this.serviceRoleKey}` }
+            : init.accessToken
+              ? { authorization: `Bearer ${init.accessToken}` }
+              : {}),
         },
         body: init.body === undefined ? undefined : JSON.stringify(init.body),
         signal: controller.signal,

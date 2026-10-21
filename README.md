@@ -212,3 +212,32 @@ set. Transaction-derived analytics will include these examples until cleanup;
 wallet balances and card spending counters are not reconciled to this synthetic
 history. Dates span the anchor day back through 62 days. Re-running preserves
 existing fixture rows; remove and reseed to regenerate dates or edited examples.
+
+### Profile hub and subscription billing
+
+The mobile profile flow uses owner-scoped `/profile/preferences`, `/profile/support`,
+`/profile/email-change` and `/profile/deletion-request` endpoints. Email changes use
+Supabase's confirmation flow; `/profile/email-change/sync` reads the provider's
+confirmed address rather than trusting stale JWT email claims. Deletion creates
+an administrator-review support ticket after passcode verification and financial
+prerequisite checks. It never deletes accounts or financial records directly.
+
+Apply `20261021000200_profile_hub` using the normal migration deployment process
+before deploying these endpoints. `/billing/catalog` is the authoritative price
+source: Premium costs NGN 6,000/month and grants 8,000 monthly credits. Credit packs
+are 10/NGN 5,000, 50/NGN 6,000, 60/NGN 6,500 and 70/NGN 7,000. Wallet debits,
+transaction records, credit grants and purchase audits settle atomically. Orders
+use permanent owner-scoped idempotency keys and can be reconciled or cancelled.
+
+`PROFILE_BILLING_ENABLED` controls wallet purchases and the monthly renewal worker
+(default `true`). Set it to `false` for maintenance or environments that should
+not accept payments. The worker runs every minute; replicas share period keys and
+profile row locks. It renews only previously paid wallet subscriptions with
+recurring consent, preserves their accepted price, and stops renewal after
+cancellation or insufficient funds. Manually granted legacy Premium does not
+authorize a wallet debit. Annual billing and external-card checkout remain
+unavailable. The existing AI agent integration is still unconfigured; this change
+provides credit balances and grants, not an invented AI usage charging policy.
+
+`TERMS_URL`, `PRIVACY_URL` and `SUBSCRIPTION_TERMS_URL` default to the approved
+`https://www.usebonde.com` destination and can be configured individually.

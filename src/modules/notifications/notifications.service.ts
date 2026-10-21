@@ -61,12 +61,49 @@ export class NotificationsService {
 
     // Best-effort push — in-app is source of truth; push must never fail the
     // request that produced the notification (mirrors MAIL/OTP convention).
+    if (!(await this.pushAllowed(input))) return;
     await this.dispatchBestEffort(
       input.targetUserId,
       input.title,
       input.content,
       this.toPushData(input.metadata),
     );
+  }
+
+  private async pushAllowed(input: CreateNotificationInput): Promise<boolean> {
+    const metadata = input.metadata;
+    const action =
+      metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+        ? String((metadata as Prisma.InputJsonObject).action ?? '')
+        : '';
+    // Fail open for security and unknown system events. Never silence security alerts.
+    if (/^(auth|profile|passcode|security|otp)\./.test(action)) return true;
+    const preference = /approval/.test(action)
+      ? 'approvalAlerts'
+      : /renewal|subscription/.test(action)
+        ? 'renewalReminders'
+        : /budget|spending|threshold/.test(action)
+          ? 'spendingAlerts'
+          : /marketing|product.news|broadcast/.test(action)
+            ? 'productNews'
+            : input.type === NotificationType.TRANSACTION
+              ? 'transactionUpdates'
+              : null;
+    if (!preference) return true;
+    try {
+      const profile = await this.prisma.profile.findUnique({
+        where: { id: input.targetUserId },
+        select: { preferences: true },
+      });
+      const prefs = profile?.preferences;
+      if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs))
+        return preference !== 'productNews';
+      return preference === 'productNews'
+        ? prefs[preference] === true
+        : prefs[preference] !== false;
+    } catch {
+      return preference !== 'productNews';
+    }
   }
 
   /** Folds notification `metadata` into the FCM `data` map used for deep links. */

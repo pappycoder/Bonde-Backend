@@ -9,6 +9,19 @@ import Joi from 'joi';
 export const envValidationSchema = Joi.object({
   NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
 
+  PROFILE_BILLING_ENABLED: Joi.boolean().default(true),
+  TERMS_URL: Joi.string()
+    .uri({ scheme: ['https'] })
+    .optional()
+    .allow(''),
+  PRIVACY_URL: Joi.string()
+    .uri({ scheme: ['https'] })
+    .optional()
+    .allow(''),
+  SUBSCRIPTION_TERMS_URL: Joi.string()
+    .uri({ scheme: ['https'] })
+    .optional()
+    .allow(''),
   PORT: Joi.number().port().default(3001),
 
   CORS_ORIGINS: Joi.string()
