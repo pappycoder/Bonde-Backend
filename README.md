@@ -241,3 +241,27 @@ provides credit balances and grants, not an invented AI usage charging policy.
 
 `TERMS_URL`, `PRIVACY_URL` and `SUBSCRIPTION_TERMS_URL` default to the approved
 `https://www.usebonde.com` destination and can be configured individually.
+
+### Mobile flow wiring audit (22 October 2026)
+
+`POST /cards` accepts optional `configuration: { config, merchants, categories }`
+with `ruleType`. The selected rule and allowlists now commit in the same database
+transaction as the card, so a rejected setup cannot leave an unrestricted card.
+Legacy callers that configure subresources separately remain supported.
+
+`POST /biometric-devices/local` records OS-local enrollment metadata:
+`{ deviceId, deviceName, biometricType: FACE|FINGERPRINT|DEVICE, isActive }`.
+It upserts by owner/install ID. Local authentication does not provide a signing
+public key, so these records have `publicKey: null` and never authorize server
+operations. Existing public-key enrollment remains supported. Deploy migration
+`20261022000100_local_biometric_enrollment` before deploying this endpoint.
+
+`POST /profile/support/:id/messages` appends a trimmed USER reply to an owned,
+open ticket. Foreign tickets return 404 and resolved tickets return 409.
+Owner checks and writes run under a transaction/row lock. Mobile login also
+completes the existing `/auth/login/mfa` challenge, including recovery codes;
+failed attempts require a fresh sign-in because challenges are single-use.
+
+See [the mobile flow audit](../Bonde-Mobile/docs/flow-wiring-audit.md) for
+scope, regression coverage and the distinction between automated tests and live
+provider/device verification. AI and payment integration changes are excluded.

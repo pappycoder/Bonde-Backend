@@ -137,7 +137,7 @@ describe('Cards self-service (e2e)', () => {
     expect(credentials.body.cardNumber).toMatch(/^\d{16}$/);
     expect(credentials.body.cardNumber.slice(-4)).toBe(created.body.cardNumberLast4);
     expect(credentials.body.cvv).toBeNull();
-    await ctx.raw.get(`/api/cards/${created.body.id}/credentials`).expect(401);
+    await ctx.raw.get(`/cards/${created.body.id}/credentials`).expect(401);
     ctx.setPrincipal({ userId: SEED_OTHER_ID });
     await ctx.http.get(`/cards/${created.body.id}/credentials`).expect(404);
   });
@@ -214,10 +214,7 @@ describe('Cards self-service (e2e)', () => {
       .expect(400);
     const unchanged = await ctx.http.get(`/cards/${SEED_CARD_ID}`).expect(200);
     expect(unchanged.body.nickname).toBe(original.body.nickname);
-    await ctx.raw
-      .patch(`/api/cards/${SEED_CARD_ID}/rules`)
-      .send({ nickname: 'No auth' })
-      .expect(401);
+    await ctx.raw.patch(`/cards/${SEED_CARD_ID}/rules`).send({ nickname: 'No auth' }).expect(401);
     ctx.setPrincipal({ userId: SEED_OTHER_ID });
     await ctx.http.patch(`/cards/${SEED_CARD_ID}/rules`).send({ nickname: 'Foreign' }).expect(404);
   });
@@ -251,8 +248,8 @@ describe('Cards self-service (e2e)', () => {
   });
 
   it('protects destruction and deletion with authentication and ownership', async () => {
-    await ctx.raw.post(`/api/cards/${SEED_CARD_ID}/cancel`).expect(401);
-    await ctx.raw.delete(`/api/cards/${SEED_CARD_ID}`).expect(401);
+    await ctx.raw.post(`/cards/${SEED_CARD_ID}/cancel`).expect(401);
+    await ctx.raw.delete(`/cards/${SEED_CARD_ID}`).expect(401);
     ctx.setPrincipal({ userId: SEED_OTHER_ID });
     await ctx.http.post(`/cards/${SEED_CARD_ID}/cancel`).expect(404);
     await ctx.http.delete(`/cards/${SEED_CARD_ID}`).expect(404);
@@ -475,5 +472,51 @@ describe('Cards self-service (e2e)', () => {
         .expect(404);
       await ctx.http.delete(`/cards/${foreign.id}/merchants/${randomUUID()}`).expect(404);
     });
+  });
+  it('creates the selected rule and allowlist in the same card request', async () => {
+    const result = await ctx.http
+      .post('/cards')
+      .send({
+        nickname: 'Merchant card',
+        ruleType: 'MERCHANT',
+        maxSpendLimit: '5000.00',
+        configuration: { config: {}, merchants: ['Jumia', 'Konga'], categories: [] },
+      })
+      .expect(201);
+    const id = result.body.id;
+    const locks = await ctx.http.get(`/cards/${id}/locks`).expect(200);
+    expect(locks.body).toHaveLength(1);
+    expect(locks.body[0]).toMatchObject({ lockType: 'MERCHANT', isActive: true });
+    const merchants = await ctx.http.get(`/cards/${id}/merchants`).expect(200);
+    expect(merchants.body.map((row: { merchantName: string }) => row.merchantName).sort()).toEqual([
+      'Jumia',
+      'Konga',
+    ]);
+    expect(result.body.cardNumberEncrypted).toBeUndefined();
+  });
+
+  it('rejects incomplete configuration without creating a card or consuming capacity', async () => {
+    const before = await ctx.prisma.card.count({ where: { userId: SEED_USER_ID } });
+    await ctx.http
+      .post('/cards')
+      .send({ ruleType: 'MERCHANT', maxSpendLimit: '5000.00', configuration: { merchants: [] } })
+      .expect(400);
+    await ctx.http
+      .post('/cards')
+      .send({
+        ruleType: 'SELF_DESTRUCT',
+        maxSpendLimit: '5000.00',
+        configuration: { config: { usageLimit: 0 } },
+      })
+      .expect(400);
+    await ctx.http
+      .post('/cards')
+      .send({
+        ruleType: 'BUDGET',
+        monthlyLimit: '5000.00',
+        configuration: { config: { monthlyLimit: '1.00' } },
+      })
+      .expect(400);
+    expect(await ctx.prisma.card.count({ where: { userId: SEED_USER_ID } })).toBe(before);
   });
 });

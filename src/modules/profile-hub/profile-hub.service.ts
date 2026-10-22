@@ -78,6 +78,23 @@ export class ProfileHubService {
     if (!ticket) throw new NotFoundException('Support ticket not found');
     return ticket;
   }
+  async reply(userId: string, id: string, message: string) {
+    await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id" FROM "support_tickets" WHERE "id" = ${id}::uuid
+          AND "user_id" = ${userId}::uuid FOR UPDATE`;
+      if (!rows.length) throw new NotFoundException('Support ticket not found');
+      const ticket = await tx.supportTicket.findUnique({ where: { id }, select: { status: true } });
+      if (ticket?.status === 'RESOLVED')
+        throw new ConflictException('Resolved tickets cannot receive new messages');
+      await tx.supportMessage.create({
+        data: { id: randomUUID(), ticketId: id, role: 'USER', body: message.trim() },
+      });
+      await tx.supportTicket.update({ where: { id }, data: { updatedAt: new Date() } });
+    });
+    return this.ticket(userId, id);
+  }
+
   async deletionRequest(userId: string, code: string) {
     await this.passcode.validate(userId, code);
     return this.prisma.$transaction(async (tx) => {

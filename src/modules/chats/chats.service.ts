@@ -99,12 +99,10 @@ export class ChatsService {
 
   async createMessage(userId: string, chatId: string, dto: { content: string }) {
     await this.get(userId, chatId);
-    const [message] = await this.prisma.$transaction([
-      this.prisma.message.create({
-        data: { id: randomUUID(), chatId, role: MessageRole.USER, content: dto.content },
-      }),
-      this.prisma.chat.update({ where: { id: chatId }, data: { updatedAt: new Date() } }),
-    ]);
+    // The database trigger stamps the parent with this exact message timestamp.
+    const message = await this.prisma.message.create({
+      data: { id: randomUUID(), chatId, role: MessageRole.USER, content: dto.content },
+    });
     return message;
   }
 }

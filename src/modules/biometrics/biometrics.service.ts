@@ -1,3 +1,4 @@
+import type { LocalBiometricEnrollmentDto } from './biometrics.dto.js';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -81,6 +82,19 @@ export class BiometricsService {
       }
       throw error;
     }
+  }
+
+  async recordLocal(userId: string, dto: LocalBiometricEnrollmentDto) {
+    return this.prisma.biometricDevice.upsert({
+      where: { userId_deviceId: { userId, deviceId: dto.deviceId } },
+      create: { id: randomUUID(), userId, ...dto, publicKey: null },
+      update: {
+        deviceName: dto.deviceName,
+        biometricType: dto.biometricType,
+        isActive: dto.isActive,
+        lastUsedAt: new Date(),
+      },
+    });
   }
 
   async update(userId: string, deviceId: string, dto: { deviceName?: string; isActive?: boolean }) {

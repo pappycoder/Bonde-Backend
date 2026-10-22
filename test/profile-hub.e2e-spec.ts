@@ -89,4 +89,30 @@ describe('Profile hub and billing (local database)', () => {
     ctx.setPrincipal({ userId: SEED_OTHER_ID });
     await ctx.http.get(`/profile/support/${ticket.body.id}`).expect(404);
   });
+  it('appends owner replies, rejects foreign and resolved conversations', async () => {
+    const created = await ctx.http
+      .post('/profile/support')
+      .send({ subject: 'Profile question', message: 'Please help with my account.' })
+      .expect(201);
+    const id = created.body.id;
+    const reply = await ctx.http
+      .post(`/profile/support/${id}/messages`)
+      .send({ message: '  Here is more detail.  ' })
+      .expect(201);
+    expect(reply.body.messages).toHaveLength(2);
+    expect(reply.body.messages[1]).toMatchObject({ role: 'USER', body: 'Here is more detail.' });
+    await ctx.http.post(`/profile/support/${id}/messages`).send({ message: '   ' }).expect(400);
+    ctx.setPrincipal({ userId: SEED_OTHER_ID });
+    await ctx.http
+      .post(`/profile/support/${id}/messages`)
+      .send({ message: 'Not my ticket' })
+      .expect(404);
+    ctx.setPrincipal({ userId: SEED_USER_ID });
+    await ctx.prisma.supportTicket.update({ where: { id }, data: { status: 'RESOLVED' } });
+    await ctx.http
+      .post(`/profile/support/${id}/messages`)
+      .send({ message: 'No longer open' })
+      .expect(409);
+    expect(await ctx.prisma.supportMessage.count({ where: { ticketId: id } })).toBe(2);
+  });
 });

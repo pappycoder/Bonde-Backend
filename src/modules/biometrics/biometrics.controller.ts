@@ -26,6 +26,7 @@ import { ActivityService } from '../activity/activity.service.js';
 import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
 import {
   BiometricDeviceDto,
+  LocalBiometricEnrollmentDto,
   BiometricsDeleteResponseDto,
   CreateBiometricDeviceDto,
   ListBiometricsQueryDto,
@@ -78,6 +79,29 @@ export class BiometricsController {
         type: NotificationType.SYSTEM,
         title: 'Biometric enrolled',
         content: `You can now sign in using ${device.biometricType === 'FACE' ? 'Face ID' : 'your fingerprint'} on "${device.deviceName}".`,
+      },
+    });
+    return device;
+  }
+
+  @Post('local')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Record local OS biometric enrollment metadata (not server authentication)',
+  })
+  @ApiOkResponse({ type: BiometricDeviceDto })
+  @ApiErrorResponse()
+  async local(@CurrentUser() principal: AuthPrincipal, @Body() dto: LocalBiometricEnrollmentDto) {
+    const device = await this.biometrics.recordLocal(principal.userId, dto);
+    await this.activity.record({
+      userId: principal.userId,
+      action: 'biometric.local.update',
+      entityType: 'biometric_device',
+      entityId: device.id,
+      notify: {
+        type: NotificationType.SYSTEM,
+        title: 'Biometric access updated',
+        content: `Local biometric access on "${device.deviceName}" is ${device.isActive ? 'enabled' : 'disabled'}.`,
       },
     });
     return device;

@@ -54,6 +54,14 @@ export class SupportRequestDto {
   @MaxLength(4000)
   message: string;
 }
+export class SupportReplyDto {
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MinLength(1)
+  @MaxLength(4000)
+  message: string;
+}
+
 export class ConfirmPasscodeDto {
   @IsString() @Matches(/^\d{4}$/) passcode: string;
 }

@@ -17,6 +17,7 @@ import {
   Matches,
   Max,
   MaxLength,
+  MinLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -166,8 +167,33 @@ export class CardDto {
   updatedAt: Date;
 }
 
+/** Complete rule configuration submitted with a newly created local card. */
+export class CreateCardConfigurationDto {
+  @IsOptional() @IsObject() config?: Record<string, unknown>;
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ArrayUnique()
+  @IsString({ each: true })
+  @MinLength(1, { each: true })
+  @MaxLength(200, { each: true })
+  merchants?: string[];
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ArrayUnique()
+  @IsIn(Object.values(CardRestrictedCategory), { each: true })
+  categories?: CardRestrictedCategory[];
+}
+
 /** Body for `POST /api/cards`. */
 export class CreateCardDto {
+  @ApiPropertyOptional({ type: CreateCardConfigurationDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CreateCardConfigurationDto)
+  configuration?: CreateCardConfigurationDto;
+
   @ApiPropertyOptional({
     enum: LockType,
     description: 'Reserves the correct rule-based card slot before rule setup',

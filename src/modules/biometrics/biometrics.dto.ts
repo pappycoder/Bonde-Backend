@@ -75,6 +75,14 @@ export class CreateBiometricDeviceDto {
   publicKey: string;
 }
 
+/** OS-local authentication records never contain a fabricated public key. */
+export class LocalBiometricEnrollmentDto {
+  @IsString() @MinLength(1) @MaxLength(255) deviceId: string;
+  @IsString() @MinLength(1) @MaxLength(100) deviceName: string;
+  @IsIn(Object.values(BiometricType)) biometricType: BiometricType;
+  @IsBoolean() isActive: boolean;
+}
+
 /** Body for `PATCH /api/biometric-devices/:id`. */
 export class UpdateBiometricDeviceDto {
   @ApiPropertyOptional({ example: 'Work phone' })

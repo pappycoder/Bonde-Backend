@@ -10,6 +10,7 @@ import {
   EmailChangeDto,
   PreferencesDto,
   SupportRequestDto,
+  SupportReplyDto,
 } from './preferences.dto.js';
 
 @ApiTags('profile-hub')
@@ -55,6 +56,13 @@ export class ProfileHubController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.hub.ticket(user.userId, id);
+  }
+  @Post('support/:id/messages') @StrictThrottle() reply(
+    @CurrentUser() user: AuthPrincipal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SupportReplyDto,
+  ) {
+    return this.hub.reply(user.userId, id, dto.message);
   }
   @Post('deletion-request') @StrictThrottle() deletion(
     @CurrentUser() user: AuthPrincipal,

@@ -114,4 +114,26 @@ describe('Biometric devices + audit log (self-service e2e)', () => {
     });
     await ctx.http.get(`/audit-logs/${other.id}`).expect(404);
   });
+  it('records local OS enrollment idempotently without a signing key and scopes it to its owner', async () => {
+    const body = {
+      deviceId: 'local-install-one',
+      deviceName: 'Bonde Android',
+      biometricType: 'DEVICE',
+      isActive: true,
+    };
+    const first = await ctx.http.post('/biometric-devices/local').send(body).expect(200);
+    expect(first.body.publicKey).toBeNull();
+    expect(first.body.isActive).toBe(true);
+    const second = await ctx.http
+      .post('/biometric-devices/local')
+      .send({ ...body, isActive: false })
+      .expect(200);
+    expect(second.body.id).toBe(first.body.id);
+    expect(second.body.isActive).toBe(false);
+    ctx.setPrincipal({ userId: SEED_OTHER_ID });
+    const other = await ctx.http.post('/biometric-devices/local').send(body).expect(200);
+    expect(other.body.id).not.toBe(first.body.id);
+    await ctx.http.get(`/biometric-devices/${first.body.id}`).expect(404);
+    await ctx.http.post('/biometric-devices/local').send({ biometricType: 'FACE' }).expect(400);
+  });
 });

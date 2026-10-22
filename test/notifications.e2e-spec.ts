@@ -128,6 +128,8 @@ describe('Notifications (self-service e2e)', () => {
   });
 
   it('creates a CARD notification when a card is created', async () => {
+    // The baseline already owns the one Standard slot allowed on Free.
+    await ctx.prisma.profile.update({ where: { id: SEED_USER_ID }, data: { cardPlan: 'PREMIUM' } });
     const created = await ctx.http
       .post('/cards')
       .send({ cardType: 'virtual', nickname: 'Weekend spending' })

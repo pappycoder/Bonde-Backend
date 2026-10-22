@@ -21,7 +21,7 @@ import { qWhere } from '../../common/paging/search.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CardAccessService } from './card-access.service.js';
 import { generateLuhnPan, last4 } from './card-number.js';
-import type { UpdateCardRulesDto } from './cards.dto.js';
+import type { CreateCardDto, UpdateCardRulesDto } from './cards.dto.js';
 
 interface PagedOptions {
   page?: number;
@@ -131,22 +131,50 @@ export class CardsService {
     };
   }
 
-  async create(
-    userId: string,
-    dto: {
-      cardType?: string;
-      nickname?: string;
-      maxSpendLimit?: string;
-      monthlyLimit?: string;
-      allowTopUp?: boolean;
-      notifyHalfSpent?: boolean;
-      notifyLowBalance?: boolean;
-      notifyBudgetReached?: boolean;
-      expirationType?: string;
-      expirationDate?: string;
-      ruleType?: LockType;
-    },
-  ) {
+  async create(userId: string, dto: CreateCardDto) {
+    const setup = dto.configuration;
+    const type = dto.ruleType;
+    if (setup) {
+      const config = setup.config ?? {};
+      if (!type) throw new BadRequestException('Choose a rule type for this configuration');
+      if (type !== LockType.BUDGET && !(Number(dto.maxSpendLimit) > 0)) {
+        throw new BadRequestException('A positive maximum spending limit is required');
+      }
+      if (
+        type === LockType.SELF_DESTRUCT &&
+        (!Number.isSafeInteger(config.usageLimit) || Number(config.usageLimit) < 1)
+      ) {
+        throw new BadRequestException('Usage limit must be a positive integer');
+      }
+      if (type === LockType.TIME) {
+        const start = typeof config.start === 'string' ? Date.parse(config.start) : NaN;
+        const end = typeof config.end === 'string' ? Date.parse(config.end) : NaN;
+        if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+          throw new BadRequestException('Provide a valid start and end time');
+        }
+      }
+      if (
+        type === LockType.BUDGET &&
+        (!(Number(dto.monthlyLimit) > 0) || config.monthlyLimit !== dto.monthlyLimit)
+      ) {
+        throw new BadRequestException('Budget rule must match a positive monthly limit');
+      }
+      if (type === LockType.MERCHANT && !setup.merchants?.length) {
+        throw new BadRequestException('Choose at least one merchant');
+      }
+      if (type === LockType.CATEGORY && !setup.categories?.length) {
+        throw new BadRequestException('Choose at least one category');
+      }
+      if (
+        (setup.merchants?.length && type !== LockType.MERCHANT) ||
+        (setup.categories?.length && type !== LockType.CATEGORY)
+      ) {
+        throw new BadRequestException('Allowlists must match the selected rule');
+      }
+      if (setup.merchants?.some((name) => !name.trim())) {
+        throw new BadRequestException('Merchant names cannot be blank');
+      }
+    }
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "profiles" WHERE "id" = ${userId}::uuid FOR UPDATE`;
       await this.access.assertCreation(userId, dto.ruleType, tx);
@@ -200,6 +228,37 @@ export class CardsService {
       await tx.cardHistory.create({
         data: { id: randomUUID(), cardId: card.id, event: 'create', changes: {} },
       });
+      // Card, active rule and allowlists commit together or all roll back.
+      if (setup && type) {
+        await tx.cardLock.create({
+          data: {
+            id: randomUUID(),
+            cardId: card.id,
+            lockType: type,
+            config: (setup.config ?? {}) as Prisma.InputJsonObject,
+            isActive: true,
+          },
+        });
+        for (const name of setup.merchants ?? []) {
+          await tx.cardMerchant.create({
+            data: { id: randomUUID(), cardId: card.id, merchantName: name.trim() },
+          });
+        }
+        for (const category of setup.categories ?? []) {
+          await tx.cardCategory.create({
+            data: { id: randomUUID(), cardId: card.id, category, isAllowed: true },
+          });
+        }
+        await tx.cardHistory.create({
+          data: {
+            id: randomUUID(),
+            cardId: card.id,
+            event: 'rules.create',
+            changes: { lockType: type },
+          },
+        });
+      }
+
       return this.toView(card);
     });
   }
