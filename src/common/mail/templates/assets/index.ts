@@ -1,34 +1,33 @@
 import { logoDataUri } from './logo.js';
 import { socialDataUris } from './social.js';
 
-/**
- * Asset registry for transactional emails. All images shipped in the HTML are
- * referenced by these keys, so we can rewrite their `src` values wholesale to
- * a hosted base URL without touching every template.
- *
- * `dataUri` values are fallbacks that work in development and anywhere an
- * external request is undesirable. In production you should typically set
- * `MAIL_ASSET_BASE_URL` (and optionally `MAIL_LOGO_URL`) so Gmail/Outlook stop
- * stripping `data:` images.
- */
+/** Existing public, unsigned PNG folder used by the deployed emails. */
+export const DEFAULT_MAIL_ASSET_BASE_URL =
+  'https://emnfjlqdgnavrshpqqis.supabase.co/storage/v1/object/public/logo';
+
+/** Source artifacts remain available for regeneration, never embedded in email HTML. */
 export const mailAssets = {
   logo: {
     file: 'logo.png',
+    src: `${DEFAULT_MAIL_ASSET_BASE_URL}/logo.png`,
     alt: 'Bonde',
     dataUri: logoDataUri,
   },
   socialLinkedIn: {
     file: 'linkedin.png',
+    src: `${DEFAULT_MAIL_ASSET_BASE_URL}/linkedin.png`,
     alt: 'Bonde on LinkedIn',
     dataUri: socialDataUris.linkedin,
   },
   socialX: {
     file: 'x.png',
+    src: `${DEFAULT_MAIL_ASSET_BASE_URL}/x.png`,
     alt: 'Bonde on X',
     dataUri: socialDataUris.x,
   },
   socialInstagram: {
     file: 'instagram.png',
+    src: `${DEFAULT_MAIL_ASSET_BASE_URL}/instagram.png`,
     alt: 'Bonde on Instagram',
     dataUri: socialDataUris.instagram,
   },

@@ -152,12 +152,13 @@ describe('MailService', () => {
     });
   });
 
-  it('keeps the data-URI logo when no hosted URL is configured', async () => {
+  it('uses the existing public PNG host when no override is configured', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: RequestInfo | URL, init: RequestInit) => {
         const body = JSON.parse(String(init?.body));
-        expect(body.html).toContain(`src="${mailAssets.logo.dataUri}"`);
+        expect(body.html).toContain(`src="${mailAssets.logo.src}"`);
+        expect(body.html).not.toContain('data:image');
         return new Response(null, { status: 200 });
       }),
     );
@@ -216,5 +217,40 @@ describe('MailService', () => {
       subject: 's',
       html: `<img src="${mailAssets.logo.dataUri}" alt="Bonde" />`,
     });
+  });
+  it.each([
+    'http://cdn.example.com/mail',
+    'https://localhost/mail',
+    'https://127.0.0.1/mail',
+    'https://user:password@cdn.example.com/mail',
+    'https://cdn.example.com/mail?token=expires',
+  ])('rejects unsafe image hosting before delivery: %s', async (base) => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const { service } = makeService('production', undefined, base);
+    await expect(service.send({ to: 'a@example.com', subject: 's', html: 'h' })).rejects.toThrow(
+      MailSendError,
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('resolves HTTPS template sources for every icon', async () => {
+    const fetch = vi.fn(
+      async (_url: RequestInfo | URL, _init: RequestInit) => new Response(null, { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const { service } = makeService('production', undefined, 'https://cdn.example.com/mail');
+    await service.send({
+      to: 'a@example.com',
+      subject: 's',
+      html: Object.values(mailAssets)
+        .map((asset) => `<img src="${asset.src}" />`)
+        .join(''),
+    });
+    const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+    for (const asset of Object.values(mailAssets)) {
+      expect(body.html).toContain(`src="https://cdn.example.com/mail/${asset.file}"`);
+    }
+    expect(body.html).not.toContain('data:');
   });
 });

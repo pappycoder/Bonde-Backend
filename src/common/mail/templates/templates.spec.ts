@@ -47,7 +47,7 @@ function allDocs() {
 }
 
 describe('email templates', () => {
-  it('embeds the transparent logo as a data URI (no external fetch)', () => {
+  it('retains the original PNG source for asset regeneration', () => {
     expect(logoDataUri).toMatch(/^data:image\/png;base64,/);
     expect(logoDataUri.length).toBeGreaterThan(100);
   });
@@ -67,7 +67,7 @@ describe('email templates', () => {
     ]);
     for (const asset of Object.values(mailAssets)) {
       expect(asset.file).toMatch(/\.png$/);
-      expect(asset.dataUri).toMatch(/^data:image\/png;base64,/);
+      expect(asset.src).toMatch(/^https:\/\/.+\.png$/);
       expect(asset.alt.length).toBeGreaterThan(0);
     }
   });
@@ -86,6 +86,28 @@ describe('email templates', () => {
   });
 
   describe('shared layout', () => {
+    it.each(Object.entries(allDocs()))(
+      '%s uses public PNG images with explicit sizes',
+      (_name, doc) => {
+        expect(doc.html).not.toMatch(/data:image|<svg|<script|mask-image/);
+        const images = [...doc.html.matchAll(/<img\b[^>]*>/g)].map((match) => match[0]);
+        expect(images).toHaveLength(5);
+        for (const img of images) {
+          expect(img).toMatch(/src="https:\/\/[^"?]+\.png"/);
+          expect(img).toMatch(/width="\d+"/);
+          expect(img).toMatch(/height="\d+"/);
+          expect(img).toContain('display:block');
+          expect(img).toContain('border:0');
+        }
+        expect(doc.html).not.toContain('bgcolor="#ffffff"');
+        for (const logo of images.filter((img) => img.includes('alt="Bonde"'))) {
+          expect(logo).not.toContain('background-color');
+          expect(logo).toContain('height:auto');
+        }
+        expect(doc.html).toContain('valign="middle"');
+      },
+    );
+
     it.each(Object.entries(allDocs()))(
       '%s carries the dark-mode hardening the clients need',
       (_name, doc) => {
@@ -146,7 +168,7 @@ describe('email templates', () => {
       expect(doc.subject).toBe('Verify your email');
       expect(doc.html).toContain('1234');
       expect(doc.html).toContain('expires in 5 minutes');
-      expect(doc.html).toContain('data:image/png;base64,');
+      expect(doc.html).toContain(mailAssets.logo.src);
     });
 
     it('gives each reachable purpose a distinct subject and body', () => {

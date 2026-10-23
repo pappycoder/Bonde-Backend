@@ -94,8 +94,8 @@ ${DARK_MODE_CSS}
             <tr>
               <td align="center" bgcolor="${header.solid}"
                   style="padding:40px 24px;background-color:${header.solid};background-image:linear-gradient(180deg,${header.top} 0%,${header.bottom} 100%);text-align:center">
-                <img src="${mailAssets.logo.dataUri}" alt="Bonde" width="132" height="41"
-                     style="display:block;width:132px;height:41px;margin:0 auto;border:0;outline:none;text-decoration:none" />
+                <img src="${mailAssets.logo.src}" alt="Bonde" width="132" height="42"
+                     style="display:block;width:132px;height:auto;margin:0 auto;border:0;outline:none;text-decoration:none" />
               </td>
             </tr>
 

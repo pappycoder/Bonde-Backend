@@ -2,9 +2,8 @@
  * Bonde logo for email templates: transparent PNG (orange wordmark, white
  * background removed) as a base64 data URI.
  *
- * This is the offline fallback. `mail.service.ts` swaps it for a hosted URL when
- * `MAIL_LOGO_URL` is set, which is what production should use — Gmail strips
- * `data:` images from most messages.
+ * Source artifact retained for regeneration and previously rendered HTML.
+ * Templates use the public HTTPS PNG source from the asset registry.
  *
  * The palette lives in `./theme.js`.
  * Source: logo.jpeg; processed: logo-transparent.png / logo-transparent-opt.png.

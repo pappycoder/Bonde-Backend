@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../../config/configuration.js';
-import { mailAssets } from './templates/assets/index.js';
+import { DEFAULT_MAIL_ASSET_BASE_URL, mailAssets } from './templates/assets/index.js';
+import { esc } from './templates/parts.js';
 import { MailSendError, type MailMessage, type MailSender } from './mail.types.js';
 
 const RESEND_BASE_URL = 'https://api.resend.com';
@@ -69,34 +70,46 @@ export class MailService implements MailSender {
     }
   }
 
-  /**
-   * Swap the embedded data URIs for hosted URLs.
-   *
-   * Gmail and Outlook both strip `data:` images, so production needs a public
-   * host. Two levels of configuration:
-   *
-   * - `MAIL_ASSET_BASE_URL` rewrites *every* asset by its registry `file`, which
-   *   is what you want — one folder on a CDN holding logo.png plus the social
-   *   marks.
-   * - `MAIL_LOGO_URL` rewrites only the logo, and is kept for backwards
-   *   compatibility with existing deployments.
-   *
-   * With neither set the data URIs ship as-is, which still renders correctly in
-   * Apple Mail and most webmail clients.
-   */
+  /** Apply the existing hosting overrides to the HTTPS sources in every template. */
   private resolveAssets(html: string): string {
     let output = html;
-
+    const base = this.assetBaseUrl || DEFAULT_MAIL_ASSET_BASE_URL;
+    this.assertPublicImageUrl(base);
     for (const asset of Object.values(mailAssets)) {
-      if (this.assetBaseUrl) {
-        const base = this.assetBaseUrl.replace(/\/+$/, '');
-        output = output.split(asset.dataUri).join(`${base}/${asset.file}`);
-      } else if (asset === mailAssets.logo && this.logoUrl) {
-        output = output.split(asset.dataUri).join(this.logoUrl);
+      const url =
+        !this.assetBaseUrl && asset === mailAssets.logo && this.logoUrl
+          ? this.logoUrl
+          : `${base.replace(/\/+$/, '')}/${asset.file}`;
+      this.assertPublicImageUrl(url);
+      // Also handle previously rendered/queued HTML with embedded sources.
+      for (const source of [asset.src, asset.dataUri]) {
+        output = output.split(source).join(esc(url));
       }
     }
-
+    for (const match of output.matchAll(/<img\b[^>]*\bsrc=["']([^"']+)["']/gi)) {
+      this.assertPublicImageUrl(match[1]);
+    }
     return output;
+  }
+
+  private assertPublicImageUrl(value: string): void {
+    const url = new URL(value);
+    if (
+      url.protocol !== 'https:' ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      url.hostname === 'localhost' ||
+      url.hostname.endsWith('.localhost') ||
+      url.hostname.endsWith('.local') ||
+      url.hostname === '[::1]' ||
+      /^\d+\.\d+\.\d+\.\d+$/.test(url.hostname)
+    ) {
+      throw new MailSendError(
+        'Email images require public HTTPS URLs without credentials or query tokens',
+      );
+    }
   }
 
   private async responseDetail(response: Response): Promise<string> {

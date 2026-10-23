@@ -256,9 +256,8 @@ const GLYPHS = [
 const banner = `/**
  * Footer social glyphs: white marks on a transparent background, rendered at
  * 2x (56x56) for the 28px circles in the footer. Committed as base64 data URIs
- * so the footer works with zero external requests out of the box — Gmail and
- * Outlook strip \`data:\` images, so \`MailService\` rewrites them to
- * \`\${MAIL_ASSET_BASE_URL}/<file>\` when that base URL is configured.
+ * as source artifacts for regeneration. Email HTML uses the public HTTPS PNG
+ * URLs in the asset registry; these data URIs are never rendered in new mail.
  *
  * Regenerate with \`scripts/build-mail-assets.mjs\` (no extra dependencies).
  */

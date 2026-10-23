@@ -1,0 +1,706 @@
+[
+  {
+    "name": "card-registered.html",
+    "width": 375,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "contact.html",
+    "width": 375,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "invite.html",
+    "width": 375,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "live-image-test.html",
+    "width": 375,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "password-changed.html",
+    "width": 375,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "password-reset.html",
+    "width": 375,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "recovery.html",
+    "width": 375,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "verification.html",
+    "width": 375,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "waitlist-confirmation.html",
+    "width": 375,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "waitlist-signup.html",
+    "width": 375,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "welcome.html",
+    "width": 375,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "card-registered.html",
+    "width": 720,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "contact.html",
+    "width": 720,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "invite.html",
+    "width": 720,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "live-image-test.html",
+    "width": 720,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "password-changed.html",
+    "width": 720,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "password-reset.html",
+    "width": 720,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "recovery.html",
+    "width": 720,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "verification.html",
+    "width": 720,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "waitlist-confirmation.html",
+    "width": 720,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "waitlist-signup.html",
+    "width": 720,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  },
+  {
+    "name": "welcome.html",
+    "width": 720,
+    "overflow": false,
+    "images": [
+      {
+        "loaded": true,
+        "ratio": 3.142857142857143,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 3.1515151515151514,
+        "naturalRatio": 3.1746031746031744
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      },
+      {
+        "loaded": true,
+        "ratio": 1,
+        "naturalRatio": 1
+      }
+    ]
+  }
+]
