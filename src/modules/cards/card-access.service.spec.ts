@@ -23,9 +23,9 @@ function setup({
         locks: [],
       })),
     },
-    transaction: {
+    financeAuthorization: {
       count: vi.fn(async () => 0),
-      aggregate: vi.fn(async () => ({ _sum: { amount: new Prisma.Decimal(0) } })),
+      findMany: vi.fn(async (): Promise<unknown[]> => []),
     },
   };
   return { db, service: new CardAccessService(db as never) };
@@ -103,28 +103,26 @@ describe('CardAccessService', () => {
       locks: [],
     } as never);
     expect(await service.cardStatus('owner', 'card')).toEqual({ reason: 'EXPIRED' });
-    expect(db.transaction.count).not.toHaveBeenCalled();
+    expect(db.financeAuthorization.count).not.toHaveBeenCalled();
   });
-  it('checks usage against settled approved payments only', async () => {
+  it('checks usage against held and settled authorizations', async () => {
     const { service, db } = setup();
     db.card.findFirst.mockResolvedValueOnce({
       status: 'ACTIVE',
       expirationDate: new Date('2099-01-01'),
       locks: [{ lockType: 'SELF_DESTRUCT', config: { usageLimit: 2 } }],
     } as never);
-    db.transaction.count.mockResolvedValueOnce(2);
+    db.financeAuthorization.count.mockResolvedValueOnce(2);
     expect(await service.cardStatus('owner', 'card')).toMatchObject({
       reason: 'USAGE_LIMIT',
       used: 2,
       limit: 2,
     });
-    expect(db.transaction.count).toHaveBeenCalledWith({
+    expect(db.financeAuthorization.count).toHaveBeenCalledWith({
       where: {
         cardId: 'card',
         userId: 'owner',
-        type: 'PAYMENT',
-        status: 'SUCCESS',
-        approvalStatus: 'APPROVED',
+        status: { in: ['HELD', 'SETTLED'] },
       },
     });
   });
@@ -137,12 +135,19 @@ describe('CardAccessService', () => {
       locks: [],
       totalSpent: new Prisma.Decimal(999),
     } as never);
-    db.transaction.aggregate.mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal(10) } });
+    db.financeAuthorization.findMany.mockResolvedValueOnce([
+      {
+        status: 'SETTLED',
+        amount: new Prisma.Decimal(10),
+        released: new Prisma.Decimal(0),
+        settled: new Prisma.Decimal(10),
+      },
+    ]);
     expect(await service.cardStatus('owner', 'card')).toMatchObject({
       reason: 'BUDGET_LIMIT',
       spent: '10.00',
     });
-    expect(db.transaction.aggregate).toHaveBeenCalledWith(
+    expect(db.financeAuthorization.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           createdAt: { gte: expect.any(Date), lt: expect.any(Date) },

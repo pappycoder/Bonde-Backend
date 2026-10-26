@@ -2,7 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import { LockType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
-type Reader = Pick<Prisma.TransactionClient, 'profile' | 'card' | 'transaction'>;
+type Reader = Pick<Prisma.TransactionClient, 'profile' | 'card'>;
 
 @Injectable()
 export class CardAccessService {
@@ -20,7 +20,12 @@ export class CardAccessService {
     const premium = profile.cardPlan === 'PREMIUM' && !subscriptionExpired;
     // Pausing does not free an issued-card slot. Expired/destroyed cards do.
     const cards = await db.card.findMany({
-      where: { userId, status: { in: ['ACTIVE', 'PAUSED'] }, expirationDate: { gt: now } },
+      where: {
+        userId,
+        issuer: 'sudo',
+        status: { in: ['ACTIVE', 'PAUSED'] },
+        expirationDate: { gt: now },
+      },
       select: {
         creationLockType: true,
         locks: { select: { id: true }, where: { isActive: true } },
@@ -51,7 +56,7 @@ export class CardAccessService {
 
   async cardStatus(userId: string, id: string) {
     const card = await this.prisma.card.findFirst({
-      where: { id, userId },
+      where: { id, userId, issuer: 'sudo' },
       include: { locks: { where: { isActive: true } } },
     });
     if (!card) throw new NotFoundException('Card not found');
@@ -60,14 +65,12 @@ export class CardAccessService {
     const where = {
       cardId: id,
       userId,
-      type: 'PAYMENT' as const,
-      status: 'SUCCESS' as const,
-      approvalStatus: 'APPROVED' as const,
+      status: { in: ['HELD', 'SETTLED'] },
     };
     const usage = card.locks.find((lock) => lock.lockType === 'SELF_DESTRUCT');
     const config = usage?.config as { usageLimit?: unknown } | undefined;
     if (typeof config?.usageLimit === 'number' && config.usageLimit > 0) {
-      const used = await this.prisma.transaction.count({ where });
+      const used = await this.prisma.financeAuthorization.count({ where });
       if (used >= config.usageLimit)
         return { reason: 'USAGE_LIMIT', used, limit: config.usageLimit };
     }
@@ -75,11 +78,14 @@ export class CardAccessService {
       const now = new Date();
       const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
       const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-      const sum = await this.prisma.transaction.aggregate({
+      const rows = await this.prisma.financeAuthorization.findMany({
         where: { ...where, createdAt: { gte: from, lt: to } },
-        _sum: { amount: true },
+        select: { status: true, amount: true, released: true, settled: true },
       });
-      const spent = sum._sum.amount ?? new Prisma.Decimal(0);
+      const spent = rows.reduce(
+        (sum, row) => sum.add(row.status === 'HELD' ? row.amount.sub(row.released) : row.settled),
+        new Prisma.Decimal(0),
+      );
       if (spent.gte(card.monthlyLimit))
         return {
           reason: 'BUDGET_LIMIT',

@@ -22,6 +22,9 @@ export interface CardRules {
   merchantIds?: string[];
   categories?: string[];
   allowTopUp?: boolean;
+  notifyHalfSpent?: boolean;
+  notifyLowBalance?: boolean;
+  notifyBudgetReached?: boolean;
 }
 export function validateRules(raw: Record<string, unknown> = {}): CardRules {
   const keys = [
@@ -34,6 +37,9 @@ export function validateRules(raw: Record<string, unknown> = {}): CardRules {
     'merchantIds',
     'categories',
     'allowTopUp',
+    'notifyHalfSpent',
+    'notifyLowBalance',
+    'notifyBudgetReached',
   ];
   if (Object.keys(raw).some((k) => !keys.includes(k)))
     throw new BadRequestException('Unsupported rule field');
@@ -78,8 +84,15 @@ export function validateRules(raw: Record<string, unknown> = {}): CardRules {
     throw new BadRequestException('Unsupported category');
   if (rule.type === 'BUDGET' && !rule.monthlyLimit)
     throw new BadRequestException('Monthly budget is required');
-  if (rule.allowTopUp !== undefined && typeof rule.allowTopUp !== 'boolean')
-    throw new BadRequestException('Invalid top-up preference');
+  for (const key of [
+    'allowTopUp',
+    'notifyHalfSpent',
+    'notifyLowBalance',
+    'notifyBudgetReached',
+  ] as const) {
+    if (rule[key] !== undefined && typeof rule[key] !== 'boolean')
+      throw new BadRequestException('Invalid card preference');
+  }
   return rule;
 }
 export function policyDecision(
@@ -102,4 +115,31 @@ export function policyDecision(
   )
     return 'CATEGORY_NOT_ALLOWED';
   return null;
+}
+
+/** Budget alerts are emitted only when settled spending crosses a boundary. */
+export function budgetAlertTitles(
+  card: {
+    monthlyLimit: Prisma.Decimal | null;
+    notifyHalfSpent: boolean;
+    notifyLowBalance: boolean;
+    notifyBudgetReached: boolean;
+  },
+  spentBefore: Prisma.Decimal,
+  amount: Prisma.Decimal,
+): string[] {
+  if (!card.monthlyLimit || card.monthlyLimit.lte(0)) return [];
+  const after = spentBefore.add(amount);
+  return [
+    { enabled: card.notifyHalfSpent, ratio: '0.50', title: 'Half your card budget is spent' },
+    { enabled: card.notifyLowBalance, ratio: '0.80', title: '20% of your card budget remains' },
+    { enabled: card.notifyBudgetReached, ratio: '1.00', title: 'Your card budget is reached' },
+  ]
+    .filter(
+      (rule) =>
+        rule.enabled &&
+        spentBefore.lt(card.monthlyLimit!.mul(rule.ratio)) &&
+        after.gte(card.monthlyLimit!.mul(rule.ratio)),
+    )
+    .map((rule) => rule.title);
 }

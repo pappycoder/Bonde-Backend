@@ -1,3 +1,6 @@
+import { projectAllocationReturn } from './finance-projections.js';
+import type { Card } from '@prisma/client';
+import { budgetAlertTitles } from './card-policy.js';
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../../config/configuration.js';
 import { Injectable } from '@nestjs/common';
@@ -257,7 +260,7 @@ export class FinanceEvents {
           const account = await tx.financeAccount.findUnique({
             where: { key: cardKey(card.id, card.currency) },
           });
-          if (account?.balance.gt(0))
+          if (account?.balance.gt(0)) {
             await this.ledger.post(
               tx,
               `issuer-close:${card.id}`,
@@ -279,6 +282,14 @@ export class FinanceEvents {
                 },
               ],
             );
+            await projectAllocationReturn(tx, {
+              userId: card.userId,
+              cardId: card.id,
+              currency: card.currency,
+              amount: account.balance,
+              reference: `issuer-close:${card.id}`,
+            });
+          }
         }
         if (!['active', 'inactive', 'canceled'].includes(String(data.status)))
           throw new ProviderError(false, 409);
@@ -433,10 +444,51 @@ export class FinanceEvents {
           reference,
           card.id,
         );
+        if (!refund) await this.budgetAlerts(tx, card, amount);
       }
       await tx.financeInbox.update({ where: { id: inboxId }, data: { status: 'PROCESSED' } });
     });
   }
+  private async budgetAlerts(tx: Prisma.TransactionClient, card: Card, amount: Prisma.Decimal) {
+    if (
+      !card.monthlyLimit ||
+      !(card.notifyHalfSpent || card.notifyLowBalance || card.notifyBudgetReached)
+    )
+      return;
+    const now = new Date();
+    const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const totals = await tx.transaction.aggregate({
+      where: {
+        userId: card.userId,
+        cardId: card.id,
+        type: 'PAYMENT',
+        status: 'SUCCESS',
+        currency: card.currency,
+        metadata: { path: ['live'], equals: true },
+        createdAt: { gte: month },
+      },
+      _sum: { amount: true },
+    });
+    const spent = totals._sum.amount ?? new Prisma.Decimal(0);
+    for (const title of budgetAlertTitles(card, spent.sub(amount), amount)) {
+      await tx.notification.create({
+        data: {
+          id: randomUUID(),
+          userId: card.userId,
+          type: 'CARD',
+          title,
+          content: `${card.nickname || 'Virtual card'}: ${spent.toFixed(2)} of ${card.monthlyLimit.toFixed(2)} ${card.currency} this month.`,
+          metadata: {
+            action: 'finance.card.budget',
+            entityType: 'card',
+            entityId: card.id,
+            live: true,
+          },
+        },
+      });
+    }
+  }
+
   private async project(
     tx: Prisma.TransactionClient,
     userId: string,

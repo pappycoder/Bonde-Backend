@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AdminConsoleStatsService } from './admin-console-stats.service.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
+import { AdminConsoleStatsService } from './admin-console-stats.service.js';
 
 const DAY_MS = 86_400_000;
 const NOW_ISO = '2026-09-15T12:00:00.000Z';
@@ -15,6 +15,7 @@ function mockPrisma() {
   return {
     profile: { count: vi.fn() },
     transaction: { count: vi.fn(), aggregate: vi.fn(), findMany: vi.fn() },
+    financeAuthorization: { count: vi.fn(async () => 4) },
     supportTicket: { count: vi.fn() },
   } as unknown as PrismaService;
 }

@@ -1,51 +1,49 @@
-import { FinanceModule } from './modules/finance/finance.module.js';
-import { FinanceLegacyGuard } from './modules/finance/finance-legacy.guard.js';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
-import { APP_GUARD, APP_FILTER, Reflector } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
-import { HealthModule } from './modules/health/health.module.js';
-import { RedisModule, REDIS_CLIENT } from './common/redis/redis.module.js';
-import { RedisThrottlerStorage } from './common/throttling/redis-throttler.storage.js';
 import { CacheModule } from './common/cache/cache.module.js';
-import { StorageModule } from './common/storage/storage.module.js';
-import { MailModule } from './common/mail/mail.module.js';
-import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
 import { CommonModule } from './common/common.module.js';
-import { PrismaModule } from './prisma/prisma.module.js';
-import { AuthModule } from './modules/auth/auth.module.js';
-import { InvitesModule } from './modules/invites/invites.module.js';
-import { BroadcastsModule } from './modules/broadcasts/broadcasts.module.js';
-import { MarketingModule } from './modules/marketing/marketing.module.js';
-import { ProfileHubModule } from './modules/profile-hub/profile-hub.module.js';
-import { BillingModule } from './modules/billing/billing.module.js';
-import { ProfilesModule } from './modules/profiles/profiles.module.js';
-import { OtpModule } from './modules/otp/otp.module.js';
-import { NotificationsModule } from './modules/notifications/notifications.module.js';
-import { AuditLogModule } from './modules/audit/audit-log.module.js';
-import { ActivityModule } from './modules/activity/activity.module.js';
-import { AdminConsoleModule } from './modules/admin-console/admin-console.module.js';
-import { CrudModule } from './modules/crud/crud.module.js';
-import { AccountsModule } from './modules/accounts/accounts.module.js';
-import { WalletsModule } from './modules/wallets/wallets.module.js';
-import { CardsModule } from './modules/cards/cards.module.js';
-import { ChatsModule } from './modules/chats/chats.module.js';
-import { TransactionsModule } from './modules/transactions/transactions.module.js';
-import { ThresholdsModule } from './modules/thresholds/thresholds.module.js';
-import { BiometricsModule } from './modules/biometrics/biometrics.module.js';
-import { KycModule } from './modules/kyc/kyc.module.js';
-import { PasscodeModule } from './modules/passcode/passcode.module.js';
-import { FlutterwaveModule } from './modules/flutterwave/flutterwave.module.js';
-import { FundingModule } from './modules/funding/funding.module.js';
-import { SupabaseAuthGuard } from './modules/auth/guards/auth.guard.js';
-import { RolesGuard } from './modules/auth/guards/roles.guard.js';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
+import { MailModule } from './common/mail/mail.module.js';
+import { RedisClient } from './common/redis/redis-client.interface.js';
+import { REDIS_CLIENT, RedisModule } from './common/redis/redis.module.js';
+import { StorageModule } from './common/storage/storage.module.js';
+import { RedisThrottlerStorage } from './common/throttling/redis-throttler.storage.js';
+import { STRICT_THROTTLE } from './common/throttling/strict-throttle.decorator.js';
 import configuration, { AppConfig } from './config/configuration.js';
 import { envValidationSchema } from './config/env.validation.js';
-import { STRICT_THROTTLE } from './common/throttling/strict-throttle.decorator.js';
-import { RedisClient } from './common/redis/redis-client.interface.js';
+import { AccountsModule } from './modules/accounts/accounts.module.js';
+import { ActivityModule } from './modules/activity/activity.module.js';
+import { AdminConsoleModule } from './modules/admin-console/admin-console.module.js';
+import { AuditLogModule } from './modules/audit/audit-log.module.js';
+import { AuthModule } from './modules/auth/auth.module.js';
+import { SupabaseAuthGuard } from './modules/auth/guards/auth.guard.js';
+import { RolesGuard } from './modules/auth/guards/roles.guard.js';
+import { BillingModule } from './modules/billing/billing.module.js';
+import { BiometricsModule } from './modules/biometrics/biometrics.module.js';
+import { BroadcastsModule } from './modules/broadcasts/broadcasts.module.js';
+import { CardsModule } from './modules/cards/cards.module.js';
+import { ChatsModule } from './modules/chats/chats.module.js';
+import { CrudModule } from './modules/crud/crud.module.js';
+import { FinanceModule } from './modules/finance/finance.module.js';
+import { FundingModule } from './modules/funding/funding.module.js';
+import { HealthModule } from './modules/health/health.module.js';
+import { InvitesModule } from './modules/invites/invites.module.js';
+import { KycModule } from './modules/kyc/kyc.module.js';
+import { MarketingModule } from './modules/marketing/marketing.module.js';
+import { NotificationsModule } from './modules/notifications/notifications.module.js';
+import { OtpModule } from './modules/otp/otp.module.js';
+import { PasscodeModule } from './modules/passcode/passcode.module.js';
+import { ProfileHubModule } from './modules/profile-hub/profile-hub.module.js';
+import { ProfilesModule } from './modules/profiles/profiles.module.js';
+import { ThresholdsModule } from './modules/thresholds/thresholds.module.js';
+import { TransactionsModule } from './modules/transactions/transactions.module.js';
+import { WalletsModule } from './modules/wallets/wallets.module.js';
+import { PrismaModule } from './prisma/prisma.module.js';
 
 @Module({
   imports: [
@@ -145,7 +143,6 @@ import { RedisClient } from './common/redis/redis-client.interface.js';
     BiometricsModule,
     KycModule,
     PasscodeModule,
-    FlutterwaveModule,
     FundingModule,
     FinanceModule,
     CommonModule,
@@ -165,7 +162,6 @@ import { RedisClient } from './common/redis/redis-client.interface.js';
       provide: APP_GUARD,
       useClass: RolesGuard,
     },
-    { provide: APP_GUARD, useClass: FinanceLegacyGuard },
     {
       provide: APP_FILTER,
       useClass: HttpExceptionFilter,

@@ -2,15 +2,10 @@ import { Module } from '@nestjs/common';
 import { CardAccessService } from './card-access.service.js';
 import { CardsController } from './cards.controller.js';
 import { CardsService } from './cards.service.js';
-import { IssuedCardsService } from './issued-cards.service.js';
-import { ActivityModule } from '../activity/activity.module.js';
-import { FlutterwaveModule } from '../flutterwave/flutterwave.module.js';
-import { TransactionsModule } from '../transactions/transactions.module.js';
 
 @Module({
-  imports: [ActivityModule, FlutterwaveModule, TransactionsModule],
+  providers: [CardsService, CardAccessService],
+  exports: [CardsService],
   controllers: [CardsController],
-  providers: [CardsService, IssuedCardsService, CardAccessService],
-  exports: [CardsService, IssuedCardsService],
 })
 export class CardsModule {}

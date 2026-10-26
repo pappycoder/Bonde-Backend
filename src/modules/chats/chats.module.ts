@@ -1,19 +1,17 @@
-import { ChatCheckoutService } from './chat-checkout.service.js';
-import { ChatCheckoutGateway, UnconfiguredChatCheckoutGateway } from './chat-checkout.gateway.js';
-import { ChatAgent, UnconfiguredChatAgent } from './chat-agent.js';
-import { ChatRepliesService } from './chat-replies.service.js';
 import { Module } from '@nestjs/common';
+import { AuditLogModule } from '../audit/audit-log.module.js';
+import { ChatAgent, UnconfiguredChatAgent } from './chat-agent.js';
+import { ChatPaymentService } from './chat-payment.service.js';
+import { ChatRepliesService } from './chat-replies.service.js';
 import { ChatsController } from './chats.controller.js';
 import { ChatsService } from './chats.service.js';
-import { AuditLogModule } from '../audit/audit-log.module.js';
 
 @Module({
   imports: [AuditLogModule],
   controllers: [ChatsController],
   providers: [
     ChatsService,
-    ChatCheckoutService,
-    { provide: ChatCheckoutGateway, useClass: UnconfiguredChatCheckoutGateway },
+    ChatPaymentService,
     ChatRepliesService,
     { provide: ChatAgent, useClass: UnconfiguredChatAgent },
   ],

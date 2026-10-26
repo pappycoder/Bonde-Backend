@@ -6,15 +6,15 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { money } from '../../common/money/money.js';
-import { parsePaging, toPageResult } from '../../common/paging/paging.js';
 import {
   buildFilterWhere,
   parseFilterEntries,
   type FilterFieldSpec,
 } from '../../common/paging/filter.js';
+import { parsePaging, toPageResult } from '../../common/paging/paging.js';
 import { qWhere } from '../../common/paging/search.js';
-import { AuditLogService } from '../audit/audit-log.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { AuditLogService } from '../audit/audit-log.service.js';
 import { toAdminTxSummary } from './admin-tx-view.js';
 
 export type AdminUserStatus = 'active' | 'pending' | 'suspended';
@@ -27,6 +27,8 @@ const USER_FILTER_FIELDS: Record<string, FilterFieldSpec> = {
 const USER_SEARCH_FIELDS = ['fullName', 'email', 'phone'] as const;
 
 const USER_INCLUDE = {
+  financeAccounts: { where: { kind: 'WALLET' } },
+  financeCustomer: { select: { bankAccountNumber: true } },
   accounts: { include: { wallets: true } },
   _count: { select: { transactions: true } },
 } as const satisfies Prisma.ProfileInclude;
@@ -253,7 +255,6 @@ export class AdminConsoleUsersService {
 
   private toView(profile: UserRow): AdminUserView {
     const account = profile.accounts[0];
-    const wallet = account?.wallets[0];
     return {
       id: profile.id,
       fullName: profile.fullName,
@@ -264,9 +265,12 @@ export class AdminConsoleUsersService {
       phoneVerified: profile.phoneVerified,
       onboardingCompleted: profile.onboardingCompletedAt !== null,
       status: this.deriveStatus(profile),
-      balance: wallet ? money(wallet.balance) : '0.00',
-      currency: wallet?.currency ?? 'NGN',
-      accountNumber: account?.accountNumber ?? null,
+      balance: money(
+        profile.financeAccounts.find((entry) => entry.key === `wallet:${profile.id}:NGN`)
+          ?.balance ?? 0,
+      ),
+      currency: 'NGN',
+      accountNumber: profile.financeCustomer?.bankAccountNumber ?? null,
       accountType: account?.accountType ?? null,
       isActive: account?.isActive ?? false,
       joinedAt: profile.createdAt.toISOString(),

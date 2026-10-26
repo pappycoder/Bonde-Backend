@@ -5,7 +5,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHmac } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import type { AppConfig } from '../../config/configuration.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { FinanceCapabilities } from './finance-capabilities.service.js';
@@ -96,16 +96,45 @@ export class FinanceIdentityService {
           autoSweep: false,
         }),
       );
-      await this.prisma.financeCustomer.update({
-        where: { userId },
-        data: {
-          bankAccountId: string(bank._id),
-          bankAccountNumber: string(bank.accountNumber),
-          bankAccountName: string(bank.accountName),
-          bankCode: this.config.get('finance').safeHavenBankCode,
-          bankStatus: 'READY',
-          status: customer.sudoId ? 'READY' : 'PENDING',
-        },
+      await this.prisma.$transaction(async (tx) => {
+        await tx.financeCustomer.update({
+          where: { userId },
+          data: {
+            bankAccountId: string(bank._id),
+            bankAccountNumber: string(bank.accountNumber),
+            bankAccountName: string(bank.accountName),
+            bankCode: this.config.get('finance').safeHavenBankCode,
+            bankStatus: 'READY',
+            status: customer.sudoId ? 'READY' : 'PENDING',
+          },
+        });
+        const identity =
+          dto.identityType === 'BVN'
+            ? {
+                bvnHash: this.digest(dto.identityType, dto.identityNumber),
+                bvnVerifiedAt: new Date(),
+              }
+            : {
+                ninHash: this.digest(dto.identityType, dto.identityNumber),
+                ninVerifiedAt: new Date(),
+              };
+        await tx.kycVerification.upsert({
+          where: { userId },
+          create: {
+            id: randomUUID(),
+            userId,
+            provider: 'safe-haven',
+            status: 'VERIFIED',
+            ...identity,
+            providerRef: { bankIdentityId: dto.identityId },
+          },
+          update: {
+            provider: 'safe-haven',
+            status: 'VERIFIED',
+            ...identity,
+            providerRef: { bankIdentityId: dto.identityId },
+          },
+        });
       });
       return { completed: true };
     } catch (error) {

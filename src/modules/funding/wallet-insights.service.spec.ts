@@ -57,7 +57,7 @@ describe('WalletInsightsService', () => {
             lt: new Date('2026-11-01T00:00:00Z'),
           },
           type: {
-            in: [TransactionType.PAYMENT, TransactionType.WITHDRAWAL, TransactionType.TRANSFER],
+            in: [TransactionType.PAYMENT, TransactionType.WITHDRAWAL],
           },
         }),
       }),

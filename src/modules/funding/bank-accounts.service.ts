@@ -1,19 +1,19 @@
-import { randomUUID } from 'node:crypto';
-import { PrismaService } from '../../prisma/prisma.service.js';
 import {
-  BadGatewayException,
   BadRequestException,
-  Inject,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
-import { FLUTTERWAVE_CLIENT, type FlutterwaveGateway } from '../flutterwave/flutterwave.client.js';
-import { FlutterwaveError } from '../flutterwave/flutterwave.errors.js';
+import { randomUUID } from 'node:crypto';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { FinanceCapabilities } from '../finance/finance-capabilities.service.js';
+import { SafeHavenClient, object, string } from '../finance/providers.js';
 
 @Injectable()
 export class BankAccountsService {
   constructor(
-    @Inject(FLUTTERWAVE_CLIENT) private readonly client: FlutterwaveGateway,
+    private readonly client: SafeHavenClient,
+    private readonly capabilities: FinanceCapabilities,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -59,23 +59,20 @@ export class BankAccountsService {
   } as const;
 
   async list() {
-    try {
-      return await this.client.listBanks();
-    } catch {
-      throw new BadGatewayException('Could not load banks. Please try again.');
-    }
+    this.capabilities.assertCurrency('NGN');
+    const data = await this.client.banks();
+    if (!Array.isArray(data)) throw new ServiceUnavailableException('Could not load banks');
+    return data.map((value) => {
+      const bank = object(value);
+      return { name: string(bank.name), code: string(bank.bankCode ?? bank.code) };
+    });
   }
 
   async resolve(bankCode: string, accountNumber: string) {
-    try {
-      return await this.client.resolveBankAccount(bankCode, accountNumber);
-    } catch (error) {
-      if (error instanceof FlutterwaveError && error.code === 'VALIDATION') {
-        throw new BadRequestException(
-          'This account number does not match the selected bank. Check the details and try again.',
-        );
-      }
-      throw new BadGatewayException('Could not verify this bank account. Please try again.');
-    }
+    this.capabilities.assertCurrency('NGN');
+    const data = object(await this.client.resolve(bankCode, accountNumber));
+    const accountName = string(data.accountName);
+    if (!accountName) throw new BadRequestException('Could not verify this bank account');
+    return { accountName, accountNumber };
   }
 }

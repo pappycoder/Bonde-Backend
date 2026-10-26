@@ -11,11 +11,11 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { AppConfig } from '../../config/configuration.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { PasscodeService } from '../passcode/passcode.service.js';
-import { FinanceCapabilities } from './finance-capabilities.service.js';
-import { LedgerService, type Posting } from './ledger.service.js';
-import { amountOf, cardKey, fingerprint, holdKey, walletKey, currencyOf } from './finance.types.js';
-import { FinanceCommandDto } from './finance.dto.js';
 import { validateRules } from './card-policy.js';
+import { FinanceCapabilities } from './finance-capabilities.service.js';
+import { FinanceCommandDto } from './finance.dto.js';
+import { amountOf, cardKey, currencyOf, fingerprint, holdKey, walletKey } from './finance.types.js';
+import { LedgerService, type Posting } from './ledger.service.js';
 
 @Injectable()
 export class FinanceService {
@@ -34,7 +34,6 @@ export class FinanceService {
     await this.passcodes.validate(userId, passcode);
   }
   async wallets(userId: string) {
-    this.capabilities.assertEnabled();
     const rows = await this.prisma.financeAccount.findMany({ where: { userId } });
     return ['NGN', 'USD'].map((currency) => ({
       id: walletKey(userId, currency),
@@ -57,7 +56,7 @@ export class FinanceService {
     return {
       userId,
       capabilities: this.capabilities.view(),
-      wallets: this.capabilities.enabled ? await this.wallets(userId) : [],
+      wallets: await this.wallets(userId),
       customer: this.capabilities.enabled
         ? await this.prisma.financeCustomer.findUnique({
             where: { userId },
@@ -91,9 +90,8 @@ export class FinanceService {
           : '0.00';
     if (!amountOf(command.fee, true).equals(amountOf(fee, true)))
       throw new ConflictException('Fees changed. Review a new quote.');
-    if (['ISSUE', 'ALLOCATE', 'RETURN', 'WITHDRAW'].includes(command.kind))
-      amountOf(command.amount);
-    else if (!amountOf(command.amount, true).isZero())
+    if (['ALLOCATE', 'RETURN', 'WITHDRAW'].includes(command.kind)) amountOf(command.amount);
+    else if (command.kind !== 'ISSUE' && !amountOf(command.amount, true).isZero())
       throw new BadRequestException('This action has no amount');
     if (command.kind === 'ISSUE' || command.kind === 'RULES') validateRules(command.rules);
     if (
@@ -218,6 +216,9 @@ export class FinanceService {
             maxSpendLimit: rule.maxSpendLimit,
             monthlyLimit: rule.monthlyLimit,
             allowTopUp: rule.allowTopUp ?? true,
+            notifyHalfSpent: rule.notifyHalfSpent ?? false,
+            notifyLowBalance: rule.notifyLowBalance ?? false,
+            notifyBudgetReached: rule.notifyBudgetReached ?? false,
           },
         });
         if (rule.type)
@@ -237,9 +238,16 @@ export class FinanceService {
         if (card.status === 'CANCELLED') throw new BadRequestException('Card is closed');
         if (
           command.kind === 'ALLOCATE' &&
-          (!card.allowTopUp || !card.externalReferenceId || card.expirationDate <= new Date())
+          (!card.externalReferenceId || card.expirationDate <= new Date())
         )
           throw new BadRequestException('Card cannot receive a top-up');
+        if (command.kind === 'ALLOCATE' && !card.allowTopUp) {
+          const previouslyFunded = await tx.financeEntry.count({
+            where: { accountKey: cardKey(card.id, command.currency), amount: { gt: 0 } },
+          });
+          if (previouslyFunded)
+            throw new BadRequestException('This card does not allow additional allocations');
+        }
         if (command.kind === 'CANCEL') {
           const held = await tx.financeAuthorization.count({ where: { cardId, status: 'HELD' } });
           if (held) throw new ConflictException('Card still has pending purchases');
@@ -286,9 +294,13 @@ export class FinanceService {
         await tx.card.update({
           where: { id: cardId! },
           data: {
+            ...(command.nickname !== undefined ? { nickname: command.nickname } : {}),
             maxSpendLimit: rule.maxSpendLimit ?? null,
             monthlyLimit: rule.monthlyLimit ?? null,
             allowTopUp: rule.allowTopUp ?? true,
+            notifyHalfSpent: rule.notifyHalfSpent ?? false,
+            notifyLowBalance: rule.notifyLowBalance ?? false,
+            notifyBudgetReached: rule.notifyBudgetReached ?? false,
           },
         });
         await tx.cardHistory.create({
@@ -367,7 +379,7 @@ export class FinanceService {
           metadata: { currency: command.currency, amount: command.amount, fee: command.fee },
         },
       });
-      if (['ISSUE', 'ALLOCATE', 'RETURN', 'WITHDRAW'].includes(command.kind)) {
+      if (['ALLOCATE', 'RETURN', 'WITHDRAW'].includes(command.kind)) {
         const wallet = await tx.wallet.findFirstOrThrow({ where: { accountId: account.id } });
         await tx.transaction.create({
           data: {
@@ -386,9 +398,15 @@ export class FinanceService {
                 : command.kind === 'RETURN'
                   ? 'Card allocation returned'
                   : command.kind === 'ISSUE'
-                    ? 'Card creation and allocation'
+                    ? 'Card creation'
                     : 'Card allocation',
-            metadata: { live: true, operationId, fee: fee.toFixed(2) },
+            metadata: {
+              live: true,
+              operationId,
+              kind: command.kind,
+              direction: command.kind === 'RETURN' ? 'CREDIT' : 'DEBIT',
+              fee: fee.toFixed(2),
+            },
           },
         });
       }
@@ -399,7 +417,13 @@ export class FinanceService {
           type: cardId ? 'CARD' : 'TRANSACTION',
           title: status === 'SUCCEEDED' ? 'Action completed' : 'Action processing',
           content: `${command.kind.toLowerCase()} · ${amount.toFixed(2)} ${command.currency}`,
-          metadata: { operationId, live: true },
+          metadata: {
+            action: 'finance.operation',
+            entityType: 'finance_operation',
+            entityId: operationId,
+            operationId,
+            live: true,
+          },
         },
       });
       return this.viewOperation(operation);

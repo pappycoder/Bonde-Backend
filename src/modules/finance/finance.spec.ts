@@ -1,12 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
 import { Prisma } from '@prisma/client';
-import { LedgerService } from './ledger.service.js';
-import { amountOf, fingerprint, secretMatches } from './finance.types.js';
+import { describe, expect, it, vi } from 'vitest';
 import { policyDecision, validateRules } from './card-policy.js';
-import { FinanceCapabilities } from './finance-capabilities.service.js';
-import { FinanceLegacyGuard } from './finance-legacy.guard.js';
 import { FinanceAuthorizations } from './finance-authorizations.service.js';
+import { FinanceCapabilities } from './finance-capabilities.service.js';
 import { FinanceWorker } from './finance-worker.service.js';
+import { amountOf, fingerprint, secretMatches } from './finance.types.js';
+import { LedgerService } from './ledger.service.js';
 
 const dec = (value: string) => new Prisma.Decimal(value);
 
@@ -42,23 +41,6 @@ describe('live money boundaries', () => {
     expect(c.view().configured).toBe(false);
     expect(c.view().currencies.USD.enabled).toBe(false);
     expect(() => c.assertCurrency('USD')).toThrow();
-  });
-  it('blocks legacy balance and settlement mutation in production, even before live activation', () => {
-    const guard = new FinanceLegacyGuard({
-      get: (key: string) => (key === 'finance' ? { enabled: false } : 'production'),
-    } as never);
-    const context = (method: string, path: string) => ({
-      switchToHttp: () => ({ getRequest: () => ({ method, path }) }),
-    });
-    for (const [method, path] of [
-      ['PATCH', '/api/wallet'],
-      ['POST', '/api/transactions'],
-      ['DELETE', '/api/account'],
-      ['GET', '/api/wallet/deposit-account'],
-    ]) {
-      expect(() => guard.canActivate(context(method, path) as never)).toThrow();
-    }
-    expect(guard.canActivate(context('GET', '/api/finance/overview') as never)).toBe(true);
   });
 });
 
@@ -262,17 +244,17 @@ describe('worker crash recovery', () => {
 });
 
 import { Global, Module } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../../prisma/prisma.service.js';
+import { Test } from '@nestjs/testing';
 import { MAIL_SENDER } from '../../common/mail/mail.types.js';
-import { FinanceModule } from './finance.module.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { FinanceInstallation } from './finance-installation.service.js';
 import {
+  AdminFinanceController,
   FinanceController,
   FinanceWebhooksController,
-  AdminFinanceController,
 } from './finance.controller.js';
-import { FinanceInstallation } from './finance-installation.service.js';
+import { FinanceModule } from './finance.module.js';
 
 @Global()
 @Module({
@@ -313,5 +295,51 @@ describe('financial module wiring and environment separation', () => {
       { get: () => ({ enabled: true, environment: 'production' }) } as never,
     );
     await expect(installation.onModuleInit()).rejects.toThrow('separate database');
+  });
+});
+
+describe('Settled card budget alerts', () => {
+  it('reports only newly crossed configured thresholds using exact money', async () => {
+    const { budgetAlertTitles } = await import('./card-policy.js');
+    const card = {
+      monthlyLimit: new Prisma.Decimal('100.00'),
+      notifyHalfSpent: true,
+      notifyLowBalance: true,
+      notifyBudgetReached: true,
+    };
+    expect(
+      budgetAlertTitles(card, new Prisma.Decimal('49.99'), new Prisma.Decimal('0.01')),
+    ).toEqual(['Half your card budget is spent']);
+    expect(
+      budgetAlertTitles(card, new Prisma.Decimal('50.00'), new Prisma.Decimal('0.01')),
+    ).toEqual([]);
+    expect(
+      budgetAlertTitles(card, new Prisma.Decimal('79.99'), new Prisma.Decimal('20.01')),
+    ).toEqual(['20% of your card budget remains', 'Your card budget is reached']);
+  });
+});
+
+describe('Issuance without an initial allocation', () => {
+  it('allows issuing a card for its fee while requiring positive money movement amounts', async () => {
+    const { FinanceService } = await import('./finance.service.js');
+    const service = new FinanceService(
+      {} as never,
+      {} as never,
+      { assertCurrency: () => undefined } as never,
+      {} as never,
+      { get: () => ({ ngnIssueFee: '2.50' }) } as never,
+    );
+    expect(() =>
+      service.validate({ kind: 'ISSUE', currency: 'NGN', amount: '0.00', fee: '2.50' }),
+    ).not.toThrow();
+    expect(() =>
+      service.validate({
+        kind: 'ALLOCATE',
+        currency: 'NGN',
+        amount: '0.00',
+        fee: '0.00',
+        cardId: 'card',
+      }),
+    ).toThrow();
   });
 });

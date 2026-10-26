@@ -8,8 +8,11 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { createHash, randomUUID } from 'node:crypto';
-import { PrismaService } from '../../prisma/prisma.service.js';
 import type { AppConfig } from '../../config/configuration.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { FinanceCapabilities } from '../finance/finance-capabilities.service.js';
+import { currencyOf, systemKey, walletKey } from '../finance/finance.types.js';
+import { LedgerService } from '../finance/ledger.service.js';
 import { PasscodeService } from '../passcode/passcode.service.js';
 import { CREDIT_PACKS, PREMIUM_MONTHLY } from './billing.catalog.js';
 import { BillingOrderDto } from './billing.dto.js';
@@ -20,6 +23,8 @@ export class BillingService {
     private readonly prisma: PrismaService,
     private readonly passcode: PasscodeService,
     private readonly config: ConfigService<AppConfig, true>,
+    private readonly ledger: LedgerService,
+    private readonly capabilities: FinanceCapabilities,
   ) {}
   catalog() {
     const settings = this.config.get('profileHub', { infer: true });
@@ -27,8 +32,12 @@ export class BillingService {
       premium: PREMIUM_MONTHLY,
       packs: CREDIT_PACKS,
       annual: null,
-      billingEnabled: settings.billingEnabled,
-      methods: { wallet: settings.billingEnabled, card: false, newCard: false },
+      billingEnabled: settings.billingEnabled && this.capabilities.view().currencies.NGN.enabled,
+      methods: {
+        wallet: settings.billingEnabled && this.capabilities.view().currencies.NGN.enabled,
+        card: false,
+        newCard: false,
+      },
       legal: {
         terms: settings.termsUrl,
         privacy: settings.privacyUrl,
@@ -172,13 +181,13 @@ export class BillingService {
       }
       const wallet = await tx.wallet.findFirst({ where: { account: { userId }, isActive: true } });
       if (!wallet) throw new NotFoundException('Wallet not found');
-      if (wallet.currency !== order.currency)
+      if (order.currency !== 'NGN')
         throw new BadRequestException('Wallet currency does not match this purchase.');
-      const debit = await tx.wallet.updateMany({
-        where: { id: wallet.id, balance: { gte: order.amount } },
-        data: { balance: { decrement: order.amount } },
+      this.capabilities.assertCurrency(currencyOf(order.currency));
+      const available = await tx.financeAccount.findUnique({
+        where: { key: walletKey(userId, order.currency) },
       });
-      if (debit.count !== 1) {
+      if (!available || available.balance.lt(order.amount)) {
         if (renewalDue)
           await tx.profile.update({
             where: { id: userId },
@@ -195,6 +204,21 @@ export class BillingService {
           }),
         );
       }
+      await this.ledger.post(tx, `billing:${order.id}`, 'Bonde billing purchase', [
+        {
+          key: walletKey(userId, order.currency),
+          currency: order.currency,
+          amount: order.amount.negated(),
+          userId,
+          kind: 'WALLET',
+        },
+        {
+          key: systemKey('billing-revenue', order.currency),
+          currency: order.currency,
+          amount: order.amount,
+          kind: 'BILLING_REVENUE',
+        },
+      ]);
       await tx.aiCreditAccount.upsert({ where: { userId }, create: { userId }, update: {} });
       const periodStart = new Date();
       const periodEnd = new Date(periodStart);
@@ -248,6 +272,7 @@ export class BillingService {
           currency: order.currency,
           description: order.kind === 'PREMIUM' ? 'BONDE Premium' : 'AI Credits',
           metadata: {
+            live: true,
             transactionType:
               order.kind === 'PREMIUM'
                 ? renewalDue

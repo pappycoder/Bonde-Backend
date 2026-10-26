@@ -1,3 +1,4 @@
+import { projectAllocationReturn } from './finance-projections.js';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, type FinanceOperation } from '@prisma/client';
@@ -338,11 +339,20 @@ export class FinanceWorker {
         const account = await tx.financeAccount.findUnique({
           where: { key: cardKey(op.cardId!, op.currency) },
         });
-        if (account?.balance.gt(0))
+        if (account?.balance.gt(0)) {
           await this.ledger.post(tx, `close:${op.id}`, 'Closed card allocation returned', [
             this.posting(op, account.key, account.balance.negated(), 'CARD'),
             this.posting(op, walletKey(op.userId, op.currency), account.balance, 'WALLET'),
           ]);
+          await projectAllocationReturn(tx, {
+            userId: op.userId,
+            cardId: op.cardId!,
+            currency: op.currency,
+            amount: account.balance,
+            reference: `close:${op.id}`,
+            operationId: op.id,
+          });
+        }
       }
       await tx.card.update({
         where: { id: op.cardId! },

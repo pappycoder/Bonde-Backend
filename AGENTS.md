@@ -279,52 +279,20 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   (`NotificationsService.markRead` pattern) — never 403 — so existence is not
   leaked. Modules: `accounts/`, `wallets/`, `cards/`, `chats/`,
   `transactions/` (transactions + approvals), `thresholds/`, `biometrics/`.
-- **Accounts & wallets are 1:1**: `Account.userId` is `@unique` (migration
-  `20260910130000_add_account_user_unique`), so a user holds exactly one
-  account and, via unique `Wallet.accountId`, one wallet. They are provisioned
-  **automatically at email verification** (see Auth), but the self-service
-  surface still exposes **full CRUD** so other services can reconcile/drive
-  them: `GET/POST/PATCH/DELETE /api/account` (POST `201`,
-  409 on unique `userId`/`accountNumber`; omitted `accountNumber` gets a
-  Luhn-valid 10-digit one from `accounts/account-number.ts`; DELETE cascades
-  the 1:1 wallet) and `GET/POST/PATCH/DELETE /api/wallet` (POST 404s until the
-  caller's account exists at `wallet.accountId`, 409 duplicate;
-  DELETE 400 if transactions still reference it). `PATCH /api/wallet` is where
-  money-movement reconciles `balance`.
-- **Cards**: `POST /api/cards` lets users create a **virtual** card
-  (`cardType`/`nickname`/limits/`expirationType`, default `monthly`; provider =
-  first active `CardProvider`). The 16-digit Luhn PAN is generated + AES-256-GCM
-  encrypted server-side (`card-number.ts` → `src/common/crypto/aes-gcm.ts`,
-  key = `encryption.cardKey`), stored as `cardNumberEncrypted` + plaintext
-  `cardNumberLast4` — `GET /api/cards[/:id]` and never the API responses expose
-  the PAN. `PATCH /api/cards/:id` updates nickname/`cardType`/limits
-  (`PATCH .../limit` remains a thin alias); `PATCH .../pause|resume` — 400 if
-  `CANCELLED`. **Card change timeline**: every card mutation
-  (create/update/pause/resume/limit/lock.*/category.*/merchant.add|remove)
-  writes a `card_history` row (`event` + `{before,after}` diffs) readable via
-  `GET /api/cards/:id/history` (newest first, owned-404). **Merchant
-  allowlist**: `GET/POST/DELETE /api/cards/:id/merchants[/:merchantId]` restrict
-  a card to specific merchants (deny-by-default — the card may only be used at
-  the listed merchants; supplier/provider flow enforces at purchase time).
-  Each entry is `merchantName` + optional `merchantCode`
-  (`@@unique([cardId, merchantCode])`, name-dedupe when code is absent → 409).
-  **Cumulative spend**: `Card.totalSpent` tracks spend for `PAYMENT`
-  transactions in `SUCCESS` status; the counter is adjusted on create,
-  status/amount transitions, and delete. **Card transactions**:
-  `GET /api/cards/:id/transactions` lists the caller's transactions made with a
-  card (owned-404, paged envelope, `amount` as a fixed 2-decimal string).
-- **Transactions & approvals expose full CRUD** for provisioning services:
-  `GET/POST/PATCH/DELETE /api/transactions` (POST resolves `walletId` →
-  `wallet.account.userId` and `cardId`/`chatId` ownership → 404; P2003 → 400),
-  `GET /api/transactions/recent?limit=` (≤50, declared before `:id`),
-  `GET/POST/PATCH/DELETE /api/approvals` (POST `approvedBy` is always the
-  caller, never client-supplied; the owning transaction must be the caller's;
-  every approval response now embeds the full transaction details and, when
-  present, a summary of the card used — last-4, type, created-at, and cumulative
-  spend).
-  **Transaction writes never touch `wallet.balance`** — reconciliation happens
-  through `PATCH /api/wallet`. Thresholds are user-CRUD (`/api/thresholds`,
-  unique `userId+thresholdType` → 409).
+- **Accounts and wallet metadata are provisioned at email verification.**
+  `GET /api/account` displays the real Safe Haven deposit number only after banking
+  setup. `GET /api/wallet` presents the NGN ledger balance, allocations and holds.
+  Both are read-only; historical/sample balance columns are never monetary authority.
+- **Cards**: read-only owned Sudo cards at `/api/cards`, with allocation balances,
+  plan capacity, history, verified merchant identifiers and active rule projections.
+  All issuance, allocation, return, rules and lifecycle changes use `/api/finance`.
+  Sensitive card details use a scoped secure display session after server passcode
+  verification; native clients never receive PAN or CVV.
+- **Transactions**: `/api/transactions` and `/recent` show live operation/provider
+  projections. Only the finance services create or settle financial activity.
+  `/api/approvals` presents card authorization requests; approval grants one exact
+  retry for five minutes. Chat proposal decisions remain in their owning chats.
+  Threshold configuration remains user CRUD at `/api/thresholds`.
 - **Chats**: `/api/chats` history + CRUD; `/api/chats/:id/messages` lists
   chronologically (secondary `id` sort makes seeded `createdAt` ties
   deterministic) and `POST` appends only `USER`-role messages (assistant
@@ -346,72 +314,35 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   `card.create|update|pause|resume|limit|lock.*|category.*|merchant.add|merchant.remove`,
   `chat.*[.message]*`, `threshold.*`, `biometric.*`).
 - **Core mutations notify the acting user**: feature controllers route their
-  create/update/delete writes through `ActivityService.record`
+  metadata and non-financial create/update/delete writes through `ActivityService.record`
   (`src/modules/activity/`) — one awaited call that writes the append-only
   audit entry **and** creates an in-app `Notification` row for the caller
   (type `CARD|TRANSACTION` where applicable, `SYSTEM` otherwise; `metadata`
   carries `{action, entityType, entityId}` for client routing). Copy is inline
   per handler (`activity-copy.ts` provides the `humanizeLabel()` enum
   lower-caser). Wired for account, wallet, transaction, approval, threshold,
-  biometric, profile, and card **create/update/pause/resume/limit**.
+  biometric and profile operations. Financial commands record their own atomic audit and notification.
   **Audit-only** (plain `AuditLogService.record`, no notification): admin CRUD,
   auth provisioning, chats, card lock/category/merchant sub-actions.
 
-## Flutterwave funding & issued cards
-- `src/modules/flutterwave/` is a **reusable, feature-free** package: v3 bearer
-  REST client (`POST /v3/virtual-account-numbers`, `/v3/virtual-cards`,
-  `/v3/virtual-cards/{id}/fund|withdraw|terminate|transactions`,
-  `/v3/transfers`), AES-256-GCM credential encryptor (`encryption.cardKey`,
-  values stored as `enc::<iv>:<tag>:<ciphertext>`), webhook verifier
-  (`flutterwave-signature` HMAC-SHA256 base64 + legacy `verif-hash` header),
-  typed DTOs, and domain services. Feature modules inject
-  `FLUTTERWAVE_CLIENT` / the services — never the raw `fetch`.
-- `src/modules/funding/` owns the money movement:
-  - `GET /api/wallet/deposit-account` — dynamic VA minted via
-    `VirtualAccountsService.getOrMint(userId)` (reused across calls, closed/
-    expired VAs mint once via `findOrCreateVA`).
-  - `POST /api/wallet/withdrawals` (201, `@StrictThrottle()`) — reserves the
-    amount **at initiate** with a guarded `wallet.updateMany({ balance: {
-    gte } })` count check inside an interactive `$transaction` (409 while
-    another withdrawal is in flight, 400 if uncovered); the reservation is
-    refunded on `FAIL` and on webhook reversal.
-  - `POST /api/flutterwave/webhook` (`@Public()`, `@ApiExcludeController()`,
-    `rawBody: true`) — verifies signature, dispatches `charge.completed` →
-    `DepositsService.record` (credits the VA wallet, idempotent), `transfer.
-    disburse` → `WithdrawalsService.handleTransferDisburse`, `transfer.reversal`
-    → refund; unknown events (incl. `card_transaction`) ack `200
-    { received: true }` per Flutterwave contract.
-- **Money/idempotency contract**: every movement is identified by a
-  `provider_events` row (`provider` + unique `reference`: `bonde_va_*`,
-  `bonde_wd_*`, `bonde_card_*`, `flutterwave:card.txn:<id>`). A `P2002`
-  duplicate means "already handled" → 200 ack / 409. Wallet debits are guarded
-  (`gte`) and enforced inside the same `$transaction` as the write they fund —
-  never via a `.then()` after an array-form `$transaction` (that throws post-
-  commit and leaks rows). Provider-first calls (issuance pre-check, withdraw)
-  recredit the wallet when the provider error carries a `code`.
-- **Issued cards** (`src/modules/cards/issued-cards.service.ts`): `POST
-  /api/cards/issued` (201, NGN, prefund debited atomically; a `< wallet`
-  pre-check runs before the provider call so an unaffordable issue never
-  ghosts a provider card), `POST /api/cards/:id/fund|withdraw|cancel`, `PATCH
-  /:id/pause|resume` (controller fans issued cards to this service; response
-  uses the **updated** card, not the pre-mutation read), `POST
-  /api/cards/:id/transactions/sync` (deduped; writes `PAYMENT` transactions +
-  `totalSpent`, refreshes `balance` + `lastSyncAt`). **PAN/CVV never appear in
-  any API response** (`toView` strips `cardNumberEncrypted`/`cardCvvEncrypted`;
-  `CardsService.toView` also strips CVV).
-- Config keys (typed `AppConfig`, Joi-validated): `FLUTTERWAVE_BASE_URL`,
-  `FLUTTERWAVE_SECRET_KEY`, `FLUTTERWAVE_WEBHOOK_SECRET_HASH`,
-  `FLUTTERWAVE_VA_BANK_CODE` (090567), `CARD_ENCRYPTION_KEY`,
-  `MFA_ENCRYPTION_KEY` (optional; defaults to `CARD_ENCRYPTION_KEY`).
-  **`ConfigService` typing gotcha**: `config.get('a').b` for nested blocks,
-  `{ infer: true }` for a deep single key — dotted paths (`'flutterwave.
-  webhookSecretHash'`) **do not** typecheck under `ConfigService<AppConfig,
-  true>`.
-- e2e fakes the provider with `test/flutterwave-stub.ts`
-  (`makeFlutterwaveStub` → plain in-memory gateway with `vi.fn` methods) injected
-  via `FLUTTERWAVE_CLIENT`; webhooks are sent through `ctx.raw` (no auth) with a
-  `verif-hash` header (supertest re-encodes Buffer bodies, so sign the string,
-  not a Buffer).
+## Sudo cards and Safe Haven banking
+- `src/modules/finance/` owns every financial mutation. Commands use a server-verified
+  passcode proof bound to the exact payload, an idempotency key and a balanced ledger.
+- `GET /account`, `/wallet`, `/cards`, `/transactions` and `/approvals` are presentation
+  APIs. There are no financial CRUD or raw credential endpoints. Wallet/card amounts
+  come from `FinanceAccount`; old wallet balances remain historical data only.
+- Safe Haven provides verified NGN deposit subaccounts and bank transfers. Sudo provides
+  virtual cards, authorization decisions and scoped secure display sessions. Configure
+  provider credentials and validation gates as documented in `docs/sudo-safehaven.md`.
+- All existing mobile financial screens use this flow without a build-time switch.
+  Cards hold separate allocations; explicit operations allocate or return funds.
+- Chat purchase proposals hand off to funded virtual cards for merchant checkout.
+  Merchant purchases are confirmed by provider events. There is no local or placeholder
+  merchant checkout executor, and administrators cannot settle purchases manually.
+- USD cards and conversion stay disabled pending programme validation. Disabled
+  providers never activate a sample or direct balance write fallback.
+- Retain historical financial rows and migrations. Never import sample balances as
+  live liabilities. The immutable installation marker prevents mixing environments.
 
 ## Database & testing
 - Runtime DB is Supabase Postgres (`DATABASE_URL` pooled, `DIRECT_URL` direct)
@@ -508,15 +439,14 @@ src/
     audit/         append-only AuditLogService.record + self-service audit-logs
     activity/      ActivityService.record — one-call audit + in-app notification
     crud/          generic admin data-grid (registry + /admin/:resource)
-    accounts/      single account (CRUD /account, 1:1 via unique Account.userId)
-    wallets/       single wallet (CRUD /wallet)
-    flutterwave/   reusable Flutterwave v3 client, cards domain, credential
-                   crypto, webhook verifier, types (feature-free package)
-    funding/       dynamic virtual accounts, deposits/withdrawals + webhook
-    cards/         cards (list/detail, pause/resume/limit, locks, categories,
-                   issued-card orchestration)
+    accounts/      read-only account presentation (1:1 via unique Account.userId)
+    wallets/       read-only ledger wallet presentation
+    finance/       Sudo/Safe Haven providers, ledger, commands, identity, events,
+                   authorization, durable workers and reconciliation
+    funding/       verified saved recipients, deposit account and budget presentation
+    cards/         read-only Sudo card presentation and plan access
     chats/         chat history + messages (+USER message append)
-    transactions/  transactions + approvals CRUD
+    transactions/  read-only live transactions and authorization approvals
     thresholds/    user transaction thresholds (CRUD)
     biometrics/    enrolled biometric devices (CRUD)
   config/   typed AppConfig (configuration.ts + Joi env.validation.ts)

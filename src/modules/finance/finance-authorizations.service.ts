@@ -160,7 +160,13 @@ export class FinanceAuthorizations {
                   type: 'TRANSACTION',
                   title: 'Purchase needs approval',
                   content: `Approve ${amount.toFixed(2)} ${currency} at ${merchantName}, then retry at checkout.`,
-                  metadata: { authorizationId: id, live: true },
+                  metadata: {
+                    action: 'finance.authorization.request',
+                    entityType: 'finance_authorization',
+                    entityId: id,
+                    authorizationId: id,
+                    live: true,
+                  },
                 },
               });
               return '05';

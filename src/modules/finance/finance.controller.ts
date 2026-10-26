@@ -385,7 +385,7 @@ export class AdminFinanceController {
     private readonly audit: AuditLogService,
   ) {}
   @Get() async overview() {
-    const [operations, inbox, accounts, customers] = await Promise.all([
+    const [operations, inbox, accounts, customers, authorizations] = await Promise.all([
       this.prisma.financeOperation.findMany({
         orderBy: { updatedAt: 'desc' },
         take: 100,
@@ -421,6 +421,21 @@ export class AdminFinanceController {
         take: 100,
         select: { userId: true, bankStatus: true, sudoStatus: true, updatedAt: true },
       }),
+      this.prisma.financeAuthorization.findMany({
+        where: { status: 'AWAITING_APPROVAL' },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+        select: {
+          id: true,
+          userId: true,
+          cardId: true,
+          amount: true,
+          currency: true,
+          merchantName: true,
+          status: true,
+          createdAt: true,
+        },
+      }),
     ]);
     const differences = await this.prisma.$queryRaw<
       Array<{ key: string; difference: Prisma.Decimal }>
@@ -433,6 +448,7 @@ export class AdminFinanceController {
       inbox,
       accounts,
       customers,
+      authorizations: authorizations.map((row) => ({ ...row, amount: row.amount.toFixed(2) })),
       differences,
     };
   }

@@ -76,10 +76,10 @@ before enabling the programme; zero example values are not advertised prices.
    only provider references and keyed identity hashes, never raw identifiers.
 8. Set `FINANCE_FEES_VERIFIED`, `FINANCE_TREASURY_VERIFIED`,
    `FINANCE_NGN_ENABLED` and `FINANCE_ENABLED` only after validation. Build the
-   mobile app with `--dart-define=BONDE_LIVE_FINANCE=true`. Existing builds do
-   not enter the live UI; their legacy financial writes are rejected by the
-   backend in production. Roll out the matching mobile version before enabling
-   live customer access.
+   mobile app normally. Its existing wallet, card, approval and purchase preparation
+   screens use the canonical finance operations; no alternate build flag or sample
+   finance flow exists.
+   Roll out the matching mobile version before enabling live customer access.
 
 Sudo card details use scoped, short-lived card tokens and Secure Proxy inside a
 WebView, without PAN/CVV flowing through the backend, ordinary API responses,
@@ -155,3 +155,32 @@ typecheck and build before rollout. SQL assertions in
 `test/sql/finance-ledger.sql` require an isolated disposable database. They test
 balanced commits, immutable history and nonnegative customer balances. Full
 Prisma/API concurrency tests still require reachable local Postgres and Redis.
+
+
+## Existing screen cutover
+
+The mobile app has no finance build flag. Existing wallet, funding, withdrawal,
+card creation/detail/rules/history, approvals and notification actions use this
+module. Profile identity verification uses Safe Haven onboarding; the separate
+identity provider verifier and local KYC submission flow have been removed. Monthly insights
+use live NGN activity and exact decimal arithmetic. Billing debits the same ledger.
+
+`GET /account`, `/wallet`, `/cards`, `/transactions` and `/approvals` are read-only
+presentation APIs. Direct financial CRUD, raw credentials, old provider funding
+and withdrawal aliases, and admin purchase approval writes have been removed.
+Historical rows and migrations remain for audit; their old balances never become
+live liabilities. Chat proposals prepare a funded virtual card for merchant
+checkout; only Sudo events confirm an actual purchase.
+
+Notification approval buttons require the same passcode proof as Approval Center.
+Budget-card alerts use settled monthly spending at 50%, 80% and 100%, with the 80%
+alert explicitly described as 20% of the monthly budget remaining. Card creation
+can issue an unallocated card for its fee; explicit allocation funds later spend.
+
+Release this backend and the matching app together. Old app financial writes now
+return 404. Validate the provider programme in sandbox before enabling customer
+access; successful local tests do not establish a live provider contract.
+
+A newly issued unallocated card may receive its initial allocation even if top-ups
+are disabled. Immutable positive card ledger entries distinguish initial funding
+from later top-ups, so returning or spending the allocation cannot reset that rule.
