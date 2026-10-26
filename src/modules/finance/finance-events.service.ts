@@ -1,3 +1,5 @@
+import { FinancePolicy } from './finance-policy.service.js';
+import { FinanceRetirement } from './finance-retirement.service.js';
 import { projectAllocationReturn } from './finance-projections.js';
 import type { Card } from '@prisma/client';
 import { budgetAlertTitles } from './card-policy.js';
@@ -21,6 +23,8 @@ export class FinanceEvents {
     private readonly sudo: SudoClient,
     private readonly worker: FinanceWorker,
     private readonly config: ConfigService<AppConfig, true>,
+    private readonly policy: FinancePolicy,
+    private readonly retirement: FinanceRetirement,
   ) {}
   async receive(
     provider: string,
@@ -245,6 +249,24 @@ export class FinanceEvents {
       if (!card) throw new ProviderError(true, 404);
       await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM profiles WHERE id=${card.userId}::uuid FOR UPDATE`;
+        const currentCard = await tx.card.findUniqueOrThrow({ where: { id: card.id } });
+        if (currentCard.retiredAt && data.status === 'active') {
+          await tx.card.update({ where: { id: card.id }, data: { retirementStatus: 'RETIRING' } });
+          await tx.financeOperation.updateMany({
+            where: { cardId: card.id, kind: 'RETIRE', status: 'SUCCEEDED' },
+            data: { status: 'QUEUED' },
+          });
+          await this.retirement.mark(tx, currentCard, currentCard.retirementReason!);
+          await tx.financeInbox.update({ where: { id: inboxId }, data: { status: 'PROCESSED' } });
+          return;
+        }
+        if (data.status === 'canceled')
+          await this.retirement.mark(
+            tx,
+            currentCard,
+            currentCard.retirementReason ?? 'ISSUER_CLOSED',
+            false,
+          );
         const held = await tx.financeAuthorization.count({
           where: { cardId: card.id, status: 'HELD' },
         });
@@ -302,7 +324,7 @@ export class FinanceEvents {
                 : data.status === 'inactive'
                   ? 'PAUSED'
                   : 'CANCELLED',
-            ...(data.status === 'canceled' ? { balance: 0 } : {}),
+            ...(data.status === 'canceled' ? { balance: 0, retirementStatus: 'CLOSED' } : {}),
           },
         });
         await tx.financeInbox.update({ where: { id: inboxId }, data: { status: 'PROCESSED' } });
@@ -317,7 +339,9 @@ export class FinanceEvents {
     const card = await this.prisma.card.findFirst({
       where: { externalReferenceId: cardId, issuer: 'sudo' },
     });
-    if (!card || data.currency !== card.currency) throw new ProviderError(true, 400);
+    if (!card) throw new ProviderError(true, 400);
+    await this.prisma.financeInbox.update({ where: { id: inboxId }, data: { cardId: card.id } });
+    if (data.currency !== card.currency) throw new ProviderError(true, 400);
     const authId =
       typeof data.authorization === 'string'
         ? data.authorization
@@ -331,6 +355,7 @@ export class FinanceEvents {
         .add(String(data.fee ?? 0))
         .add(String(data.vat ?? 0))
         .toFixed(2),
+      true,
     );
     await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM profiles WHERE id=${card.userId}::uuid FOR UPDATE`;
@@ -338,6 +363,13 @@ export class FinanceEvents {
       if (inbox.status === 'PROCESSED') return;
       const auth = await tx.financeAuthorization.findUnique({ where: { id: authId } });
       if (!auth || auth.cardId !== card.id) throw new ProviderError(false, 409);
+      if (amount.isZero()) {
+        if (auth.requestType !== 'VERIFICATION') throw new ProviderError(true, 409);
+        await tx.financeInbox.update({ where: { id: inboxId }, data: { status: 'PROCESSED' } });
+        return;
+      }
+      const currentCard = await tx.card.findUniqueOrThrow({ where: { id: card.id } });
+      const toWallet = !!currentCard.retiredAt || currentCard.status === 'CANCELLED';
       const refund = type === 'transaction.refund';
       if (
         await tx.financeJournal.findFirst({
@@ -386,7 +418,7 @@ export class FinanceEvents {
         ? systemKey('card-clearing', card.currency)
         : holdKey(auth.id, card.currency);
       const destination = refund
-        ? card.status === 'CANCELLED'
+        ? toWallet
           ? walletKey(card.userId, card.currency)
           : cardKey(card.id, card.currency)
         : systemKey('card-clearing', card.currency);
@@ -398,22 +430,27 @@ export class FinanceEvents {
         throw new ProviderError(false, 409);
       const reference = `sudo:${type}:${id}`;
       if (!(await tx.financeJournal.findUnique({ where: { reference } }))) {
-        await this.ledger.post(tx, reference, refund ? 'Card refund' : 'Card purchase settled', [
-          {
-            key: source,
-            currency: card.currency,
-            kind: refund ? 'CLEARING' : 'HOLD',
-            ...(refund ? {} : { userId: card.userId }),
-            amount: amount.negated(),
-          },
-          {
-            key: destination,
-            currency: card.currency,
-            kind: refund ? (card.status === 'CANCELLED' ? 'WALLET' : 'CARD') : 'CLEARING',
-            ...(refund ? { userId: card.userId } : {}),
-            amount,
-          },
-        ]);
+        const journal = await this.ledger.post(
+          tx,
+          reference,
+          refund ? 'Card refund' : 'Card purchase settled',
+          [
+            {
+              key: source,
+              currency: card.currency,
+              kind: refund ? 'CLEARING' : 'HOLD',
+              ...(refund ? {} : { userId: card.userId }),
+              amount: amount.negated(),
+            },
+            {
+              key: destination,
+              currency: card.currency,
+              kind: refund ? (toWallet ? 'WALLET' : 'CARD') : 'CLEARING',
+              ...(refund ? { userId: card.userId } : {}),
+              amount,
+            },
+          ],
+        );
         await tx.financeAuthorization.update({
           where: { id: auth.id },
           data: refund
@@ -430,7 +467,7 @@ export class FinanceEvents {
             where: { id: card.id },
             data: { totalSpent: { increment: amount } },
           });
-        if (refund && card.status !== 'CANCELLED')
+        if (refund && !toWallet)
           await tx.card.update({
             where: { id: card.id },
             data: { balance: { increment: amount } },
@@ -444,7 +481,24 @@ export class FinanceEvents {
           reference,
           card.id,
         );
-        if (!refund) await this.budgetAlerts(tx, card, amount);
+        if (!refund) {
+          await tx.financeCapture.create({
+            data: {
+              id: randomUUID(),
+              providerReference: reference,
+              journalId: journal.id,
+              authorizationId: auth.id,
+              cardId: card.id,
+              userId: card.userId,
+              currency: card.currency,
+              amount,
+              isPurchase: auth.requestType === 'PURCHASE',
+            },
+          });
+          await this.budgetAlerts(tx, card, amount);
+          const snapshot = await this.policy.snapshot(tx, currentCard);
+          if (snapshot.reason) await this.retirement.mark(tx, currentCard, snapshot.reason);
+        }
       }
       await tx.financeInbox.update({ where: { id: inboxId }, data: { status: 'PROCESSED' } });
     });
@@ -455,21 +509,7 @@ export class FinanceEvents {
       !(card.notifyHalfSpent || card.notifyLowBalance || card.notifyBudgetReached)
     )
       return;
-    const now = new Date();
-    const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-    const totals = await tx.transaction.aggregate({
-      where: {
-        userId: card.userId,
-        cardId: card.id,
-        type: 'PAYMENT',
-        status: 'SUCCESS',
-        currency: card.currency,
-        metadata: { path: ['live'], equals: true },
-        createdAt: { gte: month },
-      },
-      _sum: { amount: true },
-    });
-    const spent = totals._sum.amount ?? new Prisma.Decimal(0);
+    const { settled: spent } = await this.policy.snapshot(tx, card);
     for (const title of budgetAlertTitles(card, spent.sub(amount), amount)) {
       await tx.notification.create({
         data: {

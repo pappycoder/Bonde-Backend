@@ -102,7 +102,7 @@ scoped to the authenticated owner. Bank/API keys remain server-side.
 - `POST /finance/proof`: `{command, passcode}` → `{proof, expiresAt}`
 - `POST /finance/operations`: `{command, proof}` plus `Idempotency-Key` → an
   operation. Kinds: ISSUE, ALLOCATE, RETURN, WITHDRAW, RULES, PAUSE, RESUME,
-  CANCEL, APPROVE and DECLINE.
+  CANCEL, RETIRE, MERCHANT_ENROLL, MERCHANT_BIND, THRESHOLDS, APPROVE and DECLINE.
 - `GET /finance/operations`, `/operations/:id`, `/operation-key/:key`: retrieve
   the original outcome, including after a lost response.
 - `POST /finance/cards/:id/display-session`: owner/passcode verification →
@@ -118,8 +118,7 @@ storage across crashes and lost responses. A pending action must be resolved
 before starting a different financial command.
 
 Rule evaluation uses exact provider merchant identifiers and conservative MCC
-mappings. Merchant choices come from the user's verified card activity, not the
-old bundled merchant names. Unknown mappings decline. Usage counts include
+mappings. Merchant choices come from the reviewed catalog and the user's verified card activity. Choices contain stable IDs, country and descriptors; names never determine authorization. Unknown mappings decline. Usage counts include
 pending approved purchases; reversed holds release reserved capacity. Captured
 purchases still consume their usage slot and gross budget after a refund. Months
 reset at UTC calendar boundaries. A human approval grants one exact matching
@@ -127,11 +126,49 @@ merchant/card/currency/amount retry for five minutes; it cannot bypass hard rule
 card/account state or insufficient funds. No human or AI request blocks the
 four-second authorization callback.
 
-Sudo's documented canceled status requires a cancellation reason (`lost` or
-`stolen`) and a credit account. The mobile closure flow asks for that reason;
-ordinary temporary unavailability uses pause. Cards at a self-destruct usage
-limit stop authorizing additional purchases; retain their records and outstanding
-holds for settlement and refunds.
+Sudo's documented canceled status requires `lost` or `stolen`. Normal retirement
+instead records a permanent local marker, confirms provider `inactive`, waits for
+holds and unresolved captures, and returns the remaining allocation exactly once.
+`RETIRED` does not claim provider cancellation; `CLOSED` confirms it. Refunds on
+retired cards credit the wallet. Stale resumes and callbacks cannot restore usage.
+Self-destruct cards retire at the first positive capture of their final allowed
+purchase. Held purchases reserve slots; verification requests do not consume
+purchase uses. Time/native expiry is enforced synchronously, with worker cleanup.
+Budget exhaustion remains temporary and resets monthly in UTC. Monthly spending
+uses booked captures plus all outstanding holds, including holds from older months.
+
+## Card controls v2 rollout
+
+Deploy the additive `20261027120000_card_controls_v2` migration with the matching
+backend, mobile and admin releases. Capability `cardControlsVersion: 2` identifies
+this API contract. The migration preserves journals/history, backfills captures,
+normalizes `APPROVAL_USED`, and makes legacy country-less merchant bindings require
+reconfirmation. It never seeds guessed brand IDs or moves money. Keep live access
+disabled during a coordinated rollout; old mobile merchant/rule writes fail closed.
+Run the existing finance worker continuously to finish retirement and reconciliation.
+
+`GET /finance/merchants?q=&cursor=` now returns `{items,nextCursor}`. Send opaque
+choice IDs in `rules.merchantSelections`; catalog choices include their version.
+`RULES`, `MERCHANT_ENROLL` and `MERCHANT_BIND` commands require `rulesVersion`.
+Unknown merchants use a 10-minute setup enrollment, a declined authenticated Sudo
+checkout attempt, then explicit passcode confirmation of a specific candidate.
+Inspect candidates at `GET /finance/cards/:id/merchant-enrollment`. Binding only
+adds that verified identity, never a display-name match or an automatic approval.
+Rules edits expire pending enrollment. Candidate hashes bind the checkout facts.
+
+Admins review provider authorization references at
+`POST /admin/finance/merchant-catalog/review`, inspect drafts via GET
+`/admin/finance/merchant-catalog`, and publish/revoke at `/:id/publish|revoke` with
+`{version}`. Provider evidence must belong to this programme. Revocation blocks the
+identities on existing cards immediately. Publishing updates never expand existing
+card allowlists. Generic card-lock/category/threshold writes are read-only;
+threshold changes use the passcode-proof `THRESHOLDS` command.
+
+Validate in sandbox: duplicate names/countries, multiple enrollment candidates,
+expired/stale proofs, category declines, monthly boundary partial captures, zero
+merchant-principal verifications with genuine fees, reversals/refunds after
+retirement, uncertain deactivation, and replayed callbacks with two workers.
+No production migration or live-money action is performed by these source changes.
 
 ## Release boundary and operations
 
@@ -155,7 +192,6 @@ typecheck and build before rollout. SQL assertions in
 `test/sql/finance-ledger.sql` require an isolated disposable database. They test
 balanced commits, immutable history and nonnegative customer balances. Full
 Prisma/API concurrency tests still require reachable local Postgres and Redis.
-
 
 ## Existing screen cutover
 

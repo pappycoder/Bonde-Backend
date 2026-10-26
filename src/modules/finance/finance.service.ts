@@ -1,3 +1,6 @@
+import { FinancePolicy } from './finance-policy.service.js';
+import { FinanceRetirement } from './finance-retirement.service.js';
+import { FinanceMerchants } from './finance-merchants.service.js';
 import {
   BadRequestException,
   ConflictException,
@@ -25,6 +28,9 @@ export class FinanceService {
     private readonly capabilities: FinanceCapabilities,
     private readonly passcodes: PasscodeService,
     private readonly config: ConfigService<AppConfig, true>,
+    private readonly policy: FinancePolicy,
+    private readonly retirement: FinanceRetirement,
+    private readonly merchants: FinanceMerchants,
   ) {}
 
   async authorizeDisplay(userId: string, cardId: string, passcode: string) {
@@ -93,9 +99,57 @@ export class FinanceService {
     if (['ALLOCATE', 'RETURN', 'WITHDRAW'].includes(command.kind)) amountOf(command.amount);
     else if (command.kind !== 'ISSUE' && !amountOf(command.amount, true).isZero())
       throw new BadRequestException('This action has no amount');
-    if (command.kind === 'ISSUE' || command.kind === 'RULES') validateRules(command.rules);
+    if (command.kind === 'ISSUE' || command.kind === 'RULES') {
+      const { merchantSelections, ...rules } = command.rules ?? {};
+      if (rules.merchantIds !== undefined)
+        throw new BadRequestException('Use verified merchant selections');
+      if (
+        merchantSelections !== undefined &&
+        (!Array.isArray(merchantSelections) ||
+          merchantSelections.length > 20 ||
+          merchantSelections.some((value) => typeof value !== 'string'))
+      )
+        throw new BadRequestException('Invalid merchant selections');
+      const rule = validateRules({
+        ...rules,
+        ...(rules.type === 'MERCHANT'
+          ? {
+              merchantIds:
+                Array.isArray(merchantSelections) && merchantSelections.length ? ['selection'] : [],
+            }
+          : {}),
+      });
+      if (rule.type === 'TIME' && Date.parse(rule.end!) <= Date.now())
+        throw new BadRequestException('Choose a future expiry');
+    }
     if (
-      ['ALLOCATE', 'RETURN', 'PAUSE', 'RESUME', 'CANCEL', 'RULES'].includes(command.kind) &&
+      ['RULES', 'MERCHANT_ENROLL', 'MERCHANT_BIND'].includes(command.kind) &&
+      !command.rulesVersion
+    )
+      throw new BadRequestException('Reload this card before changing its settings');
+    if (command.kind === 'MERCHANT_ENROLL' && !command.merchantLabel?.trim())
+      throw new BadRequestException('Enter the intended merchant');
+    if (command.kind === 'MERCHANT_BIND' && (!command.enrollmentId || !command.candidateId))
+      throw new BadRequestException('Choose an observed merchant candidate');
+    if (
+      command.kind === 'THRESHOLDS' &&
+      (!command.thresholdType ||
+        command.thresholdActive === undefined ||
+        command.thresholdValue === undefined)
+    )
+      throw new BadRequestException('A complete threshold setting is required');
+    if (
+      [
+        'ALLOCATE',
+        'RETURN',
+        'PAUSE',
+        'RESUME',
+        'CANCEL',
+        'RULES',
+        'RETIRE',
+        'MERCHANT_ENROLL',
+        'MERCHANT_BIND',
+      ].includes(command.kind) &&
       !command.cardId
     )
       throw new BadRequestException('Card is required');
@@ -122,6 +176,7 @@ export class FinanceService {
   async execute(userId: string, command: FinanceCommandDto, proof: string, key: string) {
     this.validate(command);
     const c = this.config.get('finance');
+    if (command.cardId) await this.retirement.ensureDue(userId, command.cardId);
     if (!/^[a-zA-Z0-9_-]{16,100}$/.test(key ?? ''))
       throw new BadRequestException('A valid Idempotency-Key is required');
     return this.prisma.$transaction(async (tx) => {
@@ -162,22 +217,17 @@ export class FinanceService {
             userId,
             issuer: 'sudo',
             status: { not: 'CANCELLED' },
-            expirationDate: { gt: new Date() },
+            OR: [
+              { retirementStatus: null },
+              { retirementStatus: { notIn: ['RETIRED', 'CLOSED'] } },
+            ],
           },
         });
         const profile = await tx.profile.findUniqueOrThrow({ where: { id: userId } });
         const premium =
           profile.cardPlan === 'PREMIUM' &&
           (!profile.cardPlanExpiresAt || profile.cardPlanExpiresAt > new Date());
-        const rule = validateRules(command.rules);
-        if (rule.merchantIds?.length) {
-          const known = await tx.financeAuthorization.findMany({
-            where: { userId, merchantId: { in: rule.merchantIds } },
-            distinct: ['merchantId'],
-          });
-          if (known.length !== new Set(rule.merchantIds).size)
-            throw new BadRequestException('Choose a merchant from your verified activity');
-        }
+        const rule = await this.merchants.resolveRules(tx, userId, command.rules);
         if (active >= (premium ? 15 : 3))
           throw new BadRequestException('Card plan capacity reached');
         if (!premium) {
@@ -186,7 +236,10 @@ export class FinanceService {
               userId,
               issuer: 'sudo',
               status: { not: 'CANCELLED' },
-              expirationDate: { gt: new Date() },
+              OR: [
+                { retirementStatus: null },
+                { retirementStatus: { notIn: ['RETIRED', 'CLOSED'] } },
+              ],
               creationLockType: rule.type ? { not: null } : null,
             },
           });
@@ -213,6 +266,7 @@ export class FinanceService {
             expirationType: 'yearly',
             expirationDate: new Date(Date.now() + 365 * 86400000),
             creationLockType: rule.type,
+            controlExpiresAt: rule.type === 'TIME' ? new Date(rule.end!) : null,
             maxSpendLimit: rule.maxSpendLimit,
             monthlyLimit: rule.monthlyLimit,
             allowTopUp: rule.allowTopUp ?? true,
@@ -236,6 +290,11 @@ export class FinanceService {
         });
         if (!card) throw new NotFoundException('Card not found');
         if (card.status === 'CANCELLED') throw new BadRequestException('Card is closed');
+        const snapshot = await this.policy.snapshot(tx, card);
+        if ((card.retiredAt || snapshot.reason) && !['RETIRE', 'CANCEL'].includes(command.kind))
+          throw new ConflictException('This card is permanently retired');
+        if (command.rulesVersion !== undefined && card.rulesVersion !== command.rulesVersion)
+          throw new ConflictException('Card settings changed. Reload and review again');
         if (
           command.kind === 'ALLOCATE' &&
           (!card.externalReferenceId || card.expirationDate <= new Date())
@@ -268,19 +327,24 @@ export class FinanceService {
       });
       let status = 'QUEUED';
       if (command.kind === 'RULES') {
-        const rule = validateRules(command.rules);
-        if (rule.merchantIds?.length) {
-          const known = await tx.financeAuthorization.findMany({
-            where: { userId, merchantId: { in: rule.merchantIds } },
-            distinct: ['merchantId'],
-          });
-          if (known.length !== new Set(rule.merchantIds).size)
-            throw new BadRequestException('Choose a merchant from your verified activity');
-        }
+        const rule = await this.merchants.resolveRules(tx, userId, command.rules);
         const card = await tx.card.findUniqueOrThrow({ where: { id: cardId! } });
-        // Editing cannot change which subscription slot an existing card occupies.
-        if (Boolean(card.creationLockType) !== Boolean(rule.type))
-          throw new BadRequestException('Create a new card to change its allocation type');
+        const snapshot = await this.policy.snapshot(tx, card);
+        if ((card.creationLockType ?? undefined) !== rule.type)
+          throw new BadRequestException('Create a new card to change its type');
+        if (
+          rule.type === 'SELF_DESTRUCT' &&
+          ((snapshot.uses >= snapshot.rule.usageLimit! &&
+            rule.usageLimit! > snapshot.rule.usageLimit!) ||
+            rule.usageLimit! <= snapshot.completedUses)
+        )
+          throw new ConflictException(
+            'Reserved or completed purchases prevent this usage-limit change',
+          );
+        await tx.financeMerchantEnrollment.updateMany({
+          where: { cardId: card.id, status: 'PENDING' },
+          data: { status: 'EXPIRED' },
+        });
         await tx.cardLock.deleteMany({ where: { cardId: cardId! } });
         if (rule.type)
           await tx.cardLock.create({
@@ -294,6 +358,8 @@ export class FinanceService {
         await tx.card.update({
           where: { id: cardId! },
           data: {
+            rulesVersion: { increment: 1 },
+            controlExpiresAt: rule.type === 'TIME' ? new Date(rule.end!) : null,
             ...(command.nickname !== undefined ? { nickname: command.nickname } : {}),
             maxSpendLimit: rule.maxSpendLimit ?? null,
             monthlyLimit: rule.monthlyLimit ?? null,
@@ -310,6 +376,49 @@ export class FinanceService {
             event: 'rules.update',
             changes: rule as Prisma.InputJsonValue,
           },
+        });
+        status = 'SUCCEEDED';
+      }
+      if (
+        command.kind === 'MERCHANT_ENROLL' ||
+        command.kind === 'MERCHANT_BIND' ||
+        command.kind === 'RETIRE'
+      ) {
+        const card = await tx.card.findUniqueOrThrow({ where: { id: cardId! } });
+        if (command.kind === 'MERCHANT_ENROLL')
+          await this.merchants.start(tx, card, command.merchantLabel!, command.rulesVersion!);
+        if (command.kind === 'MERCHANT_BIND')
+          await this.merchants.bind(
+            tx,
+            card,
+            command.enrollmentId!,
+            command.candidateId!,
+            command.rulesVersion!,
+          );
+        if (command.kind === 'RETIRE')
+          await this.retirement.mark(tx, card, card.retirementReason ?? 'USER_REQUESTED', false);
+        status = command.kind === 'RETIRE' ? 'QUEUED' : 'SUCCEEDED';
+      }
+      if (command.kind === 'CANCEL') {
+        const card = await tx.card.findUniqueOrThrow({ where: { id: cardId! } });
+        await this.retirement.mark(
+          tx,
+          card,
+          card.retirementReason ?? `USER_REPORTED_${command.cancellationReason!.toUpperCase()}`,
+          false,
+        );
+      }
+      if (command.kind === 'THRESHOLDS') {
+        await tx.transactionThreshold.upsert({
+          where: { userId_thresholdType: { userId, thresholdType: command.thresholdType! } },
+          create: {
+            id: randomUUID(),
+            userId,
+            thresholdType: command.thresholdType!,
+            thresholdValue: command.thresholdValue!,
+            isActive: command.thresholdActive!,
+          },
+          update: { thresholdValue: command.thresholdValue, isActive: command.thresholdActive },
         });
         status = 'SUCCEEDED';
       }
@@ -339,6 +448,16 @@ export class FinanceService {
         status = 'SUCCEEDED';
       }
       if (command.kind === 'APPROVE' || command.kind === 'DECLINE') {
+        const authorization = await tx.financeAuthorization.findFirst({
+          where: { id: command.authorizationId, userId, currency: command.currency },
+        });
+        if (!authorization) throw new NotFoundException('Authorization not found');
+        const approvalCard = await tx.card.findUniqueOrThrow({
+          where: { id: authorization.cardId },
+        });
+        const approvalPolicy = await this.policy.snapshot(tx, approvalCard);
+        if (approvalCard.retiredAt || approvalPolicy.reason)
+          throw new ConflictException('This card is permanently retired');
         const changed = await tx.financeAuthorization.updateMany({
           where: {
             id: command.authorizationId,

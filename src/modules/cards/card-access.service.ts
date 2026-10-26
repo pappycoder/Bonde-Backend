@@ -1,3 +1,4 @@
+import { FinancePolicy } from '../finance/finance-policy.service.js';
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { LockType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -6,7 +7,10 @@ type Reader = Pick<Prisma.TransactionClient, 'profile' | 'card'>;
 
 @Injectable()
 export class CardAccessService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly policy: FinancePolicy,
+  ) {}
 
   async summary(userId: string, db: Reader = this.prisma) {
     const now = new Date();
@@ -24,7 +28,7 @@ export class CardAccessService {
         userId,
         issuer: 'sudo',
         status: { in: ['ACTIVE', 'PAUSED'] },
-        expirationDate: { gt: now },
+        OR: [{ retirementStatus: null }, { retirementStatus: { notIn: ['RETIRED', 'CLOSED'] } }],
       },
       select: {
         creationLockType: true,
@@ -60,40 +64,27 @@ export class CardAccessService {
       include: { locks: { where: { isActive: true } } },
     });
     if (!card) throw new NotFoundException('Card not found');
-    if (card.status === 'CANCELLED') return { reason: 'NONE' };
-    if (card.expirationDate <= new Date()) return { reason: 'EXPIRED' };
-    const where = {
-      cardId: id,
-      userId,
-      status: { in: ['HELD', 'SETTLED'] },
-    };
-    const usage = card.locks.find((lock) => lock.lockType === 'SELF_DESTRUCT');
-    const config = usage?.config as { usageLimit?: unknown } | undefined;
-    if (typeof config?.usageLimit === 'number' && config.usageLimit > 0) {
-      const used = await this.prisma.financeAuthorization.count({ where });
-      if (used >= config.usageLimit)
-        return { reason: 'USAGE_LIMIT', used, limit: config.usageLimit };
-    }
-    if (card.monthlyLimit != null) {
-      const now = new Date();
-      const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-      const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-      const rows = await this.prisma.financeAuthorization.findMany({
-        where: { ...where, createdAt: { gte: from, lt: to } },
-        select: { status: true, amount: true, released: true, settled: true },
-      });
-      const spent = rows.reduce(
-        (sum, row) => sum.add(row.status === 'HELD' ? row.amount.sub(row.released) : row.settled),
-        new Prisma.Decimal(0),
-      );
-      if (spent.gte(card.monthlyLimit))
-        return {
-          reason: 'BUDGET_LIMIT',
-          spent: spent.toFixed(2),
-          limit: card.monthlyLimit.toFixed(2),
-          resetsAt: to.toISOString(),
-        };
-    }
+    const snapshot = await this.policy.snapshot(this.prisma, card);
+    if (card.retiredAt || snapshot.reason)
+      return {
+        reason: 'RETIRED',
+        retirementReason: snapshot.reason,
+        retirementStatus: card.retirementStatus ?? 'RETIRING',
+      };
+    if (card.status === 'CANCELLED') return { reason: 'CLOSED' };
+    if (snapshot.rule.type === 'MERCHANT' && !snapshot.rule.merchantIds?.length)
+      return { reason: 'MERCHANT_SETUP' };
+    if (snapshot.rule.type === 'SELF_DESTRUCT' && snapshot.uses >= snapshot.rule.usageLimit!)
+      return { reason: 'USAGE_RESERVED', used: snapshot.uses, limit: snapshot.rule.usageLimit };
+    if (card.monthlyLimit && snapshot.spent.gte(card.monthlyLimit))
+      return {
+        reason: 'BUDGET_LIMIT',
+        spent: snapshot.spent.toFixed(2),
+        limit: card.monthlyLimit.toFixed(2),
+        resetsAt: new Date(
+          Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, 1),
+        ).toISOString(),
+      };
     // maxSpendLimit is per transaction, never compared with lifetime totalSpent.
     return { reason: 'NONE' };
   }

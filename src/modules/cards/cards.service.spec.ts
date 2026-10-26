@@ -23,7 +23,17 @@ const setup = () => {
     transaction: { findMany: vi.fn(async () => []), count: vi.fn(async () => 0) },
     $transaction: vi.fn(async (calls: Promise<unknown>[]) => Promise.all(calls)),
   };
-  return { prisma, service: new CardsService(prisma as never, {} as never, {} as never) };
+  return {
+    prisma,
+    service: new CardsService(
+      prisma as never,
+      {
+        snapshot: vi.fn(async () => ({ rule: {}, reason: null, settled: new Prisma.Decimal(0) })),
+      } as never,
+      {} as never,
+      {} as never,
+    ),
+  };
 };
 describe('Sudo card reads', () => {
   it('uses the ledger allocation and excludes encrypted credentials', async () => {

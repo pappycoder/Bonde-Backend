@@ -1,6 +1,10 @@
 import { Type } from 'class-transformer';
 import {
   IsIn,
+  IsBoolean,
+  IsInt,
+  Min,
+  IsUUID,
   IsObject,
   IsOptional,
   IsString,
@@ -11,6 +15,10 @@ import {
 
 export const commandKinds = [
   'ISSUE',
+  'RETIRE',
+  'MERCHANT_ENROLL',
+  'MERCHANT_BIND',
+  'THRESHOLDS',
   'ALLOCATE',
   'RETURN',
   'WITHDRAW',
@@ -22,6 +30,14 @@ export const commandKinds = [
   'DECLINE',
 ] as const;
 export class FinanceCommandDto {
+  @IsOptional() @IsIn(['FIRST_TIME', 'LARGE_AMOUNT']) thresholdType?: 'FIRST_TIME' | 'LARGE_AMOUNT';
+  @IsOptional() @Matches(/^\d{1,12}(\.\d{1,2})?$/) thresholdValue?: string;
+  @IsOptional() @IsBoolean() thresholdActive?: boolean;
+  @IsOptional() @IsInt() @Min(1) rulesVersion?: number;
+  @IsOptional() @IsString() @MaxLength(100) merchantLabel?: string;
+  @IsOptional() @IsUUID('4') enrollmentId?: string;
+  @IsOptional() @IsUUID('4') candidateId?: string;
+
   @IsIn(commandKinds) kind!: (typeof commandKinds)[number];
   @IsIn(['NGN', 'USD']) currency!: 'NGN' | 'USD';
   @Matches(/^\d{1,12}(\.\d{1,2})?$/) amount!: string;

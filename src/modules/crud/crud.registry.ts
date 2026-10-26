@@ -80,7 +80,7 @@ export const CRUD_REGISTRY: readonly CrudModelDef[] = [
     modelName: 'CardLock',
     resource: 'card-locks',
     label: 'Card lock',
-    methods: ['create', 'list', 'get', 'update', 'delete'],
+    methods: ['list', 'get'],
     searchable: [],
     fields: {
       id: idField(),
@@ -98,7 +98,7 @@ export const CRUD_REGISTRY: readonly CrudModelDef[] = [
     modelName: 'CardCategory',
     resource: 'card-categories',
     label: 'Card restricted category',
-    methods: ['create', 'list', 'get', 'update', 'delete'],
+    methods: ['list', 'get'],
     searchable: [],
     fields: {
       id: idField(),
@@ -140,7 +140,7 @@ export const CRUD_REGISTRY: readonly CrudModelDef[] = [
     modelName: 'TransactionThreshold',
     resource: 'transaction-thresholds',
     label: 'Transaction threshold',
-    methods: ['create', 'list', 'get', 'update', 'delete'],
+    methods: ['list', 'get'],
     searchable: [],
     fields: {
       id: idField(),

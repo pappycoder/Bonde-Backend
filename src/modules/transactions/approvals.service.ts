@@ -30,7 +30,7 @@ export class ApprovalsService {
       : filter.includes('APPROVED')
         ? {
             OR: [
-              { status: 'RETRY_USED' },
+              { status: 'APPROVAL_USED' },
               { status: 'RETRY_APPROVED', approvalExpiresAt: { gt: now } },
             ],
           }
@@ -43,7 +43,7 @@ export class ApprovalsService {
             }
           : {
               status: {
-                in: ['AWAITING_APPROVAL', 'RETRY_APPROVED', 'RETRY_USED', 'DECLINED', 'EXPIRED'],
+                in: ['AWAITING_APPROVAL', 'RETRY_APPROVED', 'APPROVAL_USED', 'DECLINED', 'EXPIRED'],
               },
             };
     const where: Prisma.FinanceAuthorizationWhereInput = {
@@ -79,7 +79,7 @@ export class ApprovalsService {
     return this.view(row);
   }
   private view(row: Row) {
-    const approved = ['RETRY_APPROVED', 'RETRY_USED'].includes(row.status);
+    const approved = ['RETRY_APPROVED', 'APPROVAL_USED'].includes(row.status);
     const expired =
       row.status === 'RETRY_APPROVED' &&
       (!row.approvalExpiresAt || row.approvalExpiresAt <= new Date());

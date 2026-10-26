@@ -1,3 +1,6 @@
+import { FinancePolicy } from './finance-policy.service.js';
+import { FinanceRetirement } from './finance-retirement.service.js';
+import { FinanceMerchants } from './finance-merchants.service.js';
 import { Global, Module } from '@nestjs/common';
 import { AuditLogModule } from '../audit/audit-log.module.js';
 import { PasscodeModule } from '../passcode/passcode.module.js';
@@ -22,6 +25,9 @@ import { SafeHavenClient, SudoClient } from './providers.js';
   imports: [PasscodeModule, AuditLogModule],
   controllers: [FinanceController, FinanceWebhooksController, AdminFinanceController],
   providers: [
+    FinancePolicy,
+    FinanceRetirement,
+    FinanceMerchants,
     FinanceInstallation,
     FinanceReconciliation,
     FinanceService,
@@ -34,6 +40,15 @@ import { SafeHavenClient, SudoClient } from './providers.js';
     SafeHavenClient,
     SudoClient,
   ],
-  exports: [LedgerService, FinanceService, FinanceCapabilities, SafeHavenClient, SudoClient],
+  exports: [
+    FinancePolicy,
+    FinanceRetirement,
+    FinanceMerchants,
+    LedgerService,
+    FinanceService,
+    FinanceCapabilities,
+    SafeHavenClient,
+    SudoClient,
+  ],
 })
 export class FinanceModule {}

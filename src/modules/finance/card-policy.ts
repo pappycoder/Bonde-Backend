@@ -20,6 +20,7 @@ export interface CardRules {
   start?: string;
   end?: string;
   merchantIds?: string[];
+  pendingMerchantLabel?: string;
   categories?: string[];
   allowTopUp?: boolean;
   notifyHalfSpent?: boolean;
@@ -35,6 +36,7 @@ export function validateRules(raw: Record<string, unknown> = {}): CardRules {
     'start',
     'end',
     'merchantIds',
+    'pendingMerchantLabel',
     'categories',
     'allowTopUp',
     'notifyHalfSpent',
@@ -44,7 +46,17 @@ export function validateRules(raw: Record<string, unknown> = {}): CardRules {
   if (Object.keys(raw).some((k) => !keys.includes(k)))
     throw new BadRequestException('Unsupported rule field');
   const rule = raw as CardRules;
-  if (rule.type && !['SELF_DESTRUCT', 'MERCHANT', 'TIME', 'CATEGORY', 'BUDGET'].includes(rule.type))
+  if (
+    rule.pendingMerchantLabel !== undefined &&
+    (typeof rule.pendingMerchantLabel !== 'string' ||
+      !rule.pendingMerchantLabel.trim() ||
+      rule.pendingMerchantLabel.length > 100)
+  )
+    throw new BadRequestException('Invalid merchant setup label');
+  if (
+    rule.type !== undefined &&
+    !['SELF_DESTRUCT', 'MERCHANT', 'TIME', 'CATEGORY', 'BUDGET'].includes(rule.type)
+  )
     throw new BadRequestException('Unsupported rule');
   for (const value of [rule.maxSpendLimit, rule.monthlyLimit])
     if (
@@ -63,6 +75,10 @@ export function validateRules(raw: Record<string, unknown> = {}): CardRules {
     rule.type === 'TIME' &&
     (!rule.start ||
       !rule.end ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(
+        rule.start,
+      ) ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(rule.end) ||
       !Number.isFinite(Date.parse(rule.start)) ||
       !Number.isFinite(Date.parse(rule.end)) ||
       Date.parse(rule.end) <= Date.parse(rule.start))
@@ -71,7 +87,7 @@ export function validateRules(raw: Record<string, unknown> = {}): CardRules {
   if (
     rule.type === 'MERCHANT' &&
     (!Array.isArray(rule.merchantIds) ||
-      !rule.merchantIds.length ||
+      (!rule.merchantIds.length && !rule.pendingMerchantLabel?.trim()) ||
       rule.merchantIds.some((id) => typeof id !== 'string' || !id.trim() || id.length > 100))
   )
     throw new BadRequestException('Verified merchant identifiers are required');

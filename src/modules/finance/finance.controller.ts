@@ -1,3 +1,4 @@
+import { FinanceMerchants } from './finance-merchants.service.js';
 import { FinanceReconciliation } from './finance-reconciliation.service.js';
 import { AuditLogService } from '../audit/audit-log.service.js';
 import { MAIL_SENDER, type MailSender } from '../../common/mail/mail.types.js';
@@ -5,6 +6,7 @@ import { cardAuthorizationEmail } from '../../common/mail/templates/card-authori
 import { Prisma } from '@prisma/client';
 import {
   Body,
+  Query,
   Controller,
   Get,
   Header,
@@ -54,7 +56,36 @@ import {
   FinanceDisplayViewDto,
 } from './finance.dto.js';
 
-import { IsString, Matches, MaxLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsInt,
+  Min,
+  IsArray,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+} from 'class-validator';
+export class MerchantVersionDto {
+  @IsInt() @Min(1) version!: number;
+}
+export class MerchantQueryDto {
+  @IsOptional() @IsString() @MaxLength(100) q?: string;
+  @IsOptional() @IsString() @MaxLength(100) cursor?: string;
+}
+export class MerchantCatalogDto {
+  @IsOptional() @IsUUID('4') id?: string;
+  @IsString() @MaxLength(100) label!: string;
+  @IsOptional() @IsString() @MaxLength(200) website?: string;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(100, { each: true })
+  authorizationIds!: string[];
+}
 export class FinanceDisplayDto {
   @Matches(/^\d{4}$/) passcode!: string;
 }
@@ -77,6 +108,7 @@ export class FinanceController {
     private readonly events: FinanceEvents,
     private readonly safe: SafeHavenClient,
     private readonly sudo: SudoClient,
+    private readonly merchants: FinanceMerchants,
   ) {}
   @Get('capabilities')
   @ApiOperation({ summary: 'Live programme availability and confirmed fees' })
@@ -173,6 +205,11 @@ export class FinanceController {
         expirationDate: true,
         allowTopUp: true,
         creationLockType: true,
+        rulesVersion: true,
+        retiredAt: true,
+        retirementReason: true,
+        retirementStatus: true,
+        controlExpiresAt: true,
         locks: { select: { config: true } },
       },
     });
@@ -196,13 +233,17 @@ export class FinanceController {
     });
     return rows.map((row) => ({ ...row, amount: row.amount.toFixed(2) }));
   }
-  @Get('merchants') merchants(@CurrentUser() p: AuthPrincipal) {
-    return this.prisma.financeAuthorization.findMany({
-      where: { userId: p.userId },
-      distinct: ['merchantId'],
-      select: { merchantId: true, merchantName: true },
-      take: 100,
-    });
+  @Get('merchants') merchantsView(
+    @CurrentUser() p: AuthPrincipal,
+    @Query() query: MerchantQueryDto,
+  ) {
+    return this.merchants.list(p.userId, query.q, query.cursor);
+  }
+  @Get('cards/:id/merchant-enrollment') merchantEnrollment(
+    @CurrentUser() p: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.merchants.current(p.userId, id);
   }
   @Get('approvals') approvals(@CurrentUser() p: AuthPrincipal) {
     return this.prisma.financeAuthorization.findMany({
@@ -383,7 +424,34 @@ export class AdminFinanceController {
     private readonly events: FinanceEvents,
     private readonly reconciliation: FinanceReconciliation,
     private readonly audit: AuditLogService,
+    private readonly merchants: FinanceMerchants,
   ) {}
+  @Get('merchant-catalog') catalog() {
+    return this.merchants.catalog();
+  }
+  @Post('merchant-catalog/review')
+  @StrictThrottle()
+  reviewMerchant(@CurrentUser() p: AuthPrincipal, @Body() dto: MerchantCatalogDto) {
+    return this.merchants.reviewCatalog(p.userId, dto);
+  }
+  @Post('merchant-catalog/:id/publish')
+  @StrictThrottle()
+  publishMerchant(
+    @CurrentUser() p: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: MerchantVersionDto,
+  ) {
+    return this.merchants.publish(p.userId, id, false, dto.version);
+  }
+  @Post('merchant-catalog/:id/revoke')
+  @StrictThrottle()
+  revokeMerchant(
+    @CurrentUser() p: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: MerchantVersionDto,
+  ) {
+    return this.merchants.publish(p.userId, id, true, dto.version);
+  }
   @Get() async overview() {
     const [operations, inbox, accounts, customers, authorizations] = await Promise.all([
       this.prisma.financeOperation.findMany({
@@ -400,6 +468,7 @@ export class AdminFinanceController {
           cardId: true,
           createdAt: true,
           updatedAt: true,
+          result: true,
         },
       }),
       this.prisma.financeInbox.findMany({
@@ -450,6 +519,19 @@ export class AdminFinanceController {
       customers,
       authorizations: authorizations.map((row) => ({ ...row, amount: row.amount.toFixed(2) })),
       differences,
+      retirements: await this.prisma.card.findMany({
+        where: { retiredAt: { not: null } },
+        select: {
+          id: true,
+          userId: true,
+          retiredAt: true,
+          retirementReason: true,
+          retirementStatus: true,
+          status: true,
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 100,
+      }),
     };
   }
   @Get('liquidity') liquidity() {

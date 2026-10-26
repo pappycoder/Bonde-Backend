@@ -142,7 +142,7 @@ describe('authorization replay and failure decisions', () => {
   const raw = {
     _id: 'auth',
     pendingRequest: { currency: 'NGN', amount: 20 },
-    merchant: { merchantId: 'm', category: '5411', name: 'Shop' },
+    merchant: { country: 'NG', merchantId: 'm', category: '5411', name: 'Shop' },
     card: { _id: 'provider-card' },
   };
   it('returns the persisted decision on replay without another hold', async () => {
@@ -154,6 +154,8 @@ describe('authorization replay and failure decisions', () => {
           cardId: 'c',
           currency: 'NGN',
           merchantId: 'm',
+          merchantIdentityId: 'identity',
+          requestType: 'PURCHASE',
           amount: dec('20'),
           responseCode: '00',
         })),
@@ -165,6 +167,9 @@ describe('authorization replay and failure decisions', () => {
       prisma as never,
       ledger as never,
       { assertCurrency: vi.fn() } as never,
+      {} as never,
+      { observe: vi.fn(async () => ({ id: 'identity' })) } as never,
+      {} as never,
     );
     expect((await auth.authorize(raw)).data.responseCode).toBe('00');
     expect(ledger.post).not.toHaveBeenCalled();
@@ -182,6 +187,9 @@ describe('authorization replay and failure decisions', () => {
       } as never,
       {} as never,
       { assertCurrency: vi.fn() } as never,
+      {} as never,
+      { observe: vi.fn(async () => ({ id: 'identity' })) } as never,
+      {} as never,
     );
     expect((await auth.authorize(raw)).data.responseCode).toBe('05');
     expect((await auth.authorize({})).data.responseCode).toBe('05');

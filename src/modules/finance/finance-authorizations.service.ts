@@ -1,11 +1,13 @@
+import { FinancePolicy } from './finance-policy.service.js';
+import { FinanceMerchants } from './finance-merchants.service.js';
+import { FinanceRetirement } from './finance-retirement.service.js';
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { LedgerService } from './ledger.service.js';
 import { amountOf, cardKey, holdKey } from './finance.types.js';
 import { object, string } from './providers.js';
-import { policyDecision, validateRules } from './card-policy.js';
+import { policyDecision } from './card-policy.js';
 import { FinanceCapabilities } from './finance-capabilities.service.js';
 
 @Injectable()
@@ -14,6 +16,9 @@ export class FinanceAuthorizations {
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
     private readonly capabilities: FinanceCapabilities,
+    private readonly policy: FinancePolicy,
+    private readonly merchants: FinanceMerchants,
+    private readonly retirement: FinanceRetirement,
   ) {}
   async authorize(raw: Record<string, unknown>) {
     try {
@@ -23,8 +28,13 @@ export class FinanceAuthorizations {
       const id = string(raw._id),
         providerId = string(providerCard._id),
         currency = string(pending.currency);
-      const amount = amountOf(String(pending.amount));
+      const amount = amountOf(String(pending.amount), true);
       this.capabilities.assertCurrency(currency as 'NGN' | 'USD');
+      const verification =
+        amount.isZero() ||
+        (pending.merchantAmount !== undefined &&
+          amountOf(String(pending.merchantAmount), true).isZero());
+      const requestType = verification ? 'VERIFICATION' : 'PURCHASE';
       const merchantId = string(merchant.merchantId),
         mcc = string(merchant.category),
         merchantName = string(merchant.name);
@@ -36,12 +46,15 @@ export class FinanceAuthorizations {
           if (!owner) return '05';
           // Every allocation, rule change and authorization uses the same owner lock.
           await tx.$queryRaw`SELECT id FROM profiles WHERE id=${owner.userId}::uuid FOR UPDATE`;
+          const identity = await this.merchants.observe(tx, owner.userId, merchant);
           const replay = await tx.financeAuthorization.findUnique({ where: { id } });
           if (replay)
             return replay.cardId === owner.id &&
               replay.amount.equals(amount) &&
               replay.merchantId === merchantId &&
-              replay.currency === currency
+              replay.currency === currency &&
+              replay.merchantIdentityId === identity.id &&
+              replay.requestType === requestType
               ? replay.responseCode
               : '05';
           const card = await tx.card.findUniqueOrThrow({
@@ -51,6 +64,8 @@ export class FinanceAuthorizations {
               user: { include: { accounts: true } },
             },
           });
+          const usage = await this.policy.snapshot(tx, card);
+          if (usage.reason) await this.retirement.mark(tx, card, usage.reason);
           const record = (code: string, status: string) =>
             tx.financeAuthorization.create({
               data: {
@@ -61,6 +76,8 @@ export class FinanceAuthorizations {
                 amount,
                 status,
                 merchantId,
+                merchantIdentityId: identity.id,
+                requestType,
                 merchantName,
                 mcc,
                 responseCode: code,
@@ -70,12 +87,15 @@ export class FinanceAuthorizations {
             where: {
               cardId: card.id,
               status: { in: ['QUEUED', 'PROCESSING', 'UNKNOWN'] },
-              kind: { in: ['ISSUE', 'PAUSE', 'CANCEL'] },
+              kind: { in: ['ISSUE', 'PAUSE', 'CANCEL', 'RETIRE'] },
             },
           });
           const customer = await tx.financeCustomer.findUnique({ where: { userId: card.userId } });
           if (
             card.status !== 'ACTIVE' ||
+            card.retiredAt ||
+            usage.reason ||
+            identity.revokedAt ||
             card.expirationDate <= new Date() ||
             pendingAction ||
             customer?.status !== 'READY' ||
@@ -84,27 +104,21 @@ export class FinanceAuthorizations {
             await record('05', 'DECLINED');
             return '05';
           }
-          const monthStart = new Date(
-            Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1),
+          const decision = policyDecision(
+            usage.rule,
+            { amount, merchantId: identity.id, mcc },
+            { ...usage, uses: verification ? 0 : usage.uses },
           );
-          const history = await tx.financeAuthorization.findMany({
-            where: { cardId: card.id, status: { in: ['HELD', 'SETTLED'] } },
-          });
-          const usage = {
-            uses: history.length,
-            spent: history
-              .filter((a) => a.createdAt >= monthStart)
-              .reduce(
-                (sum, a) => sum.add(a.status === 'HELD' ? a.amount.sub(a.released) : a.settled),
-                new Prisma.Decimal(0),
-              ),
-          };
-          for (const lock of card.locks) {
-            const rule = validateRules(lock.config as Record<string, unknown>);
-            if (policyDecision(rule, { amount, merchantId, mcc }, usage)) {
-              await record('05', 'DECLINED');
-              return '05';
-            }
+          if (decision) {
+            await record('05', 'DECLINED');
+            if (decision === 'MERCHANT_NOT_ALLOWED')
+              await this.merchants.candidate(tx, card, identity, id, {
+                amount: amount.toFixed(2),
+                currency,
+                identityId: identity.id,
+                requestType,
+              });
+            return '05';
           }
           if (
             policyDecision(
@@ -112,7 +126,7 @@ export class FinanceAuthorizations {
                 maxSpendLimit: card.maxSpendLimit?.toFixed(2),
                 monthlyLimit: card.monthlyLimit?.toFixed(2),
               },
-              { amount, merchantId, mcc },
+              { amount, merchantId: identity.id, mcc },
               usage,
             )
           ) {
@@ -122,7 +136,7 @@ export class FinanceAuthorizations {
           const available = await tx.financeAccount.findUnique({
             where: { key: cardKey(card.id, currency) },
           });
-          if (!available || available.balance.lt(amount)) {
+          if (!amount.isZero() && (!available || available.balance.lt(amount))) {
             await record('51', 'DECLINED');
             return '51';
           }
@@ -133,18 +147,23 @@ export class FinanceAuthorizations {
             where: { userId_thresholdType: { userId: card.userId, thresholdType: 'FIRST_TIME' } },
           });
           const knownMerchant = await tx.financeAuthorization.count({
-            where: { userId: card.userId, merchantId, status: { in: ['HELD', 'SETTLED'] } },
+            where: {
+              userId: card.userId,
+              merchantIdentityId: identity.id,
+              requestType: 'PURCHASE',
+              status: { in: ['HELD', 'SETTLED'] },
+            },
           });
           const needsApproval =
             (threshold?.isActive && amount.gt(threshold.thresholdValue)) ||
             (firstTime?.isActive && !knownMerchant);
-          if (needsApproval) {
+          if (needsApproval && !verification) {
             const grant = await tx.financeAuthorization.findFirst({
               where: {
                 userId: card.userId,
                 cardId: card.id,
                 currency,
-                merchantId,
+                merchantIdentityId: identity.id,
                 amount,
                 status: 'RETRY_APPROVED',
                 approvalUsedAt: null,
@@ -176,21 +195,22 @@ export class FinanceAuthorizations {
               data: { approvalUsedAt: new Date(), status: 'APPROVAL_USED' },
             });
           }
-          await this.ledger.post(tx, `authorization:${id}`, 'Card purchase hold', [
-            {
-              key: cardKey(card.id, currency),
-              currency,
-              userId: card.userId,
-              kind: 'CARD',
-              amount: amount.negated(),
-            },
-            { key: holdKey(id, currency), currency, userId: card.userId, kind: 'HOLD', amount },
-          ]);
+          if (!amount.isZero())
+            await this.ledger.post(tx, `authorization:${id}`, 'Card purchase hold', [
+              {
+                key: cardKey(card.id, currency),
+                currency,
+                userId: card.userId,
+                kind: 'CARD',
+                amount: amount.negated(),
+              },
+              { key: holdKey(id, currency), currency, userId: card.userId, kind: 'HOLD', amount },
+            ]);
           await tx.card.update({
             where: { id: card.id },
             data: { balance: { decrement: amount } },
           });
-          await record('00', 'HELD');
+          await record('00', amount.isZero() ? 'VERIFIED' : 'HELD');
           return '00';
         },
         { maxWait: 400, timeout: 2500 },

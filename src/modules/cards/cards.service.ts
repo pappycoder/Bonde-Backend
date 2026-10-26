@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { FinancePolicy } from '../finance/finance-policy.service.js';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { FinanceCapabilities } from '../finance/finance-capabilities.service.js';
 
 import type { Card, Transaction } from '@prisma/client';
@@ -39,16 +40,48 @@ const CARD_TRANSACTION_FILTER_FIELDS: Record<string, FilterFieldSpec> = {
 export class CardsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly policy: FinancePolicy,
     private readonly access: CardAccessService,
     private readonly capabilities: FinanceCapabilities,
   ) {}
 
   async list(userId: string, options: PagedOptions = {}) {
     const { page, pageSize, skip, take } = parsePaging(options.page, options.pageSize);
+    const filters = parseFilterEntries(options.filter);
+    const effective = filters.filter((row) => row.field === 'effectiveStatus');
+    if (
+      effective.length > 1 ||
+      effective.some(
+        (row) =>
+          (row.opExplicit && row.op !== 'eq') ||
+          !['ACTIVE', 'PAUSED', 'RETIRED', 'EXPIRED'].includes(row.value),
+      )
+    )
+      throw new BadRequestException('Unsupported effective card status');
+    const now = new Date();
+    const deadlines: Prisma.CardWhereInput = {
+      OR: [{ expirationDate: { lte: now } }, { controlExpiresAt: { lte: now } }],
+    };
+    const live: Prisma.CardWhereInput = {
+      retiredAt: null,
+      expirationDate: { gt: now },
+      OR: [{ controlExpiresAt: null }, { controlExpiresAt: { gt: now } }],
+    };
+    const state: Prisma.CardWhereInput = !effective.length
+      ? {}
+      : effective[0].value === 'RETIRED'
+        ? { OR: [{ retiredAt: { not: null } }, { status: 'CANCELLED' }, deadlines] }
+        : effective[0].value === 'EXPIRED'
+          ? deadlines
+          : { AND: [live, { status: effective[0].value as 'ACTIVE' | 'PAUSED' }] };
     const where = {
       userId,
       issuer: 'sudo',
-      ...buildFilterWhere(parseFilterEntries(options.filter), CARD_FILTER_FIELDS),
+      ...buildFilterWhere(
+        filters.filter((row) => row.field !== 'effectiveStatus'),
+        CARD_FILTER_FIELDS,
+      ),
+      ...state,
       ...qWhere(options.q, ['nickname', 'cardNumberLast4']),
     } as Prisma.CardWhereInput;
 
@@ -183,16 +216,15 @@ export class CardsService {
       where: { cardId, lockType: 'MERCHANT', isActive: true },
     });
     const ids = (lock?.config as { merchantIds?: string[] } | undefined)?.merchantIds ?? [];
-    const rows = await this.prisma.financeAuthorization.findMany({
-      where: { userId, merchantId: { in: ids } },
-      distinct: ['merchantId'],
-      select: { merchantId: true, merchantName: true },
-    });
+    const rows = await this.prisma.financeMerchantIdentity.findMany({ where: { id: { in: ids } } });
     return rows.map((row) => ({
-      id: row.merchantId,
+      id: row.id,
       cardId,
-      merchantName: row.merchantName,
-      merchantCode: row.merchantId,
+      merchantName: row.name,
+      country: row.country,
+      descriptor: row.merchantId,
+      revoked: !!row.revokedAt,
+      merchantCode: `identity:${row.id}`,
       createdAt: lock!.createdAt,
     }));
   }
@@ -207,11 +239,8 @@ export class CardsService {
       locks.map(async (lock) => {
         if (lock.lockType !== LockType.SELF_DESTRUCT) return lock;
         const config = lock.config as Record<string, unknown>;
-        if (Number.isSafeInteger(config.usageCount) && Number(config.usageCount) >= 0) return lock;
-        // Count the full card payment history, independent of UI pagination.
-        const usageCount = await this.prisma.financeAuthorization.count({
-          where: { userId, cardId, status: { in: ['HELD', 'SETTLED'] } },
-        });
+        const card = await this.prisma.card.findUniqueOrThrow({ where: { id: cardId } });
+        const { uses: usageCount } = await this.policy.snapshot(this.prisma, card);
         return { ...lock, config: { ...config, usageCount } };
       }),
     );
@@ -261,9 +290,20 @@ export class CardsService {
     const account = await this.prisma.financeAccount.findUnique({
       where: { key: `card:${card.id}:${card.currency}` },
     });
-    const { cardNumberEncrypted: _p, cardCvvEncrypted: _c, ...rest } = card;
+    const {
+      cardNumberEncrypted: _p,
+      cardCvvEncrypted: _c,
+      providerLeaseUntil: _lease,
+      providerLeaseOwner: _leaseOwner,
+      ...rest
+    } = card;
+    const snapshot = await this.policy.snapshot(this.prisma, card);
     return {
       ...rest,
+      monthlySpent: snapshot.settled.toFixed(2),
+      effectiveStatus: card.retiredAt || snapshot.reason ? 'RETIRED' : card.status,
+      merchantSetupRequired:
+        snapshot.rule.type === 'MERCHANT' && !snapshot.rule.merchantIds?.length,
       maxSpendLimit: card.maxSpendLimit === null ? null : money(card.maxSpendLimit),
       monthlyLimit: card.monthlyLimit === null ? null : money(card.monthlyLimit),
       totalSpent: money(card.totalSpent),

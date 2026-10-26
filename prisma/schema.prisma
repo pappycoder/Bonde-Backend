@@ -161,6 +161,9 @@ enum KycStatus {
 /// auth fields (password hash, etc.) live in `auth.users`. `email` mirrors
 /// `auth.users.email` so app-side lookups never touch those tables.
 model Profile {
+  merchantAccess FinanceMerchantAccess[]
+  merchantEnrollments FinanceMerchantEnrollment[]
+  captures FinanceCapture[]
   id        String   @id @db.Uuid
   fullName  String   @map("full_name") @db.VarChar(255)
   email     String   @unique @db.VarChar(254)
@@ -415,6 +418,15 @@ model CardProvider {
 /// funded-balance cache on issued cards (provider authoritative), and
 /// `totalSpent` is synced from provider card transactions.
 model Card {
+  retiredAt DateTime? @map("retired_at")
+  retirementReason String? @map("retirement_reason")
+  retirementStatus String? @map("retirement_status")
+  controlExpiresAt DateTime? @map("control_expires_at")
+  rulesVersion Int @default(1) @map("rules_version")
+  providerLeaseUntil DateTime? @map("provider_lease_until")
+  providerLeaseOwner String? @map("provider_lease_owner")
+  merchantEnrollments FinanceMerchantEnrollment[]
+  captures FinanceCapture[]
   id                    String     @id @db.Uuid
   userId                String     @map("user_id") @db.Uuid
   providerId            String     @map("provider_id") @db.Uuid
@@ -918,6 +930,7 @@ model FinanceAccount {
 }
 
 model FinanceJournal {
+  capture FinanceCapture?
   transactionId BigInt @default(dbgenerated("txid_current()")) @map("transaction_id")
   id String @id @db.Uuid
   reference String @unique
@@ -981,6 +994,10 @@ model FinanceCustomer {
 }
 
 model FinanceAuthorization {
+  requestType String @default("PURCHASE") @map("request_type")
+  merchantIdentityId String? @map("merchant_identity_id") @db.Uuid
+  captures FinanceCapture[]
+  merchantCandidates FinanceMerchantCandidate[]
   id String @id
   userId String @map("user_id") @db.Uuid
   cardId String @map("card_id") @db.Uuid
@@ -1006,6 +1023,7 @@ model FinanceAuthorization {
 }
 
 model FinanceInbox {
+  cardId String? @map("card_id") @db.Uuid
   id String @id @db.Uuid
   provider String
   reference String
@@ -1034,4 +1052,85 @@ model FinanceInstallation {
   environment String
   createdAt DateTime @default(now()) @map("created_at")
   @@map("finance_installations")
+}
+
+model FinanceMerchantIdentity {
+  id String @id @db.Uuid
+  environment String
+  merchantId String @map("merchant_id")
+  country String
+  name String
+  mcc String
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  access FinanceMerchantAccess[]
+  candidates FinanceMerchantCandidate[]
+  @@unique([environment, merchantId, country])
+  @@map("finance_merchant_identities")
+}
+model FinanceMerchantAccess {
+  userId String @map("user_id") @db.Uuid
+  identityId String @map("identity_id") @db.Uuid
+  user Profile @relation(fields:[userId], references:[id], onDelete:Restrict)
+  identity FinanceMerchantIdentity @relation(fields:[identityId], references:[id], onDelete:Restrict)
+  @@id([userId, identityId])
+  @@map("finance_merchant_access")
+}
+model FinanceMerchantCatalog {
+  id String @id @db.Uuid
+  label String
+  website String?
+  status String @default("DRAFT")
+  version Int @default(1)
+  identityIds String[] @map("identity_ids") @db.Uuid
+  evidence Json @default("[]")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@map("finance_merchant_catalog")
+}
+model FinanceMerchantEnrollment {
+  id String @id @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  cardId String @map("card_id") @db.Uuid
+  label String
+  rulesVersion Int @map("rules_version")
+  status String @default("PENDING")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user Profile @relation(fields:[userId], references:[id], onDelete:Restrict)
+  card Card @relation(fields:[cardId], references:[id], onDelete:Restrict)
+  candidates FinanceMerchantCandidate[]
+  @@index([cardId,status,expiresAt])
+  @@map("finance_merchant_enrollments")
+}
+model FinanceMerchantCandidate {
+  id String @id @db.Uuid
+  enrollmentId String @map("enrollment_id") @db.Uuid
+  identityId String @map("identity_id") @db.Uuid
+  authorizationId String @map("authorization_id")
+  requestHash String @map("request_hash")
+  createdAt DateTime @default(now()) @map("created_at")
+  enrollment FinanceMerchantEnrollment @relation(fields:[enrollmentId],references:[id],onDelete:Restrict)
+  identity FinanceMerchantIdentity @relation(fields:[identityId],references:[id],onDelete:Restrict)
+  authorization FinanceAuthorization @relation(fields:[authorizationId],references:[id],onDelete:Restrict)
+  @@unique([enrollmentId,authorizationId])
+  @@map("finance_merchant_candidates")
+}
+model FinanceCapture {
+  id String @id @db.Uuid
+  providerReference String @unique @map("provider_reference")
+  journalId String @unique @map("journal_id") @db.Uuid
+  authorizationId String @map("authorization_id")
+  cardId String @map("card_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  currency String
+  amount Decimal @db.Decimal(20,2)
+  isPurchase Boolean @default(true) @map("is_purchase")
+  bookedAt DateTime @default(now()) @map("booked_at")
+  journal FinanceJournal @relation(fields:[journalId],references:[id],onDelete:Restrict)
+  authorization FinanceAuthorization @relation(fields:[authorizationId],references:[id],onDelete:Restrict)
+  card Card @relation(fields:[cardId],references:[id],onDelete:Restrict)
+  user Profile @relation(fields:[userId],references:[id],onDelete:Restrict)
+  @@index([cardId,bookedAt])
+  @@map("finance_captures")
 }

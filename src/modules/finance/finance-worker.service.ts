@@ -1,3 +1,5 @@
+import { FinanceRetirement } from './finance-retirement.service.js';
+import { FinancePolicy } from './finance-policy.service.js';
 import { projectAllocationReturn } from './finance-projections.js';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -20,9 +22,12 @@ export class FinanceWorker {
     private readonly safe: SafeHavenClient,
     private readonly config: ConfigService<AppConfig, true>,
     private readonly capabilities: FinanceCapabilities,
+    private readonly retirement: FinanceRetirement,
+    private readonly policy: FinancePolicy,
   ) {}
   async run() {
     this.capabilities.assertEnabled();
+    await this.retirement.scan();
     await this.prisma.financeOperation.updateMany({
       where: { status: 'PROCESSING', leaseUntil: { lt: new Date() } },
       data: { status: 'UNKNOWN' },
@@ -53,7 +58,8 @@ export class FinanceWorker {
     if (!claim.count) return;
     const op = await this.prisma.financeOperation.findUniqueOrThrow({ where: { id } });
     try {
-      if (op.kind === 'ISSUE') await this.issue(op);
+      if (op.kind === 'RETIRE') await this.retirement.process(op);
+      else if (op.kind === 'ISSUE') await this.issue(op);
       else if (op.kind === 'SWEEP') await this.sweep(op);
       else if (op.kind === 'WITHDRAW') await this.withdraw(op);
       else if (['PAUSE', 'RESUME', 'CANCEL'].includes(op.kind)) await this.lifecycle(op);
@@ -168,6 +174,7 @@ export class FinanceWorker {
           lines.push(this.posting(op, systemKey('fees', op.currency), op.fee, 'FEES', false));
         await this.ledger.post(tx, `issue:${op.id}`, 'Card allocation and issuance fee', lines);
       }
+      const card = await tx.card.findUniqueOrThrow({ where: { id: op.cardId! } });
       await tx.card.update({
         where: { id: op.cardId! },
         data: {
@@ -179,7 +186,7 @@ export class FinanceWorker {
               where: { key: cardKey(op.cardId!, op.currency) },
             })
           ).balance,
-          status: data.status === 'active' ? 'ACTIVE' : 'PAUSED',
+          status: data.status === 'active' && !card.retiredAt ? 'ACTIVE' : 'PAUSED',
         },
       });
       await tx.transaction.updateMany({
@@ -309,8 +316,27 @@ export class FinanceWorker {
     });
   }
   private async lifecycle(op: FinanceOperation) {
+    await this.retirement.lease(op.cardId!, op.id);
+    try {
+      await this.lifecycleLeased(op);
+    } finally {
+      await this.retirement.release(op.cardId!, op.id);
+    }
+  }
+  private async lifecycleLeased(op: FinanceOperation) {
     const card = await this.prisma.card.findUniqueOrThrow({ where: { id: op.cardId! } });
     if (!card.externalReferenceId) throw new ProviderError(true, 400);
+    if (op.kind === 'RESUME') {
+      const snapshot = await this.policy.snapshot(this.prisma, card);
+      if (card.retiredAt || snapshot.reason || card.status === 'CANCELLED') {
+        if (snapshot.reason) await this.retirement.ensureDue(card.userId, card.id);
+        await this.prisma.financeOperation.update({
+          where: { id: op.id },
+          data: { status: 'SUPERSEDED', leaseUntil: null },
+        });
+        return;
+      }
+    }
     // Cancellation must use a documented supported terminal state. Provider rejection leaves the allocation intact.
     await this.sudo.call(`/cards/${encodeURIComponent(card.externalReferenceId)}`, 'PUT', {
       status: op.kind === 'RESUME' ? 'active' : op.kind === 'PAUSE' ? 'inactive' : 'canceled',
@@ -331,6 +357,19 @@ export class FinanceWorker {
       await tx.$queryRaw`SELECT id FROM profiles WHERE id=${op.userId}::uuid FOR UPDATE`;
       const current = await tx.financeOperation.findUniqueOrThrow({ where: { id: op.id } });
       if (current.status === 'SUCCEEDED') return;
+      const local = await tx.card.findUniqueOrThrow({ where: { id: op.cardId! } });
+      if (
+        op.kind === 'RESUME' &&
+        (local.retiredAt ||
+          (await this.policy.snapshot(tx, local)).reason ||
+          local.status === 'CANCELLED')
+      ) {
+        await tx.financeOperation.update({
+          where: { id: op.id },
+          data: { status: 'SUPERSEDED', leaseUntil: null },
+        });
+        return;
+      }
       if (op.kind === 'CANCEL') {
         const held = await tx.financeAuthorization.count({
           where: { cardId: op.cardId!, status: 'HELD' },
@@ -358,7 +397,7 @@ export class FinanceWorker {
         where: { id: op.cardId! },
         data: {
           status: op.kind === 'RESUME' ? 'ACTIVE' : op.kind === 'PAUSE' ? 'PAUSED' : 'CANCELLED',
-          ...(op.kind === 'CANCEL' ? { balance: 0 } : {}),
+          ...(op.kind === 'CANCEL' ? { balance: 0, retirementStatus: 'CLOSED' } : {}),
         },
       });
       await tx.cardHistory.create({
@@ -473,6 +512,20 @@ export class FinanceWorker {
     }
   }
   private async reconcile(original: FinanceOperation) {
+    if (original.kind === 'RETIRE') {
+      const claim = await this.prisma.financeOperation.updateMany({
+        where: { id: original.id, status: { in: ['UNKNOWN', 'PENDING'] } },
+        data: { status: 'PROCESSING', leaseUntil: new Date(Date.now() + 60000) },
+      });
+      if (claim.count)
+        await this.retirement.process(original).catch(async () => {
+          await this.prisma.financeOperation.update({
+            where: { id: original.id },
+            data: { status: 'UNKNOWN', leaseUntil: null },
+          });
+        });
+      return;
+    }
     const op = !original.providerReference
       ? ((await this.discover(original)) ?? original)
       : original;

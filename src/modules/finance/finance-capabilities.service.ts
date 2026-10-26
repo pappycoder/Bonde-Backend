@@ -43,6 +43,8 @@ export class FinanceCapabilities {
     const ngn = configured && c.ngnEnabled && !!c.ngnFundingSourceId && !!c.ngnSettlementId;
     // USD stays gated: a rate endpoint is not an executable, guaranteed two-way FX contract.
     return {
+      cardControlsVersion: 2,
+      normalClosureSupported: false,
       enabled: c.enabled,
       environment: c.environment,
       configured,
