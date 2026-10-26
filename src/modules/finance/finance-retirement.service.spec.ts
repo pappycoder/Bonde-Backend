@@ -101,3 +101,45 @@ describe('permanent retirement provider coordination', () => {
     expect(ledger.post).not.toHaveBeenCalled();
   });
 });
+
+describe('queued reactivation after permanent retirement', () => {
+  it('supersedes a stale resume before sending any provider write', async () => {
+    const { FinanceWorker } = await import('./finance-worker.service.js');
+    const prisma = {
+      financeOperation: {
+        updateMany: vi.fn(async () => ({ count: 1 })),
+        findUniqueOrThrow: vi.fn(async () => ({ id: 'resume', kind: 'RESUME', cardId: 'card' })),
+        update: vi.fn(),
+      },
+      card: {
+        findUniqueOrThrow: vi.fn(async () => ({
+          id: 'card',
+          userId: 'owner',
+          externalReferenceId: 'remote',
+          retiredAt: new Date(),
+        })),
+      },
+    };
+    const sudo = { call: vi.fn() };
+    const retirement = { lease: vi.fn(), release: vi.fn(), ensureDue: vi.fn() };
+    const policy = { snapshot: vi.fn(async () => ({ reason: 'USAGE_LIMIT' })) };
+    const worker = new FinanceWorker(
+      prisma as never,
+      {} as never,
+      sudo as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      retirement as never,
+      policy as never,
+    );
+    await worker.process('resume');
+    expect(sudo.call).not.toHaveBeenCalled();
+    expect(prisma.financeOperation.update).toHaveBeenCalledWith({
+      where: { id: 'resume' },
+      data: { status: 'SUPERSEDED', leaseUntil: null },
+    });
+    expect(retirement.ensureDue).toHaveBeenCalledWith('owner', 'card');
+    expect(retirement.release).toHaveBeenCalledWith('card', 'resume');
+  });
+});

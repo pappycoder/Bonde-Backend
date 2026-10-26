@@ -29,7 +29,9 @@ function setup(rule: Record<string, unknown> = {}, reason: string | null = null)
     financeAccount: { findUnique: vi.fn(async () => ({ balance: d(100) })) },
     transactionThreshold: { findUnique: vi.fn(async () => null) },
   };
-  const policy = { snapshot: vi.fn(async () => ({ rule, reason, uses: 1, spent: d(0) })) };
+  const policy = {
+    snapshot: vi.fn(async () => ({ rule, reason, uses: 1, spent: d(0), controlsValid: true })),
+  };
   const merchants = {
     observe: vi.fn(async () => ({ id: 'identity', revokedAt: null })),
     candidate: vi.fn(),
@@ -127,6 +129,18 @@ describe('authorization enforcement at checkout', () => {
         data: expect.objectContaining({ requestType: 'VERIFICATION', status: 'HELD' }),
       }),
     );
+  });
+  it('declines incomplete control records instead of authorizing a standard purchase', async () => {
+    const { service, policy, ledger } = setup();
+    policy.snapshot.mockResolvedValueOnce({
+      rule: {},
+      reason: null,
+      uses: 0,
+      spent: d(0),
+      controlsValid: false,
+    });
+    expect((await service.authorize(raw)).data.responseCode).toBe('05');
+    expect(ledger.post).not.toHaveBeenCalled();
   });
   it('records retirement and declines at expiry even before the scheduled cleanup runs', async () => {
     const { service, retirement, ledger } = setup({}, 'TIME_EXPIRED');

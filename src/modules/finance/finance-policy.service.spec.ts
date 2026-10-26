@@ -39,7 +39,8 @@ function setup() {
     currency: 'NGN',
     expirationDate: new Date('2099-01-01'),
     retirementReason: null,
-    locks: [{ config: { type: 'SELF_DESTRUCT', usageLimit: 2 } }],
+    creationLockType: 'SELF_DESTRUCT',
+    locks: [{ lockType: 'SELF_DESTRUCT', config: { type: 'SELF_DESTRUCT', usageLimit: 2 } }],
   };
   return { tx, card, policy: new FinancePolicy() };
 }
@@ -78,8 +79,12 @@ describe('shared card policy snapshots', () => {
     const { tx, card, policy } = setup();
     const timed = {
       ...card,
+      creationLockType: 'TIME',
       locks: [
-        { config: { type: 'TIME', start: '2026-10-01T00:00:00Z', end: '2026-10-02T00:00:00Z' } },
+        {
+          lockType: 'TIME',
+          config: { type: 'TIME', start: '2026-10-01T00:00:00Z', end: '2026-10-02T00:00:00Z' },
+        },
       ],
     };
     expect(
@@ -90,6 +95,21 @@ describe('shared card policy snapshots', () => {
         .reason,
     ).toBe('USER_REQUESTED');
   });
+  it.each(['missing', 'conflicting', 'malformed'])(
+    'fails closed for %s legacy controls instead of treating them as a standard card',
+    async (kind) => {
+      const { tx, card, policy } = setup();
+      const locks =
+        kind === 'missing'
+          ? []
+          : kind === 'conflicting'
+            ? [...card.locks, ...card.locks]
+            : [{ lockType: 'SELF_DESTRUCT', config: { type: 'SELF_DESTRUCT', usageLimit: 0 } }];
+      expect((await policy.snapshot(tx as never, { ...card, locks } as never)).controlsValid).toBe(
+        false,
+      );
+    },
+  );
   it('rejects corrupt negative reservations instead of increasing purchasing power', async () => {
     const { tx, card, policy } = setup();
     tx.financeAuthorization.findMany.mockResolvedValue([

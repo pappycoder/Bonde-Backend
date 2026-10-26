@@ -154,7 +154,10 @@ Unknown merchants use a 10-minute setup enrollment, a declined authenticated Sud
 checkout attempt, then explicit passcode confirmation of a specific candidate.
 Inspect candidates at `GET /finance/cards/:id/merchant-enrollment`. Binding only
 adds that verified identity, never a display-name match or an automatic approval.
-Rules edits expire pending enrollment. Candidate hashes bind the checkout facts.
+Missing, malformed or conflicting legacy lock records block purchases and reactivation
+instead of silently becoming Standard cards. Missing usage/expiry controls require
+a replacement card, since their original terminal limits cannot be safely inferred. Rule edits keep the immutable primary
+card type and expire pending enrollment. Candidate hashes bind the checkout facts.
 
 Admins review provider authorization references at
 `POST /admin/finance/merchant-catalog/review`, inspect drafts via GET
@@ -168,7 +171,10 @@ Validate in sandbox: duplicate names/countries, multiple enrollment candidates,
 expired/stale proofs, category declines, monthly boundary partial captures, zero
 merchant-principal verifications with genuine fees, reversals/refunds after
 retirement, uncertain deactivation, and replayed callbacks with two workers.
-No production migration or live-money action is performed by these source changes.
+Database invariants can also be checked against an isolated migrated test database
+with `psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f test/sql/card-controls-invariants.sql`.
+The fixtures roll back. No production migration or live-money action is performed
+by these source changes.
 
 ## Release boundary and operations
 

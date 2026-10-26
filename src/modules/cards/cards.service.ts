@@ -220,7 +220,7 @@ export class CardsService {
     return rows.map((row) => ({
       id: row.id,
       cardId,
-      merchantName: row.name,
+      merchantName: `${row.name} · ${row.country} · …${row.merchantId.slice(-4)}`,
       country: row.country,
       descriptor: row.merchantId,
       revoked: !!row.revokedAt,
@@ -301,7 +301,12 @@ export class CardsService {
     return {
       ...rest,
       monthlySpent: snapshot.settled.toFixed(2),
-      effectiveStatus: card.retiredAt || snapshot.reason ? 'RETIRED' : card.status,
+      effectiveStatus:
+        card.retiredAt || snapshot.reason
+          ? 'RETIRED'
+          : snapshot.controlsValid === false
+            ? 'REVIEW'
+            : card.status,
       merchantSetupRequired:
         snapshot.rule.type === 'MERCHANT' && !snapshot.rule.merchantIds?.length,
       maxSpendLimit: card.maxSpendLimit === null ? null : money(card.maxSpendLimit),

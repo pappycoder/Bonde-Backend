@@ -17,7 +17,7 @@ export class ListCardsQueryDto {
   @ApiPropertyOptional({
     example: 'status:ACTIVE',
     description:
-      'Repeatable `field:value` (equality on enums/numbers) or `field:op:value` filters. Fields: cardType, status, expirationType.',
+      'Repeatable `field:value` (equality on enums/numbers) or `field:op:value` filters. Fields: cardType, status, expirationType, effectiveStatus (ACTIVE, PAUSED, EXPIRED, RETIRED; equality only).',
   })
   @IsOptional()
   filter?: string | string[];
@@ -75,6 +75,14 @@ export class ListCardTransactionsQueryDto {
 
 /** A card as returned to the owning user — the PAN is never exposed. */
 export class CardDto {
+  rulesVersion!: number;
+  retiredAt!: Date | null;
+  retirementReason!: string | null;
+  retirementStatus!: string | null;
+  controlExpiresAt!: Date | null;
+  effectiveStatus!: string;
+  monthlySpent!: string;
+  merchantSetupRequired!: boolean;
   @ApiProperty({ example: 'NGN' })
   currency: string;
   @ApiProperty({ format: 'uuid', example: '673bc257-9204-4acb-acf5-61f51e20a328' })

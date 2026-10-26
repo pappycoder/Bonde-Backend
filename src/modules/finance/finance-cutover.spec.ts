@@ -1,3 +1,4 @@
+import { ThresholdsController } from '../thresholds/thresholds.controller.js';
 import { KycController } from '../kyc/kyc.controller.js';
 import { ChatsController } from '../chats/chats.controller.js';
 import 'reflect-metadata';
@@ -27,6 +28,7 @@ const routes = (controller: { prototype: object }) =>
 describe('Exclusive finance cutover', () => {
   it.each([
     KycController,
+    ThresholdsController,
     AccountsController,
     WalletsController,
     CardsController,

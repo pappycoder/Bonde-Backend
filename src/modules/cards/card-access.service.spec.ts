@@ -118,6 +118,7 @@ describe('CardAccessService', () => {
     db.card.findFirst.mockResolvedValueOnce({
       status: 'ACTIVE',
       expirationDate: new Date('2099-01-01'),
+      creationLockType: 'SELF_DESTRUCT',
       locks: [{ lockType: 'SELF_DESTRUCT', config: { type: 'SELF_DESTRUCT', usageLimit: 2 } }],
     } as never);
     db.financeAuthorization.findMany.mockResolvedValueOnce(

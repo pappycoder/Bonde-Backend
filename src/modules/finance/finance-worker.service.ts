@@ -328,7 +328,12 @@ export class FinanceWorker {
     if (!card.externalReferenceId) throw new ProviderError(true, 400);
     if (op.kind === 'RESUME') {
       const snapshot = await this.policy.snapshot(this.prisma, card);
-      if (card.retiredAt || snapshot.reason || card.status === 'CANCELLED') {
+      if (
+        card.retiredAt ||
+        snapshot.reason ||
+        snapshot.controlsValid === false ||
+        card.status === 'CANCELLED'
+      ) {
         if (snapshot.reason) await this.retirement.ensureDue(card.userId, card.id);
         await this.prisma.financeOperation.update({
           where: { id: op.id },
@@ -358,10 +363,12 @@ export class FinanceWorker {
       const current = await tx.financeOperation.findUniqueOrThrow({ where: { id: op.id } });
       if (current.status === 'SUCCEEDED') return;
       const local = await tx.card.findUniqueOrThrow({ where: { id: op.cardId! } });
+      const resumePolicy = op.kind === 'RESUME' ? await this.policy.snapshot(tx, local) : null;
       if (
         op.kind === 'RESUME' &&
         (local.retiredAt ||
-          (await this.policy.snapshot(tx, local)).reason ||
+          resumePolicy?.reason ||
+          resumePolicy?.controlsValid === false ||
           local.status === 'CANCELLED')
       ) {
         await tx.financeOperation.update({

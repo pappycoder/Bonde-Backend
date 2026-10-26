@@ -93,6 +93,7 @@ export class FinanceAuthorizations {
           const customer = await tx.financeCustomer.findUnique({ where: { userId: card.userId } });
           if (
             card.status !== 'ACTIVE' ||
+            usage.controlsValid === false ||
             card.retiredAt ||
             usage.reason ||
             identity.revokedAt ||

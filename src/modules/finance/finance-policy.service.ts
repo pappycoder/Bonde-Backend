@@ -11,9 +11,20 @@ export class FinancePolicy {
   ) {
     const locks =
       card.locks ?? (await tx.cardLock.findMany({ where: { cardId: card.id, isActive: true } }));
-    const rule: CardRules = locks.length
-      ? validateRules(locks[0].config as Record<string, unknown>)
-      : {};
+    let rule: CardRules = {};
+    let controlsValid = true;
+    try {
+      if (card.creationLockType) {
+        if (locks.length !== 1 || locks[0].lockType !== card.creationLockType)
+          throw new Error('Conflicting primary controls');
+        rule = validateRules(locks[0].config as Record<string, unknown>);
+        if (rule.type !== card.creationLockType)
+          throw new Error('Missing primary control configuration');
+      } else if (locks.length) throw new Error('Unexpected controls on a standard card');
+    } catch {
+      controlsValid = false;
+      rule = {};
+    }
     const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const [captures, total, holds] = await Promise.all([
       tx.financeCapture.findMany({
@@ -39,6 +50,7 @@ export class FinancePolicy {
     const deadline = new Date(
       Math.min(
         card.expirationDate.getTime(),
+        card.controlExpiresAt?.getTime() ?? Infinity,
         rule.type === 'TIME' ? Date.parse(rule.end!) : Infinity,
       ),
     );
@@ -51,6 +63,7 @@ export class FinancePolicy {
           : null);
     return {
       rule,
+      controlsValid,
       spent: (total._sum.amount ?? new Prisma.Decimal(0)).add(held),
       settled: total._sum.amount ?? new Prisma.Decimal(0),
       held,

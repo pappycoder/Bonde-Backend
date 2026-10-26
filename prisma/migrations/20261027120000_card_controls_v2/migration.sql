@@ -169,6 +169,9 @@ FROM card_locks l WHERE c.id=l.card_id AND c.issuer='sudo' AND c.status<>'CANCEL
 AND l.lock_type='SELF_DESTRUCT' AND l.is_active=true AND l.config->>'usageLimit' ~ '^\d+$'
 AND (SELECT COUNT(DISTINCT authorization_id) FROM finance_captures WHERE card_id=c.id AND is_purchase=true)>=(l.config->>'usageLimit')::integer;
 
+UPDATE cards SET retired_at=CURRENT_TIMESTAMP,retirement_reason='ISSUER_CLOSED',retirement_status='CLOSED'
+WHERE issuer='sudo' AND status='CANCELLED' AND retired_at IS NULL;
+
 ALTER TABLE cards ADD CONSTRAINT cards_retirement_consistent CHECK ((retired_at IS NULL)=(retirement_reason IS NULL));
 ALTER TABLE finance_captures ADD CONSTRAINT finance_captures_positive CHECK (amount>0);
 CREATE FUNCTION guard_card_retirement() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -184,3 +187,16 @@ CREATE FUNCTION guard_finance_capture() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN RAISE EXCEPTION 'Booked card captures are immutable'; END $$;
 CREATE TRIGGER finance_capture_immutable BEFORE UPDATE OR DELETE ON finance_captures FOR EACH ROW EXECUTE FUNCTION guard_finance_capture();
 CREATE INDEX finance_inbox_card_status_idx ON finance_inbox(card_id,status);
+
+-- Candidate evidence and the identity keys used in card snapshots cannot drift.
+CREATE FUNCTION guard_merchant_candidate() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN RAISE EXCEPTION 'Verified merchant evidence is immutable'; END $$;
+CREATE TRIGGER merchant_candidate_immutable BEFORE UPDATE OR DELETE ON finance_merchant_candidates FOR EACH ROW EXECUTE FUNCTION guard_merchant_candidate();
+CREATE FUNCTION guard_merchant_identity() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF (NEW.environment,NEW.merchant_id,NEW.country,NEW.name,NEW.mcc) IS DISTINCT FROM (OLD.environment,OLD.merchant_id,OLD.country,OLD.name,OLD.mcc) THEN
+    RAISE EXCEPTION 'Verified merchant identity keys are immutable';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER merchant_identity_immutable BEFORE UPDATE ON finance_merchant_identities FOR EACH ROW EXECUTE FUNCTION guard_merchant_identity();

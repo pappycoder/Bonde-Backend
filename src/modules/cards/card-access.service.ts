@@ -72,6 +72,7 @@ export class CardAccessService {
         retirementStatus: card.retirementStatus ?? 'RETIRING',
       };
     if (card.status === 'CANCELLED') return { reason: 'CLOSED' };
+    if (!snapshot.controlsValid) return { reason: 'CONTROL_REVIEW' };
     if (snapshot.rule.type === 'MERCHANT' && !snapshot.rule.merchantIds?.length)
       return { reason: 'MERCHANT_SETUP' };
     if (snapshot.rule.type === 'SELF_DESTRUCT' && snapshot.uses >= snapshot.rule.usageLimit!)

@@ -291,6 +291,11 @@ export class FinanceService {
         if (!card) throw new NotFoundException('Card not found');
         if (card.status === 'CANCELLED') throw new BadRequestException('Card is closed');
         const snapshot = await this.policy.snapshot(tx, card);
+        if (
+          !snapshot.controlsValid &&
+          !['RULES', 'RETURN', 'PAUSE', 'RETIRE', 'CANCEL'].includes(command.kind)
+        )
+          throw new ConflictException('Card controls require review before this action');
         if ((card.retiredAt || snapshot.reason) && !['RETIRE', 'CANCEL'].includes(command.kind))
           throw new ConflictException('This card is permanently retired');
         if (command.rulesVersion !== undefined && card.rulesVersion !== command.rulesVersion)
@@ -333,10 +338,18 @@ export class FinanceService {
         if ((card.creationLockType ?? undefined) !== rule.type)
           throw new BadRequestException('Create a new card to change its type');
         if (
+          !snapshot.controlsValid &&
+          ['SELF_DESTRUCT', 'TIME'].includes(card.creationLockType ?? '')
+        )
+          throw new ConflictException(
+            'The original usage or expiry controls cannot be verified. Retire this card and create a replacement',
+          );
+        if (
           rule.type === 'SELF_DESTRUCT' &&
           ((snapshot.uses >= snapshot.rule.usageLimit! &&
             rule.usageLimit! > snapshot.rule.usageLimit!) ||
-            rule.usageLimit! <= snapshot.completedUses)
+            rule.usageLimit! <= snapshot.completedUses ||
+            rule.usageLimit! < snapshot.uses)
         )
           throw new ConflictException(
             'Reserved or completed purchases prevent this usage-limit change',
