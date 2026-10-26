@@ -18,10 +18,14 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import type { AuthPrincipal } from '../auth/principal/auth-principal.js';
-import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
+import { AdminConsoleStatsService } from './admin-console-stats.service.js';
+import { AdminConsoleSupportService } from './admin-console-support.service.js';
+import { AdminConsoleTransactionsService } from './admin-console-transactions.service.js';
+import { AdminConsoleUsersService } from './admin-console-users.service.js';
 import {
   AdminStatsQueryDto,
   AdminStatsResponseDto,
@@ -34,14 +38,9 @@ import {
   PagedAdminSupportTicketsResponseDto,
   PagedAdminTransactionsResponseDto,
   PagedAdminUsersResponseDto,
-  ReviewApprovalBodyDto,
   SuspendUserBodyDto,
   UpdateSupportTicketStatusBodyDto,
 } from './admin-console.dto.js';
-import { AdminConsoleStatsService } from './admin-console-stats.service.js';
-import { AdminConsoleSupportService } from './admin-console-support.service.js';
-import { AdminConsoleTransactionsService } from './admin-console-transactions.service.js';
-import { AdminConsoleUsersService } from './admin-console-users.service.js';
 
 /**
  * Dedicated admin surfaces for profiles/accounts/wallets and the ledger — the
@@ -162,20 +161,6 @@ export class AdminConsoleController {
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ) {
     return this.users.restore(id, principal.userId);
-  }
-
-  @Post('transactions/:id/approval')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Record an admin approval/decline on an in-flight transaction' })
-  @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiOkResponse({ schema: { type: 'object' }, description: 'The refreshed transaction detail' })
-  @ApiErrorResponse()
-  reviewTransaction(
-    @CurrentUser() principal: AuthPrincipal,
-    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
-    @Body() body: ReviewApprovalBodyDto,
-  ) {
-    return this.transactions.review(id, principal.userId, body);
   }
 
   @Get('support-tickets')

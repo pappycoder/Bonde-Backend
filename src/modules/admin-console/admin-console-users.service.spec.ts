@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { describe, expect, it, vi } from 'vitest';
 import { AdminConsoleUsersService } from './admin-console-users.service.js';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
@@ -46,6 +46,8 @@ function profileRow(overrides: Record<string, unknown> = {}) {
     onboardingCompletedAt: new Date('2026-08-01T09:00:00.000Z'),
     createdAt: new Date('2026-08-01T09:00:00.000Z'),
     updatedAt: new Date('2026-09-08T09:00:00.000Z'),
+    financeAccounts: [{ key: `wallet:${USER_ID}:NGN`, balance: '2500.00' }],
+    financeCustomer: { bankAccountNumber: accountRow().accountNumber },
     accounts: [accountRow()],
     _count: { transactions: 4 },
     ...overrides,
@@ -125,6 +127,8 @@ describe('AdminConsoleUsersService', () => {
       skip: 10,
       take: 10,
       include: {
+        financeAccounts: { where: { kind: 'WALLET' } },
+        financeCustomer: { select: { bankAccountNumber: true } },
         accounts: { include: { wallets: true } },
         _count: { select: { transactions: true } },
       },

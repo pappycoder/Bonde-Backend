@@ -87,11 +87,16 @@ export class AdminConsoleStatsService {
         this.prisma.profile.count({ where: statusWhere('active') }),
         this.prisma.profile.count({ where: statusWhere('pending') }),
         this.prisma.profile.count({ where: statusWhere('suspended') }),
-        this.prisma.transaction.count({ where: { status: 'PENDING', approvalStatus: 'PENDING' } }),
+        this.prisma.financeAuthorization.count({ where: { status: 'AWAITING_APPROVAL' } }),
         this.prisma.supportTicket.count({ where: { status: 'OPEN' } }),
       ]);
 
-    const SUCCESS: Prisma.TransactionWhereInput = { status: 'SUCCESS' };
+    const SUCCESS: Prisma.TransactionWhereInput = {
+      status: 'SUCCESS',
+      currency: 'NGN',
+      metadata: { path: ['live'], equals: true },
+      type: { in: ['PAYMENT', 'DEPOSIT', 'WITHDRAWAL'] },
+    };
     const inWindow = { gte: from, lt: to };
     const inPrevWindow = { gte: prevFrom, lt: prevTo };
 
@@ -159,7 +164,13 @@ export class AdminConsoleStatsService {
 
     const buckets = new Map<
       string,
-      { label: string; revenue: number; expenses: number; volume: number; transactions: number }
+      {
+        label: string;
+        revenue: Prisma.Decimal;
+        expenses: Prisma.Decimal;
+        volume: Prisma.Decimal;
+        transactions: number;
+      }
     >();
     // Anchored to whole calendar days/months, and inclusive of the day `to`
     // falls in: the window's last day is partial but must still get a bucket,
@@ -176,26 +187,32 @@ export class AdminConsoleStatsService {
         label: byDay
           ? cursor.toLocaleString('en-US', { month: 'short', day: 'numeric' })
           : cursor.toLocaleString('en-US', { month: 'short', year: '2-digit' }),
-        revenue: 0,
-        expenses: 0,
-        volume: 0,
+        revenue: new Prisma.Decimal(0),
+        expenses: new Prisma.Decimal(0),
+        volume: new Prisma.Decimal(0),
         transactions: 0,
       });
     }
 
     const rows = await this.prisma.transaction.findMany({
-      where: { status: 'SUCCESS', createdAt: { gte: from, lt: to } },
+      where: {
+        status: 'SUCCESS',
+        currency: 'NGN',
+        metadata: { path: ['live'], equals: true },
+        type: { in: ['PAYMENT', 'DEPOSIT', 'WITHDRAWAL'] },
+        createdAt: { gte: from, lt: to },
+      },
       select: { type: true, amount: true, createdAt: true },
     });
 
     for (const row of rows) {
       const bucket = buckets.get(byDay ? dailyKey(row.createdAt) : monthlyKey(row.createdAt));
       if (!bucket) continue;
-      const amount = Number(row.amount);
-      bucket.volume += amount;
+      const amount = new Prisma.Decimal(row.amount);
+      bucket.volume = bucket.volume.add(amount);
       bucket.transactions += 1;
-      if (row.type === 'DEPOSIT') bucket.revenue += amount;
-      else if (row.type === 'WITHDRAWAL') bucket.expenses += amount;
+      if (row.type === 'DEPOSIT') bucket.revenue = bucket.revenue.add(amount);
+      else if (row.type === 'WITHDRAWAL') bucket.expenses = bucket.expenses.add(amount);
     }
 
     return [...buckets.values()].map((bucket) => ({

@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import type { ApprovalStatus, TransactionStatus, TransactionType } from '@prisma/client';
+import { describe, expect, it, vi } from 'vitest';
 import {
   AdminConsoleTransactionsService,
   uiStatusWhere,
@@ -8,7 +8,6 @@ import {
 import { deriveTxStatus, toAdminTxSummary, txMethod } from './admin-tx-view.js';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
-const ACTOR_ID = '0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a';
 const WALLET_ID = '77777777-7777-4777-8777-777777777777';
 const TX_ID = '66666666-6666-4666-8666-666666666666';
 
@@ -122,8 +121,9 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     $transaction: vi.fn(async (ops: Array<Promise<unknown>>) => Promise.all(ops)),
     transaction,
     transactionApproval,
+    financeAccount: { findUnique: vi.fn(async () => ({ balance: '10000.00' })) },
   };
-  const service = new AdminConsoleTransactionsService(prisma as never, audit as never);
+  const service = new AdminConsoleTransactionsService(prisma as never);
   return { service, transaction, transactionApproval, audit };
 }
 
@@ -267,100 +267,6 @@ describe('AdminConsoleTransactionsService', () => {
     const { service, transaction } = makeService();
     transaction.findUnique.mockResolvedValue(null);
     await expect(service.get(TX_ID)).rejects.toThrow(NotFoundException);
-  });
-});
-
-describe('AdminConsoleTransactionsService.review', () => {
-  it('approves by recording the approval row and marking the transaction', async () => {
-    const { service, transaction, transactionApproval, audit } = makeService();
-    transaction.findUnique
-      .mockResolvedValueOnce(txRow({ status: 'PENDING', approvalStatus: 'PENDING' }))
-      .mockResolvedValue(detailRow());
-
-    const result = await service.review(TX_ID, ACTOR_ID, { status: 'APPROVED', notes: 'ok' });
-
-    expect(transactionApproval.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        transactionId: TX_ID,
-        status: 'APPROVED',
-        approvedBy: ACTOR_ID,
-        notes: 'ok',
-      }),
-    });
-    expect(transaction.update).toHaveBeenCalledWith({
-      where: { id: TX_ID },
-      data: {
-        approvalStatus: 'APPROVED',
-        approvedAt: expect.any(Date),
-        approvalNotes: 'ok',
-      },
-    });
-    expect(audit.record).toHaveBeenCalledWith({
-      userId: ACTOR_ID,
-      action: 'admin.transactions.approve',
-      entityType: 'transaction',
-      entityId: TX_ID,
-      metadata: { notes: 'ok' },
-    });
-    expect(result).toMatchObject({ id: TX_ID });
-  });
-
-  it('declines by setting the DECLINED state without an approval timestamp', async () => {
-    const { service, transaction, transactionApproval, audit } = makeService();
-    transaction.findUnique
-      .mockResolvedValueOnce(txRow({ status: 'PENDING', approvalStatus: 'PENDING' }))
-      .mockResolvedValue(detailRow());
-
-    await service.review(TX_ID, ACTOR_ID, { status: 'DECLINED' });
-
-    expect(transactionApproval.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ status: 'DECLINED', notes: null }),
-      }),
-    );
-    expect(transaction.update).toHaveBeenCalledWith({
-      where: { id: TX_ID },
-      data: { approvalStatus: 'DECLINED', approvedAt: null },
-    });
-    expect(audit.record).toHaveBeenCalledWith({
-      userId: ACTOR_ID,
-      action: 'admin.transactions.decline',
-      entityType: 'transaction',
-      entityId: TX_ID,
-      metadata: undefined,
-    });
-  });
-
-  it('404s for an unknown transaction', async () => {
-    const { service, transaction, transactionApproval, audit } = makeService();
-    transaction.findUnique.mockResolvedValue(null);
-    await expect(service.review(TX_ID, ACTOR_ID, { status: 'APPROVED' })).rejects.toThrow(
-      NotFoundException,
-    );
-    expect(transactionApproval.create).not.toHaveBeenCalled();
-    expect(audit.record).not.toHaveBeenCalled();
-  });
-
-  it('409s once the transaction is settled', async () => {
-    const { service, transaction, transactionApproval, audit } = makeService();
-    transaction.findUnique.mockResolvedValue(txRow({ status: 'SUCCESS' }));
-    await expect(service.review(TX_ID, ACTOR_ID, { status: 'APPROVED' })).rejects.toThrow(
-      ConflictException,
-    );
-    expect(transactionApproval.create).not.toHaveBeenCalled();
-    expect(audit.record).not.toHaveBeenCalled();
-  });
-
-  it('409s once a decision already landed', async () => {
-    const { service, transaction, transactionApproval, audit } = makeService();
-    transaction.findUnique.mockResolvedValue(
-      txRow({ status: 'PENDING', approvalStatus: 'APPROVED' }),
-    );
-    await expect(service.review(TX_ID, ACTOR_ID, { status: 'DECLINED' })).rejects.toThrow(
-      ConflictException,
-    );
-    expect(transactionApproval.create).not.toHaveBeenCalled();
-    expect(audit.record).not.toHaveBeenCalled();
   });
 });
 

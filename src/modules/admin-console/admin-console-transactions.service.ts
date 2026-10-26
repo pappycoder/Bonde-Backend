@@ -1,15 +1,14 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { ApprovalStatus, Prisma } from '@prisma/client';
-import { randomUUID } from 'node:crypto';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { money } from '../../common/money/money.js';
-import { parsePaging, toPageResult } from '../../common/paging/paging.js';
 import {
   buildFilterWhere,
   parseFilterEntries,
   type FilterFieldSpec,
 } from '../../common/paging/filter.js';
-import { AuditLogService } from '../audit/audit-log.service.js';
+import { parsePaging, toPageResult } from '../../common/paging/paging.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { walletKey } from '../finance/finance.types.js';
 import { toAdminTxSummary, type UiTxStatus } from './admin-tx-view.js';
 
 const TX_FILTER_FIELDS: Record<string, FilterFieldSpec> = {
@@ -82,10 +81,7 @@ export function uiStatusWhere(uiStatus: UiTxStatus): Prisma.TransactionWhereInpu
  */
 @Injectable()
 export class AdminConsoleTransactionsService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly audit: AuditLogService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async list(options: AdminTransactionsListOptions = {}) {
     const { page, pageSize, skip, take } = parsePaging(options.page, options.pageSize);
@@ -150,8 +146,14 @@ export class AdminConsoleTransactionsService {
       wallet: transaction.wallet
         ? {
             id: transaction.wallet.id,
-            balance: money(transaction.wallet.balance),
-            currency: transaction.wallet.currency,
+            balance: money(
+              (
+                await this.prisma.financeAccount.findUnique({
+                  where: { key: walletKey(transaction.userId, transaction.currency) },
+                })
+              )?.balance ?? 0,
+            ),
+            currency: transaction.currency,
             isActive: transaction.wallet.isActive,
           }
         : null,
@@ -176,62 +178,6 @@ export class AdminConsoleTransactionsService {
         createdAt: event.createdAt.toISOString(),
       })),
     };
-  }
-
-  /**
-   * Record an admin review decision. Creates the append-only approval row
-   * (actor = the admin) and updates the transaction's approval state in the
-   * same transaction. Only in-flight transactions can be reviewed: refused once
-   * settled (`status !== PENDING`) or once a decision already landed
-   * (`approvalStatus !== PENDING`). Audited as `admin.transactions.approve` /
-   * `admin.transactions.decline`.
-   */
-  async review(
-    transactionId: string,
-    actorUserId: string,
-    dto: { status: 'APPROVED' | 'DECLINED'; notes?: string },
-  ) {
-    const transaction = await this.prisma.transaction.findUnique({
-      where: { id: transactionId },
-    });
-    if (!transaction) throw new NotFoundException('Transaction not found');
-    if (transaction.status !== 'PENDING') {
-      throw new ConflictException('Transaction is already settled');
-    }
-    if (transaction.approvalStatus !== ApprovalStatus.PENDING) {
-      throw new ConflictException('Transaction has already been reviewed');
-    }
-
-    await this.prisma.$transaction([
-      this.prisma.transactionApproval.create({
-        data: {
-          id: randomUUID(),
-          transactionId,
-          status: dto.status,
-          approvedBy: actorUserId,
-          notes: dto.notes ?? null,
-        },
-      }),
-      this.prisma.transaction.update({
-        where: { id: transactionId },
-        data: {
-          approvalStatus: dto.status,
-          approvedAt: dto.status === 'APPROVED' ? new Date() : null,
-          ...(dto.notes ? { approvalNotes: dto.notes } : {}),
-        },
-      }),
-    ]);
-
-    await this.audit.record({
-      userId: actorUserId,
-      action:
-        dto.status === 'APPROVED' ? 'admin.transactions.approve' : 'admin.transactions.decline',
-      entityType: 'transaction',
-      entityId: transactionId,
-      metadata: dto.notes ? { notes: dto.notes } : undefined,
-    });
-
-    return this.get(transactionId);
   }
 
   private buildWhere(options: AdminTransactionsListOptions): Prisma.TransactionWhereInput {

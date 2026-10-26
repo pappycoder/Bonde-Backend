@@ -1,152 +1,112 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { ApprovalStatus, Prisma } from '@prisma/client';
-import { randomUUID } from 'node:crypto';
-import { money } from '../../common/money/money.js';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { parsePaging, toPageResult } from '../../common/paging/paging.js';
-import {
-  buildFilterWhere,
-  type FilterFieldSpec,
-  parseFilterEntries,
-} from '../../common/paging/filter.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
-interface PagedOptions {
-  page?: number;
-  pageSize?: number;
-}
+const cardSelect = {
+  id: true,
+  cardNumberLast4: true,
+  cardType: true,
+  createdAt: true,
+  totalSpent: true,
+} as const;
+type Row = Prisma.FinanceAuthorizationGetPayload<{
+  include: { card: { select: typeof cardSelect } };
+}>;
 
-const APPROVAL_FILTER_FIELDS: Record<string, FilterFieldSpec> = {
-  status: { kind: 'enum' },
-};
-
-/** Fetched approval rows always embed the transaction and its card (if any). */
-const APPROVAL_INCLUDE = {
-  transaction: { include: { card: true } },
-} satisfies Prisma.TransactionApprovalInclude;
-
-type ApprovalRow = Prisma.TransactionApprovalGetPayload<{ include: typeof APPROVAL_INCLUDE }>;
-
-/**
- * Self-service approvals surface. Approvals belong to transactions, so
- * ownership is resolved through the owning user's transactions. Writes expose
- * the approval trail recording to the money-movement flows; `approvedBy` is
- * always the caller.
- */
+/** Card authorization approvals. Chat proposal decisions remain in their chat. */
 @Injectable()
 export class ApprovalsService {
   constructor(private readonly prisma: PrismaService) {}
-
   async list(
     userId: string,
-    options: PagedOptions & { q?: string; filter?: string | string[] } = {},
+    options: { page?: number; pageSize?: number; q?: string; filter?: string | string[] } = {},
   ) {
     const { page, pageSize, skip, take } = parsePaging(options.page, options.pageSize);
-    const where: Prisma.TransactionApprovalWhereInput = {
-      transaction: { userId },
-      ...buildFilterWhere(parseFilterEntries(options.filter), APPROVAL_FILTER_FIELDS),
+    const filter = [options.filter ?? ''].flat().join(',');
+    const now = new Date();
+    const effectiveStatus: Prisma.FinanceAuthorizationWhereInput = filter.includes('PENDING')
+      ? { status: 'AWAITING_APPROVAL' }
+      : filter.includes('APPROVED')
+        ? {
+            OR: [
+              { status: 'APPROVAL_USED' },
+              { status: 'RETRY_APPROVED', approvalExpiresAt: { gt: now } },
+            ],
+          }
+        : filter.includes('DECLINED')
+          ? {
+              OR: [
+                { status: { in: ['DECLINED', 'EXPIRED'] } },
+                { status: 'RETRY_APPROVED', approvalExpiresAt: { lte: now } },
+              ],
+            }
+          : {
+              status: {
+                in: ['AWAITING_APPROVAL', 'RETRY_APPROVED', 'APPROVAL_USED', 'DECLINED', 'EXPIRED'],
+              },
+            };
+    const where: Prisma.FinanceAuthorizationWhereInput = {
+      userId,
+      ...effectiveStatus,
+      ...(options.q?.trim()
+        ? { merchantName: { contains: options.q.trim(), mode: 'insensitive' } }
+        : {}),
     };
-    const term = options.q?.trim();
-    if (term) {
-      where.OR = [
-        { notes: { contains: term, mode: 'insensitive' } },
-        { transaction: { description: { contains: term, mode: 'insensitive' } } },
-      ];
-    }
-
     const [items, total] = await this.prisma.$transaction([
-      this.prisma.transactionApproval.findMany({
+      this.prisma.financeAuthorization.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         skip,
         take,
-        include: APPROVAL_INCLUDE,
+        include: { card: { select: cardSelect } },
       }),
-      this.prisma.transactionApproval.count({ where }),
+      this.prisma.financeAuthorization.count({ where }),
     ]);
-
     return toPageResult(
-      items.map((item) => this.toView(item)),
+      items.map((row) => this.view(row)),
       total,
       page,
       pageSize,
     );
   }
-
-  async get(userId: string, approvalId: string) {
-    const approval = await this.prisma.transactionApproval.findFirst({
-      where: { id: approvalId, transaction: { userId } },
-      include: APPROVAL_INCLUDE,
+  async get(userId: string, id: string) {
+    const row = await this.prisma.financeAuthorization.findFirst({
+      where: { id, userId },
+      include: { card: { select: cardSelect } },
     });
-    if (!approval) throw new NotFoundException('Approval not found');
-    return this.toView(approval);
+    if (!row) throw new NotFoundException('Approval not found');
+    return this.view(row);
   }
-
-  async create(
-    userId: string,
-    dto: { transactionId: string; status?: ApprovalStatus; notes?: string },
-  ) {
-    const transaction = await this.prisma.transaction.findFirst({
-      where: { id: dto.transactionId, userId },
-    });
-    if (!transaction) throw new NotFoundException('Transaction not found');
-
-    try {
-      const approval = await this.prisma.transactionApproval.create({
-        data: {
-          id: randomUUID(),
-          transactionId: dto.transactionId,
-          status: dto.status ?? ApprovalStatus.PENDING,
-          approvedBy: userId,
-          notes: dto.notes ?? null,
-        },
-        include: APPROVAL_INCLUDE,
-      });
-      return this.toView(approval);
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
-        throw new BadRequestException('The referenced transaction does not exist');
-      }
-      throw error;
-    }
-  }
-
-  async update(
-    userId: string,
-    approvalId: string,
-    dto: { status?: ApprovalStatus; notes?: string },
-  ) {
-    const approval = await this.get(userId, approvalId);
-    const data: Prisma.TransactionApprovalUpdateInput = {};
-    if (dto.status !== undefined) data.status = dto.status;
-    if (dto.notes !== undefined) data.notes = dto.notes;
-    const updated = await this.prisma.transactionApproval.update({
-      where: { id: approval.id },
-      data,
-      include: APPROVAL_INCLUDE,
-    });
-    return this.toView(updated);
-  }
-
-  async remove(userId: string, approvalId: string) {
-    const approval = await this.get(userId, approvalId);
-    await this.prisma.transactionApproval.delete({ where: { id: approval.id } });
-    return { deleted: true as const, id: approval.id };
-  }
-
-  private toView(approval: ApprovalRow) {
-    const { transaction, ...rest } = approval;
+  private view(row: Row) {
+    const approved = ['RETRY_APPROVED', 'APPROVAL_USED'].includes(row.status);
+    const expired =
+      row.status === 'RETRY_APPROVED' &&
+      (!row.approvalExpiresAt || row.approvalExpiresAt <= new Date());
     return {
-      ...rest,
-      transaction: { ...transaction, amount: money(transaction.amount) },
-      card: transaction.card
-        ? {
-            id: transaction.card.id,
-            cardNumberLast4: transaction.card.cardNumberLast4,
-            cardType: transaction.card.cardType,
-            createdAt: transaction.card.createdAt,
-            totalSpent: money(transaction.card.totalSpent),
-          }
-        : null,
+      id: row.id,
+      transactionId: row.id,
+      authorizationId: row.id,
+      status:
+        row.status === 'AWAITING_APPROVAL'
+          ? 'PENDING'
+          : approved && !expired
+            ? 'APPROVED'
+            : 'DECLINED',
+      createdAt: row.createdAt,
+      approvalExpiresAt: row.approvalExpiresAt,
+      notes:
+        'Approval permits one matching merchant retry within five minutes. It does not complete a purchase.',
+      transaction: {
+        description: row.merchantName || 'Card purchase',
+        type: 'PAYMENT',
+        amount: row.amount.toFixed(2),
+        currency: row.currency,
+        frequency: 'ONE_TIME',
+        isRecurring: false,
+        thresholdWarning: true,
+      },
+      card: { ...row.card, totalSpent: row.card.totalSpent.toFixed(2) },
     };
   }
 }

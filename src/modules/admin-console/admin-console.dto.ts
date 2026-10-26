@@ -67,22 +67,6 @@ export class SuspendUserBodyDto {
   reason?: string;
 }
 
-/** Body for `POST /api/admin/transactions/:id/approval`. */
-export class ReviewApprovalBodyDto {
-  @ApiProperty({ enum: ['APPROVED', 'DECLINED'] })
-  @IsIn(['APPROVED', 'DECLINED'])
-  status: 'APPROVED' | 'DECLINED';
-
-  @ApiPropertyOptional({
-    example: 'Provider confirms the payout is legitimate.',
-    maxLength: 500,
-  })
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  notes?: string;
-}
-
 // ---------------------------------------------------------------------------
 // Write-model DTOs (Phase 5 support tickets)
 // ---------------------------------------------------------------------------

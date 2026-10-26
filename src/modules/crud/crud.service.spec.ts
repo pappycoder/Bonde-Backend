@@ -64,25 +64,15 @@ describe('CrudService.create', () => {
     await expect(service.create('audit-logs', {})).rejects.toThrow(MethodNotAllowedException);
   });
 
-  it('coerces enums, decimals and datetimes', async () => {
-    const locks: FakeDelegate = { create: vi.fn(async (args) => args.data) };
-    const { service } = makeService({ CardLock: locks });
-    const created = await service.create('card-locks', {
-      cardId: UUID,
-      lockType: 'TIME',
-      config: { maxMinutes: 30 },
-      isActive: true,
-    });
-    expect(locks.create).toHaveBeenCalledTimes(1);
-    expect(created).toHaveProperty('config.maxMinutes', 30);
-  });
-
-  it('rejects invalid enum values', async () => {
-    const { service } = makeService({ CardLock: {} });
-    await expect(service.create('card-locks', { cardId: UUID, lockType: 'NOPE' })).rejects.toThrow(
-      BadRequestException,
-    );
-  });
+  it.each(['card-locks', 'card-categories', 'transaction-thresholds'])(
+    'blocks generic writes to %s',
+    async (resource) => {
+      const { service } = makeService();
+      await expect(service.create(resource, {})).rejects.toThrow(MethodNotAllowedException);
+      await expect(service.update(resource, UUID, {})).rejects.toThrow(MethodNotAllowedException);
+      await expect(service.remove(resource, UUID)).rejects.toThrow(MethodNotAllowedException);
+    },
+  );
 
   it('rejects card-providers config as unknown (secrets are never writable)', async () => {
     const { service } = makeService({ CardProvider: {} });

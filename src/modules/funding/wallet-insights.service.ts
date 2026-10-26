@@ -6,8 +6,8 @@ import {
   TransactionStatus,
   TransactionType,
 } from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service.js';
 import { money } from '../../common/money/money.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
 
 @Injectable()
 export class WalletInsightsService {
@@ -21,11 +21,12 @@ export class WalletInsightsService {
     const where = {
       userId,
       walletId: wallet.id,
-      currency: wallet.currency,
+      metadata: { path: ['live'], equals: true },
+      currency: 'NGN',
       status: TransactionStatus.SUCCESS,
       approvalStatus: ApprovalStatus.APPROVED,
       createdAt: { gte: start, lt: resetAt },
-      type: { in: [TransactionType.PAYMENT, TransactionType.WITHDRAWAL, TransactionType.TRANSFER] },
+      type: { in: [TransactionType.PAYMENT, TransactionType.WITHDRAWAL] },
     };
     const [total, grouped, cards] = await Promise.all([
       this.prisma.transaction.aggregate({ where, _sum: { amount: true } }),
@@ -37,7 +38,8 @@ export class WalletInsightsService {
       this.prisma.card.findMany({
         where: {
           userId,
-          currency: wallet.currency,
+          issuer: 'sudo',
+          currency: 'NGN',
           status: { in: [CardStatus.ACTIVE, CardStatus.PAUSED] },
           monthlyLimit: { gt: 0 },
         },
@@ -47,9 +49,15 @@ export class WalletInsightsService {
     ]);
     return {
       walletId: wallet.id,
-      currency: wallet.currency,
+      currency: 'NGN',
       monthlyBudget: wallet.monthlyBudget === null ? null : money(wallet.monthlyBudget),
       spent: money(total._sum.amount ?? 0),
+      cardSpent: money(
+        grouped.reduce((sum, row) => sum.add(row._sum.amount ?? 0), new Prisma.Decimal(0)),
+      ),
+      cardLimit: money(
+        cards.reduce((sum, card) => sum.add(card.monthlyLimit ?? 0), new Prisma.Decimal(0)),
+      ),
       periodStart: start.toISOString(),
       resetAt: resetAt.toISOString(),
       daysRemaining: Math.ceil((resetAt.getTime() - now.getTime()) / 86400000),

@@ -1,11 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
 import { Prisma } from '@prisma/client';
+import { describe, expect, it, vi } from 'vitest';
 import { BillingService } from './billing.service.js';
 
 /** A transactional in-memory ledger: failures roll back all balances, grants and orders. */
 function setup(balance = '20000.00') {
   let state = {
-    wallet: { id: 'wallet', currency: 'NGN', balance: new Prisma.Decimal(balance) },
+    wallet: { id: 'wallet', currency: 'NGN', balance: new Prisma.Decimal('999999.00') },
+    ledgerBalance: new Prisma.Decimal(balance),
     profile: {
       id: 'owner',
       email: 'owner@example.com',
@@ -98,12 +99,8 @@ function setup(balance = '20000.00') {
     card: { findFirst: vi.fn(async () => null) },
     wallet: {
       findFirst: vi.fn(async () => state.wallet),
-      updateMany: vi.fn(async ({ where, data }) => {
-        if (state.wallet.balance.lt(where.balance.gte)) return { count: 0 };
-        state.wallet.balance = state.wallet.balance.sub(data.balance.decrement);
-        return { count: 1 };
-      }),
     },
+    financeAccount: { findUnique: vi.fn(async () => ({ balance: state.ledgerBalance })) },
     auditLog: { create: vi.fn(async () => undefined) },
     transaction: {
       create: vi.fn(async ({ data }) => {
@@ -138,7 +135,27 @@ function setup(balance = '20000.00') {
   };
   const passcode = { validate: vi.fn(async () => undefined) };
   const config = { get: vi.fn(() => ({ billingEnabled: true })) };
-  const service = new BillingService(db as never, passcode as never, config as never);
+  const ledger = {
+    post: vi.fn(async (_tx, _reference, _description, lines) => {
+      expect(
+        lines.reduce((sum, line) => sum.add(line.amount), new Prisma.Decimal(0)).isZero(),
+      ).toBe(true);
+      const debit = lines.find((line) => line.userId === 'owner');
+      expect(debit.key).toBe('wallet:owner:NGN');
+      state.ledgerBalance = state.ledgerBalance.add(debit.amount);
+    }),
+  };
+  const capabilities = {
+    assertCurrency: vi.fn(),
+    view: () => ({ currencies: { NGN: { enabled: true } } }),
+  };
+  const service = new BillingService(
+    db as never,
+    passcode as never,
+    config as never,
+    ledger as never,
+    capabilities as never,
+  );
   const create = (
     productId = 'pack-50',
     idempotencyKey = 'purchase-one',
@@ -162,7 +179,7 @@ describe('Billing ledger', () => {
       f.service.confirm('owner', order.id, '1234'),
     ]);
     expect(a.transactionId).toBe(b.transactionId);
-    expect(f.state().wallet.balance.toFixed(2)).toBe('14000.00');
+    expect(f.state().ledgerBalance.toFixed(2)).toBe('14000.00');
     expect(f.state().credits.purchasedRemaining).toBe(50);
     expect(f.state().transactions).toHaveLength(1);
     expect(f.state().transactions[0].metadata.creditsPurchased).toBe('50');
@@ -172,7 +189,7 @@ describe('Billing ledger', () => {
     const order = await f.create();
     const failed = await f.service.confirm('owner', order.id, '1234');
     expect(failed.status).toBe('FAIL');
-    expect(f.state().wallet.balance.toFixed(2)).toBe('5999.99');
+    expect(f.state().ledgerBalance.toFixed(2)).toBe('5999.99');
     expect(f.state().credits.purchasedRemaining).toBe(0);
     expect(f.state().transactions).toHaveLength(0);
     const retry = await f.create();
@@ -184,7 +201,7 @@ describe('Billing ledger', () => {
     const order = await f.create();
     f.db.transaction.create.mockRejectedValueOnce(new Error('database failure'));
     await expect(f.service.confirm('owner', order.id, '1234')).rejects.toThrow('database failure');
-    expect(f.state().wallet.balance.toFixed(2)).toBe('20000.00');
+    expect(f.state().ledgerBalance.toFixed(2)).toBe('20000.00');
     expect(f.state().credits.purchasedRemaining).toBe(0);
     expect(f.state().orders[0].status).toBe('PENDING');
   });
@@ -223,7 +240,7 @@ describe('Billing ledger', () => {
     await expect(f.service.confirm('owner', order.id, '0000')).rejects.toThrow('wrong passcode');
     f.config.get.mockReturnValueOnce({ billingEnabled: false });
     await expect(f.service.confirm('owner', order.id, '1234')).rejects.toThrow('unavailable');
-    expect(f.state().wallet.balance.toFixed(2)).toBe('20000.00');
+    expect(f.state().ledgerBalance.toFixed(2)).toBe('20000.00');
   });
   it('renews an expired consented wallet subscription once across competing workers', async () => {
     const f = setup();
@@ -231,7 +248,7 @@ describe('Billing ledger', () => {
     await f.service.confirm('owner', order.id, '1234');
     f.state().profile.cardPlanExpiresAt = new Date('2000-01-01');
     await Promise.all([f.service.renewDue(), f.service.renewDue()]);
-    expect(f.state().wallet.balance.toFixed(2)).toBe('8000.00');
+    expect(f.state().ledgerBalance.toFixed(2)).toBe('8000.00');
     expect(f.state().transactions).toHaveLength(2);
     expect(f.state().credits.planRemaining).toBe(8000);
   });

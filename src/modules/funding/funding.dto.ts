@@ -1,16 +1,5 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsNotEmpty,
-  IsOptional,
-  Matches,
-  MaxLength,
-  IsUUID,
-  ValidateIf,
-  IsIn,
-} from 'class-validator';
-
-const DECIMAL_PATTERN = /^\d+(\.\d{1,2})?$/;
-const CURRENCY_PATTERN = /^[A-Z]{3}$/;
+import { ApiProperty } from '@nestjs/swagger';
+import { IsIn, Matches } from 'class-validator';
 
 export class DepositAccountDto {
   @ApiProperty({ example: '8061234567' })
@@ -34,56 +23,6 @@ export class DepositAccountDto {
     description: 'Dynamic accounts expire; null for permanent VAs',
   })
   expiresAt: string | null;
-}
-
-export class CreateWithdrawalDto {
-  @ApiProperty({ example: '5000.00' })
-  @Matches(DECIMAL_PATTERN, { message: 'amount must be a decimal with up to 2 places' })
-  amount: string;
-
-  @ApiPropertyOptional({
-    format: 'uuid',
-    description: 'An account saved by this authenticated user',
-  })
-  @IsOptional()
-  @IsUUID('4')
-  bankAccountId?: string;
-
-  @ApiPropertyOptional({ example: '0690000034' })
-  @ValidateIf((dto: CreateWithdrawalDto) => !dto.bankAccountId || dto.accountNumber !== undefined)
-  @IsNotEmpty()
-  @Matches(/^\d{3,10}$/, { message: 'accountNumber must be a bank account number' })
-  accountNumber?: string;
-
-  @ApiPropertyOptional({ example: '044' })
-  @ValidateIf((dto: CreateWithdrawalDto) => !dto.bankAccountId || dto.bankCode !== undefined)
-  @IsNotEmpty()
-  @MaxLength(10)
-  bankCode?: string;
-
-  @ApiPropertyOptional({ example: 'NGN', default: 'NGN' })
-  @IsOptional()
-  @Matches(CURRENCY_PATTERN, { message: 'currency must be a 3-letter code' })
-  currency?: string;
-
-  @ApiPropertyOptional({ example: 'Rent' })
-  @IsOptional()
-  @MaxLength(255)
-  narration?: string;
-}
-
-export class WithdrawalResponseDto {
-  @ApiProperty({ format: 'uuid' })
-  id: string;
-
-  @ApiProperty({ example: '5000.00' })
-  amount: string;
-
-  @ApiProperty({ example: 'NGN' })
-  currency: string;
-
-  @ApiProperty({ example: 'PENDING' })
-  status: string;
 }
 
 export class ResolveBankAccountDto {
@@ -158,6 +97,10 @@ export class WalletBudgetAllocationDto {
   lockTypes: string[];
 }
 export class WalletBudgetDto {
+  @ApiProperty({ example: '100.00' })
+  cardSpent: string;
+  @ApiProperty({ example: '1000.00' })
+  cardLimit: string;
   walletId: string;
   currency: string;
   @ApiProperty({ nullable: true, type: String, example: '5000.00' })

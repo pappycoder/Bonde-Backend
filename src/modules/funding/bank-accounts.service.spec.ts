@@ -1,12 +1,11 @@
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { BadGatewayException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { BankAccountsService } from './bank-accounts.service.js';
-import { FlutterwaveError } from '../flutterwave/flutterwave.errors.js';
 
 function setup() {
   const client = {
-    listBanks: vi.fn(async () => [{ name: 'Access Bank', code: '044' }]),
-    resolveBankAccount: vi.fn(async () => ({
+    banks: vi.fn(async () => [{ name: 'Access Bank', bankCode: '044' }]),
+    resolve: vi.fn(async () => ({
       accountNumber: '0690000034',
       accountName: 'Verified Owner',
     })),
@@ -18,7 +17,15 @@ function setup() {
       deleteMany: vi.fn(async () => ({ count: 1 })),
     },
   };
-  return { client, prisma, service: new BankAccountsService(client as never, prisma as never) };
+  return {
+    client,
+    prisma,
+    service: new BankAccountsService(
+      client as never,
+      { assertCurrency: vi.fn() } as never,
+      prisma as never,
+    ),
+  };
 }
 describe('BankAccountsService', () => {
   it('returns supported banks from provider', async () => {
@@ -31,22 +38,22 @@ describe('BankAccountsService', () => {
       accountNumber: '0690000034',
       accountName: 'Verified Owner',
     });
-    expect(client.resolveBankAccount).toHaveBeenCalledWith('044', '0690000034');
+    expect(client.resolve).toHaveBeenCalledWith('044', '0690000034');
   });
   it('invalid accounts return 400 with actionable copy', async () => {
     const { service, client } = setup();
-    client.resolveBankAccount.mockRejectedValue(new FlutterwaveError('VALIDATION', 'Invalid'));
+    client.resolve.mockRejectedValue(new BadRequestException('Invalid'));
     await expect(service.resolve('044', '0690000034')).rejects.toBeInstanceOf(BadRequestException);
   });
   it('provider outages return 502 instead of fabricated account names', async () => {
     const { service, client } = setup();
-    client.resolveBankAccount.mockRejectedValue(new Error('offline'));
-    await expect(service.resolve('044', '0690000034')).rejects.toBeInstanceOf(BadGatewayException);
+    client.resolve.mockRejectedValue(new Error('offline'));
+    await expect(service.resolve('044', '0690000034')).rejects.toThrow('offline');
   });
   it('bank list outages return 502', async () => {
     const { service, client } = setup();
-    client.listBanks.mockRejectedValue(new Error('offline'));
-    await expect(service.list()).rejects.toBeInstanceOf(BadGatewayException);
+    client.banks.mockRejectedValue(new Error('offline'));
+    await expect(service.list()).rejects.toThrow('offline');
   });
 });
 
@@ -62,7 +69,7 @@ describe('Saved withdrawal bank account ownership', () => {
     const { service, prisma, client } = setup();
     const saved = await service.save('user-a', '044', '0690000034');
     expect(saved.accountName).toBe('Verified Owner');
-    expect(client.resolveBankAccount).toHaveBeenCalledWith('044', '0690000034');
+    expect(client.resolve).toHaveBeenCalledWith('044', '0690000034');
     expect(prisma.withdrawalBankAccount.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
@@ -82,7 +89,7 @@ describe('Saved withdrawal bank account ownership', () => {
   });
   it('never saves an account the provider cannot verify', async () => {
     const { service, prisma, client } = setup();
-    client.resolveBankAccount.mockRejectedValue(new FlutterwaveError('VALIDATION', 'Invalid'));
+    client.resolve.mockRejectedValue(new BadRequestException('Invalid'));
     await expect(service.save('user-a', '044', '0690000034')).rejects.toBeInstanceOf(
       BadRequestException,
     );

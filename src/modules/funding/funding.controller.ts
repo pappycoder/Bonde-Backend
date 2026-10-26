@@ -1,15 +1,15 @@
-import { WalletInsightsService } from './wallet-insights.service.js';
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
-  Param,
-  ParseUUIDPipe,
   Get,
   HttpCode,
   HttpStatus,
-  Post,
+  Param,
+  ParseUUIDPipe,
   Patch,
+  Post,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -18,41 +18,36 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
-import type { AuthPrincipal } from '../auth/principal/auth-principal.js';
-import { ActivityService } from '../activity/activity.service.js';
 import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
 import { StrictThrottle } from '../../common/throttling/strict-throttle.decorator.js';
-import { VirtualAccountsService } from './virtual-accounts.service.js';
-import { WithdrawalsService } from './withdrawals.service.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { ActivityService } from '../activity/activity.service.js';
+import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
+import type { AuthPrincipal } from '../auth/principal/auth-principal.js';
+import { WalletInsightsService } from './wallet-insights.service.js';
+
 import {
   BankDto,
-  WalletBudgetDto,
-  UpdateMonthlyBudgetDto,
   CategorizeWalletTransactionDto,
-  WalletCategoryResponseDto,
-  SavedBankAccountDto,
   DeleteBankAccountResponseDto,
+  DepositAccountDto,
   ResolveBankAccountDto,
   ResolvedBankAccountDto,
-  CreateWithdrawalDto,
-  DepositAccountDto,
-  WithdrawalResponseDto,
+  SavedBankAccountDto,
+  UpdateMonthlyBudgetDto,
+  WalletBudgetDto,
+  WalletCategoryResponseDto,
 } from './funding.dto.js';
 
 import { BankAccountsService } from './bank-accounts.service.js';
 
-/**
- * Wallet funding surface: read the user's deposit account (a Flutterwave
- * virtual account) and initiate withdrawals from the wallet balance.
- */
+/** Safe Haven recipient, deposit and budgeting presentation. */
 @ApiTags('wallet')
 @ApiBearerAuth('access-token')
 @Controller('wallet')
 export class FundingController {
   constructor(
-    private readonly virtualAccounts: VirtualAccountsService,
-    private readonly withdrawals: WithdrawalsService,
+    private readonly prisma: PrismaService,
     private readonly activity: ActivityService,
     private readonly banks: BankAccountsService,
     private readonly insights: WalletInsightsService,
@@ -145,25 +140,18 @@ export class FundingController {
   @ApiOkResponse({ type: DepositAccountDto })
   @ApiErrorResponse()
   async depositAccount(@CurrentUser() principal: AuthPrincipal) {
-    const account = await this.virtualAccounts.getDepositAccount(principal.userId);
-    await this.activity
-      .record({
-        userId: principal.userId,
-        action: 'wallet.deposit_account',
-        entityType: 'virtual_account',
-        entityId: account.accountNumber,
-      })
-      .catch(() => undefined);
-    return account;
-  }
-
-  @Post('withdrawals')
-  @StrictThrottle()
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Initiate a withdrawal from your wallet balance' })
-  @ApiCreatedResponse({ type: WithdrawalResponseDto })
-  @ApiErrorResponse()
-  async withdraw(@CurrentUser() principal: AuthPrincipal, @Body() dto: CreateWithdrawalDto) {
-    return this.withdrawals.request(principal.userId, dto);
+    const account = await this.prisma.financeCustomer.findUnique({
+      where: { userId: principal.userId },
+    });
+    if (!account?.bankAccountNumber || account.bankStatus !== 'READY')
+      throw new BadRequestException('Complete banking verification to receive deposits');
+    return {
+      accountNumber: account.bankAccountNumber,
+      accountName: account.bankAccountName,
+      bankName: 'Safe Haven MFB',
+      currency: 'NGN',
+      isPermanent: true,
+      expiresAt: null,
+    };
   }
 }

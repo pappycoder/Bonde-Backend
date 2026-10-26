@@ -1,30 +1,13 @@
-import { WalletInsightsService } from './wallet-insights.service.js';
-import { BankAccountsService } from './bank-accounts.service.js';
 import { Module } from '@nestjs/common';
-import { FlutterwaveModule } from '../flutterwave/flutterwave.module.js';
 import { ActivityModule } from '../activity/activity.module.js';
-import { FlutterwaveWebhookController } from './flutterwave-webhook.controller.js';
+import { BankAccountsService } from './bank-accounts.service.js';
 import { FundingController } from './funding.controller.js';
-import { VirtualAccountsService } from './virtual-accounts.service.js';
-import { DepositsService } from './deposits.service.js';
-import { WithdrawalsService } from './withdrawals.service.js';
+import { WalletInsightsService } from './wallet-insights.service.js';
 
-/**
- * Wallet funding + payout orchestration built on the reusable Flutterwave
- * package. Credits (`charge.completed`) and transfer statuses
- * (`transfer.disburse`/`transfer.reversal`) are applied idempotently via the
- * `provider_events` sink.
- */
+/** Recipient management and budget metadata. Money movement belongs to FinanceModule. */
 @Module({
-  imports: [FlutterwaveModule, ActivityModule],
-  controllers: [FlutterwaveWebhookController, FundingController],
-  providers: [
-    WalletInsightsService,
-    BankAccountsService,
-    VirtualAccountsService,
-    DepositsService,
-    WithdrawalsService,
-  ],
-  exports: [DepositsService, WithdrawalsService],
+  imports: [ActivityModule],
+  controllers: [FundingController],
+  providers: [WalletInsightsService, BankAccountsService],
 })
 export class FundingModule {}

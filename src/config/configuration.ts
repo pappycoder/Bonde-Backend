@@ -1,3 +1,4 @@
+import type { FinanceConfig } from '../modules/finance/finance.config.js';
 /**
  * Typed view over validated environment configuration.
  *
@@ -6,6 +7,7 @@
  * feature modules never touch raw `process.env` directly.
  */
 export interface AppConfig {
+  finance: FinanceConfig;
   nodeEnv: string;
   profileHub: {
     billingEnabled: boolean;
@@ -71,21 +73,9 @@ export interface AppConfig {
     cardKey: string;
     mfaKey: string;
   };
-  flutterwave: {
-    baseUrl: string;
-    secretKey: string;
-    webhookSecretHash: string;
-    vaBankCode: string;
-  };
   kyc: {
-    provider: string;
     /// HMAC key used to digest BVN/NIN before storage (never the raw value).
     hashSecret: string;
-  };
-  dojah: {
-    baseUrl: string;
-    appId: string;
-    secretKey: string;
   };
   passcode: {
     maxAttempts: number;
@@ -94,6 +84,41 @@ export interface AppConfig {
 }
 
 export default (): AppConfig => ({
+  finance: {
+    environment: process.env.FINANCE_ENVIRONMENT === 'production' ? 'production' : 'sandbox',
+    enabled: process.env.FINANCE_ENABLED === 'true',
+    ngnEnabled: process.env.FINANCE_NGN_ENABLED === 'true',
+    usdEnabled: process.env.FINANCE_USD_ENABLED === 'true',
+    feesVerified: process.env.FINANCE_FEES_VERIFIED === 'true',
+    treasuryVerified: process.env.FINANCE_TREASURY_VERIFIED === 'true',
+    sudoBaseUrl: process.env.SUDO_BASE_URL ?? 'https://api.sandbox.sudo.cards',
+    sudoKey: process.env.SUDO_API_KEY ?? '',
+    sudoBusinessId: process.env.SUDO_BUSINESS_ID ?? '',
+    sudoWebhookToken: process.env.SUDO_WEBHOOK_TOKEN ?? '',
+    safeHavenBaseUrl: process.env.SAFE_HAVEN_BASE_URL ?? 'https://api.sandbox.safehavenmfb.com',
+    safeHavenClientId: process.env.SAFE_HAVEN_CLIENT_ID ?? '',
+    safeHavenIssuer: process.env.SAFE_HAVEN_ISSUER ?? '',
+    safeHavenPrivateKey: process.env.SAFE_HAVEN_PRIVATE_KEY ?? '',
+    safeHavenWebhookToken: process.env.SAFE_HAVEN_WEBHOOK_TOKEN ?? '',
+    safeHavenBankCode: process.env.SAFE_HAVEN_BANK_CODE ?? '',
+    treasuryAccountNumber: process.env.FINANCE_TREASURY_ACCOUNT_NUMBER ?? '',
+    ngnFundingSourceId: process.env.SUDO_NGN_FUNDING_SOURCE_ID ?? '',
+    usdFundingSourceId: process.env.SUDO_USD_FUNDING_SOURCE_ID ?? '',
+    ngnSettlementId: process.env.SUDO_NGN_SETTLEMENT_ID ?? '',
+    usdSettlementId: process.env.SUDO_USD_SETTLEMENT_ID ?? '',
+    ngnBrand: process.env.SUDO_NGN_BRAND ?? 'Verve',
+    usdBrand: process.env.SUDO_USD_BRAND ?? 'MasterCard',
+    ngnIssueFee: process.env.SUDO_NGN_ISSUE_FEE ?? '0.00',
+    usdIssueFee: process.env.SUDO_USD_ISSUE_FEE ?? '0.00',
+    withdrawalFee: process.env.SAFE_HAVEN_WITHDRAWAL_FEE ?? '0.00',
+    incomingFeeBearer:
+      process.env.SAFE_HAVEN_INCOMING_FEE_BEARER === 'sender'
+        ? 'sender'
+        : process.env.SAFE_HAVEN_INCOMING_FEE_BEARER === 'recipient'
+          ? 'recipient'
+          : 'unknown',
+    jobToken: process.env.FINANCE_JOB_TOKEN ?? '',
+  },
   nodeEnv: process.env.NODE_ENV ?? 'development',
   profileHub: {
     billingEnabled: (process.env.PROFILE_BILLING_ENABLED ?? 'true').toLowerCase() === 'true',
@@ -150,22 +175,10 @@ export default (): AppConfig => ({
     // existing deployments keep working until MFA_ENCRYPTION_KEY is set.
     mfaKey: process.env.MFA_ENCRYPTION_KEY ?? process.env.CARD_ENCRYPTION_KEY!,
   },
-  flutterwave: {
-    baseUrl: process.env.FLUTTERWAVE_BASE_URL ?? 'https://api.flutterwave.com/v3',
-    secretKey: process.env.FLUTTERWAVE_SECRET_KEY!,
-    webhookSecretHash: process.env.FLUTTERWAVE_WEBHOOK_SECRET_HASH!,
-    vaBankCode: process.env.FLUTTERWAVE_VA_BANK_CODE ?? '090567',
-  },
   kyc: {
-    provider: process.env.KYC_PROVIDER ?? 'dojah',
     // Pepper for the one-way identifiers. Falls back to the app-wide encryption
     // key so existing deployments keep booting until KYC_HASH_SECRET is set.
     hashSecret: process.env.KYC_HASH_SECRET ?? process.env.CARD_ENCRYPTION_KEY!,
-  },
-  dojah: {
-    baseUrl: process.env.DOJAH_BASE_URL ?? 'https://api.dojah.io',
-    appId: process.env.DOJAH_APP_ID ?? '',
-    secretKey: process.env.DOJAH_SECRET_KEY ?? '',
   },
   push: {
     fcmServiceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH,

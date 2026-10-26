@@ -7,6 +7,43 @@ import Joi from 'joi';
  * malformed, so misconfiguration never silently reaches a request handler.
  */
 export const envValidationSchema = Joi.object({
+  FINANCE_ENVIRONMENT: Joi.string().valid('sandbox', 'production').default('sandbox'),
+  FINANCE_ENABLED: Joi.boolean().default(false),
+  FINANCE_NGN_ENABLED: Joi.boolean().default(false),
+  FINANCE_USD_ENABLED: Joi.boolean().default(false),
+  FINANCE_FEES_VERIFIED: Joi.boolean().default(false),
+  FINANCE_TREASURY_VERIFIED: Joi.boolean().default(false),
+  SUDO_BASE_URL: Joi.string()
+    .uri({ scheme: ['https'] })
+    .default('https://api.sandbox.sudo.cards'),
+  SUDO_API_KEY: Joi.string().allow('').default(''),
+  SUDO_BUSINESS_ID: Joi.string().allow('').default(''),
+  SUDO_WEBHOOK_TOKEN: Joi.string().allow('').default(''),
+  SAFE_HAVEN_BASE_URL: Joi.string()
+    .uri({ scheme: ['https'] })
+    .default('https://api.sandbox.safehavenmfb.com'),
+  SAFE_HAVEN_ISSUER: Joi.string()
+    .uri({ scheme: ['https'] })
+    .allow('')
+    .default(''),
+  SAFE_HAVEN_CLIENT_ID: Joi.string().allow('').default(''),
+  SAFE_HAVEN_PRIVATE_KEY: Joi.string().allow('').default(''),
+  SAFE_HAVEN_WEBHOOK_TOKEN: Joi.string().allow('').default(''),
+  SAFE_HAVEN_BANK_CODE: Joi.string().allow('').default(''),
+  FINANCE_TREASURY_ACCOUNT_NUMBER: Joi.string().allow('').default(''),
+  SUDO_NGN_FUNDING_SOURCE_ID: Joi.string().allow('').default(''),
+  SUDO_USD_FUNDING_SOURCE_ID: Joi.string().allow('').default(''),
+  SUDO_NGN_SETTLEMENT_ID: Joi.string().allow('').default(''),
+  SUDO_USD_SETTLEMENT_ID: Joi.string().allow('').default(''),
+  SUDO_NGN_BRAND: Joi.string().allow('').default('Verve'),
+  SUDO_USD_BRAND: Joi.string().allow('').default('MasterCard'),
+  SUDO_NGN_ISSUE_FEE: Joi.string().allow('').default('0.00'),
+  SUDO_USD_ISSUE_FEE: Joi.string().allow('').default('0.00'),
+  SAFE_HAVEN_INCOMING_FEE_BEARER: Joi.string()
+    .valid('unknown', 'sender', 'recipient')
+    .default('unknown'),
+  SAFE_HAVEN_WITHDRAWAL_FEE: Joi.string().allow('').default('0.00'),
+  FINANCE_JOB_TOKEN: Joi.string().allow('').default(''),
   NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
 
   PROFILE_BILLING_ENABLED: Joi.boolean().default(true),
@@ -87,21 +124,8 @@ export const envValidationSchema = Joi.object({
   /// Inbox that receives public website waitlist + contact notifications.
   CONTACT_INBOX_EMAIL: Joi.string().email().default('usebonde@gmail.com'),
 
-  FLUTTERWAVE_BASE_URL: Joi.string().uri().default('https://api.flutterwave.com/v3'),
-  FLUTTERWAVE_SECRET_KEY: Joi.string().required(),
-  FLUTTERWAVE_WEBHOOK_SECRET_HASH: Joi.string().required(),
-  FLUTTERWAVE_VA_BANK_CODE: Joi.string().max(10).default('090567'),
-
-  /// KYC provider used to verify BVN/NIN. Only Dojah is wired today.
-  KYC_PROVIDER: Joi.string().valid('dojah').default('dojah'),
   /// HMAC key for hashing identifiers at rest; defaults to CARD_ENCRYPTION_KEY.
   KYC_HASH_SECRET: Joi.string().hex().length(64).optional(),
-
-  /// Dojah KYC credentials. Optional so environments that do not exercise KYC
-  /// still boot; a verification call without them fails closed with a 503.
-  DOJAH_BASE_URL: Joi.string().uri().default('https://api.dojah.io'),
-  DOJAH_APP_ID: Joi.string().optional().allow(''),
-  DOJAH_SECRET_KEY: Joi.string().optional().allow(''),
 
   PASSCODE_MAX_ATTEMPTS: Joi.number().integer().min(1).default(5),
   PASSCODE_LOCK_MINUTES: Joi.number().integer().min(1).default(15),

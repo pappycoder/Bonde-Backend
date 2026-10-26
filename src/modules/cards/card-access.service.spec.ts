@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Prisma } from '@prisma/client';
+import { FinancePolicy } from '../finance/finance-policy.service.js';
 import { CardAccessService } from './card-access.service.js';
 
 function setup({
@@ -23,12 +24,16 @@ function setup({
         locks: [],
       })),
     },
-    transaction: {
-      count: vi.fn(async () => 0),
+    financeCapture: {
+      findMany: vi.fn(async (): Promise<{ authorizationId: string }[]> => []),
       aggregate: vi.fn(async () => ({ _sum: { amount: new Prisma.Decimal(0) } })),
     },
+    financeAuthorization: {
+      count: vi.fn(async () => 0),
+      findMany: vi.fn(async (): Promise<unknown[]> => []),
+    },
   };
-  return { db, service: new CardAccessService(db as never) };
+  return { db, service: new CardAccessService(db as never, new FinancePolicy()) };
 }
 const standard = { creationLockType: null, locks: [] };
 const rules = { creationLockType: 'SELF_DESTRUCT', locks: [] };
@@ -102,30 +107,36 @@ describe('CardAccessService', () => {
       expirationDate: new Date('2020-01-01'),
       locks: [],
     } as never);
-    expect(await service.cardStatus('owner', 'card')).toEqual({ reason: 'EXPIRED' });
-    expect(db.transaction.count).not.toHaveBeenCalled();
+    expect(await service.cardStatus('owner', 'card')).toMatchObject({
+      reason: 'RETIRED',
+      retirementReason: 'TIME_EXPIRED',
+    });
+    expect(db.financeAuthorization.count).not.toHaveBeenCalled();
   });
-  it('checks usage against settled approved payments only', async () => {
+  it('checks usage against held and settled authorizations', async () => {
     const { service, db } = setup();
     db.card.findFirst.mockResolvedValueOnce({
       status: 'ACTIVE',
       expirationDate: new Date('2099-01-01'),
-      locks: [{ lockType: 'SELF_DESTRUCT', config: { usageLimit: 2 } }],
+      creationLockType: 'SELF_DESTRUCT',
+      locks: [{ lockType: 'SELF_DESTRUCT', config: { type: 'SELF_DESTRUCT', usageLimit: 2 } }],
     } as never);
-    db.transaction.count.mockResolvedValueOnce(2);
+    db.financeAuthorization.findMany.mockResolvedValueOnce(
+      [0, 1].map((i) => ({
+        id: `a${i}`,
+        requestType: 'PURCHASE',
+        amount: new Prisma.Decimal(1),
+        settled: new Prisma.Decimal(0),
+        released: new Prisma.Decimal(0),
+      })),
+    );
     expect(await service.cardStatus('owner', 'card')).toMatchObject({
-      reason: 'USAGE_LIMIT',
+      reason: 'USAGE_RESERVED',
       used: 2,
       limit: 2,
     });
-    expect(db.transaction.count).toHaveBeenCalledWith({
-      where: {
-        cardId: 'card',
-        userId: 'owner',
-        type: 'PAYMENT',
-        status: 'SUCCESS',
-        approvalStatus: 'APPROVED',
-      },
+    expect(db.financeAuthorization.findMany).toHaveBeenCalledWith({
+      where: { cardId: undefined, status: 'HELD' },
     });
   });
   it('monthly budgets use the current UTC period, not lifetime spend', async () => {
@@ -137,16 +148,14 @@ describe('CardAccessService', () => {
       locks: [],
       totalSpent: new Prisma.Decimal(999),
     } as never);
-    db.transaction.aggregate.mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal(10) } });
+    db.financeCapture.aggregate.mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal(10) } });
     expect(await service.cardStatus('owner', 'card')).toMatchObject({
       reason: 'BUDGET_LIMIT',
       spent: '10.00',
     });
-    expect(db.transaction.aggregate).toHaveBeenCalledWith(
+    expect(db.financeCapture.aggregate).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({
-          createdAt: { gte: expect.any(Date), lt: expect.any(Date) },
-        }),
+        where: expect.objectContaining({ bookedAt: { gte: expect.any(Date) } }),
       }),
     );
   });
