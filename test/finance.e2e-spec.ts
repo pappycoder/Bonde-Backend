@@ -1,52 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Prisma } from '@prisma/client';
-import {
-  bootE2EApp,
-  SEED_USER_ID,
-  SEED_CARD_ID,
-  seedBaseFixtures,
-  truncateAll,
-  type BootedE2EApp,
-} from './e2e-app.js';
-import { LedgerService } from '../src/modules/finance/ledger.service.js';
-import { FinanceCapabilities } from '../src/modules/finance/finance-capabilities.service.js';
-import { PasscodeService } from '../src/modules/passcode/passcode.service.js';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { SEED_CARD_ID, seedBaseFixtures, truncateAll, type BootedE2EApp } from './e2e-app.js';
+import { bootFinanceE2EApp, seedFinanceFunds, financeTestEnvironment } from './finance-fixtures.js';
+const restoreEnvironment = financeTestEnvironment(7);
+afterAll(restoreEnvironment);
 
 describe('Existing screens through canonical finance commands', () => {
   let ctx: BootedE2EApp;
-  const capabilities = {
-    enabled: true,
-    assertEnabled: vi.fn(),
-    assertCurrency: vi.fn(),
-    view: () => ({ enabled: true, currencies: { NGN: { enabled: true } } }),
-  };
   beforeEach(async () => {
-    ctx = await bootE2EApp({ overrides: [{ token: FinanceCapabilities, useValue: capabilities }] });
+    ctx = await bootFinanceE2EApp();
     await truncateAll(ctx.prisma);
     await seedBaseFixtures(ctx.prisma);
-    await ctx.app.get(PasscodeService).create(SEED_USER_ID, '1234');
-    await ctx.prisma.card.update({
-      where: { id: SEED_CARD_ID },
-      data: {
-        issuer: 'sudo',
-        externalReferenceId: 'provider-card',
-        status: 'ACTIVE',
-        currency: 'NGN',
-        expirationDate: new Date('2030-01-01'),
-      },
-    });
-    await ctx.prisma.$transaction((tx) =>
-      ctx.app.get(LedgerService).post(tx, 'test:deposit', 'Verified test deposit', [
-        {
-          key: `wallet:${SEED_USER_ID}:NGN`,
-          userId: SEED_USER_ID,
-          kind: 'WALLET',
-          currency: 'NGN',
-          amount: new Prisma.Decimal(100),
-        },
-        { key: 'system:test:NGN', kind: 'TEST', currency: 'NGN', amount: new Prisma.Decimal(-100) },
-      ]),
-    );
+    await seedFinanceFunds(ctx);
   });
   afterEach(async () => {
     await ctx.close();

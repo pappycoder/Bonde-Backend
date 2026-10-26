@@ -8,7 +8,7 @@ import {
 } from './e2e-app.js';
 
 /**
- * Passcode suite runs on its own Redis DB (16) with a high strict limit so the
+ * Passcode suite runs on its own Redis DB (8) with a high strict limit so the
  * throttler counters (per-route, per-client) never bleed into other suites and
  * the legitimate write/validate calls never 429.
  */
@@ -18,7 +18,7 @@ const ORIGINAL_ENV: Record<string, string | undefined> = {
   THROTTLE_STRICT_TTL: process.env.THROTTLE_STRICT_TTL,
   THROTTLE_STRICT_BLOCK_DURATION: process.env.THROTTLE_STRICT_BLOCK_DURATION,
 };
-process.env.REDIS_URL = 'redis://localhost:6379/16';
+process.env.REDIS_URL = 'redis://localhost:6379/8';
 process.env.THROTTLE_STRICT_LIMIT = '1000';
 process.env.THROTTLE_STRICT_TTL = '60000';
 process.env.THROTTLE_STRICT_BLOCK_DURATION = '60000';

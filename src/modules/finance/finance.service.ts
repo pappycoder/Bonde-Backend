@@ -546,7 +546,7 @@ export class FinanceService {
         data: {
           id: randomUUID(),
           userId,
-          type: cardId ? 'CARD' : 'TRANSACTION',
+          type: command.kind === 'THRESHOLDS' ? 'SYSTEM' : cardId ? 'CARD' : 'TRANSACTION',
           title: status === 'SUCCEEDED' ? 'Action completed' : 'Action processing',
           content: `${command.kind.toLowerCase()} · ${amount.toFixed(2)} ${command.currency}`,
           metadata: {

@@ -89,7 +89,7 @@ async function seedLocalDatabase(): Promise<void> {
 async function flushRedisKeyDatabases(): Promise<void> {
   // 0-15: a stock Redis has 16 databases, and an out-of-range index surfaces as
   // an unhandled ioredis error event rather than a rejected promise.
-  for (const db of [0, 9, 10, 11, 12, 13, 14, 15]) {
+  for (const db of [0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]) {
     let redis: Redis | undefined;
     try {
       redis = new Redis({ host: '127.0.0.1', port: 6379, db });

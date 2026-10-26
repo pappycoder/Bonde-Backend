@@ -109,11 +109,20 @@ describe('Admin CRUD (e2e)', () => {
   });
 
   it('maps unique-violation to 409', async () => {
-    const payload = { cardId: SEED_CARD_ID, lockType: 'TIME' };
-    await ctx.http.post('/admin/card-locks').send(payload).expect(201);
-    const res = await ctx.http.post('/admin/card-locks').send(payload).expect(409);
+    const payload = { name: 'Duplicate provider', baseUrl: 'https://example.invalid' };
+    await ctx.http.post('/admin/card-providers').send(payload).expect(201);
+    const res = await ctx.http.post('/admin/card-providers').send(payload).expect(409);
     expect(res.body.statusCode).toBe(409);
   });
+
+  it.each(['card-locks', 'card-categories', 'transaction-thresholds'])(
+    'blocks financial CRUD bypasses through %s',
+    async (resource) => {
+      await ctx.http.post(`/admin/${resource}`).send({}).expect(405);
+      await ctx.http.patch(`/admin/${resource}/${SEED_CARD_ID}`).send({}).expect(405);
+      await ctx.http.delete(`/admin/${resource}/${SEED_CARD_ID}`).expect(405);
+    },
+  );
 
   it('never returns card-provider config (secrets stay server-side)', async () => {
     const created = await ctx.http
