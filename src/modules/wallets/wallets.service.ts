@@ -1,7 +1,10 @@
+import { FinanceService } from '../finance/finance.service.js';
+import { FinanceCapabilities } from '../finance/finance-capabilities.service.js';
 import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Optional,
   NotFoundException,
 } from '@nestjs/common';
 import type { Wallet } from '@prisma/client';
@@ -17,9 +20,14 @@ import { PrismaService } from '../../prisma/prisma.service.js';
  */
 @Injectable()
 export class WalletsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly finance?: FinanceService,
+    @Optional() private readonly capabilities?: FinanceCapabilities,
+  ) {}
 
   async get(userId: string) {
+    if (this.capabilities?.enabled && this.finance) return (await this.finance.wallets(userId))[0];
     const wallet = await this.prisma.wallet.findFirst({
       where: { account: { userId } },
     });

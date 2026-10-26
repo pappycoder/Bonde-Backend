@@ -1,3 +1,5 @@
+import { Optional } from '@nestjs/common';
+import { FinanceCapabilities } from '../finance/finance-capabilities.service.js';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { AccountType, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -12,11 +14,18 @@ import { generateLuhnAccountNumber } from './account-number.js';
  */
 @Injectable()
 export class AccountsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly capabilities?: FinanceCapabilities,
+  ) {}
 
   async get(userId: string) {
     const account = await this.prisma.account.findUnique({ where: { userId } });
     if (!account) throw new NotFoundException('Account not found');
+    if (this.capabilities?.enabled) {
+      const customer = await this.prisma.financeCustomer.findUnique({ where: { userId } });
+      return { ...account, accountNumber: customer?.bankAccountNumber ?? '' };
+    }
     return account;
   }
 

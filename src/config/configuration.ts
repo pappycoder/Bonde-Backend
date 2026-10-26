@@ -1,3 +1,4 @@
+import type { FinanceConfig } from '../modules/finance/finance.config.js';
 /**
  * Typed view over validated environment configuration.
  *
@@ -6,6 +7,7 @@
  * feature modules never touch raw `process.env` directly.
  */
 export interface AppConfig {
+  finance: FinanceConfig;
   nodeEnv: string;
   profileHub: {
     billingEnabled: boolean;
@@ -94,6 +96,41 @@ export interface AppConfig {
 }
 
 export default (): AppConfig => ({
+  finance: {
+    environment: process.env.FINANCE_ENVIRONMENT === 'production' ? 'production' : 'sandbox',
+    enabled: process.env.FINANCE_ENABLED === 'true',
+    ngnEnabled: process.env.FINANCE_NGN_ENABLED === 'true',
+    usdEnabled: process.env.FINANCE_USD_ENABLED === 'true',
+    feesVerified: process.env.FINANCE_FEES_VERIFIED === 'true',
+    treasuryVerified: process.env.FINANCE_TREASURY_VERIFIED === 'true',
+    sudoBaseUrl: process.env.SUDO_BASE_URL ?? 'https://api.sandbox.sudo.cards',
+    sudoKey: process.env.SUDO_API_KEY ?? '',
+    sudoBusinessId: process.env.SUDO_BUSINESS_ID ?? '',
+    sudoWebhookToken: process.env.SUDO_WEBHOOK_TOKEN ?? '',
+    safeHavenBaseUrl: process.env.SAFE_HAVEN_BASE_URL ?? 'https://api.sandbox.safehavenmfb.com',
+    safeHavenClientId: process.env.SAFE_HAVEN_CLIENT_ID ?? '',
+    safeHavenIssuer: process.env.SAFE_HAVEN_ISSUER ?? '',
+    safeHavenPrivateKey: process.env.SAFE_HAVEN_PRIVATE_KEY ?? '',
+    safeHavenWebhookToken: process.env.SAFE_HAVEN_WEBHOOK_TOKEN ?? '',
+    safeHavenBankCode: process.env.SAFE_HAVEN_BANK_CODE ?? '',
+    treasuryAccountNumber: process.env.FINANCE_TREASURY_ACCOUNT_NUMBER ?? '',
+    ngnFundingSourceId: process.env.SUDO_NGN_FUNDING_SOURCE_ID ?? '',
+    usdFundingSourceId: process.env.SUDO_USD_FUNDING_SOURCE_ID ?? '',
+    ngnSettlementId: process.env.SUDO_NGN_SETTLEMENT_ID ?? '',
+    usdSettlementId: process.env.SUDO_USD_SETTLEMENT_ID ?? '',
+    ngnBrand: process.env.SUDO_NGN_BRAND ?? 'Verve',
+    usdBrand: process.env.SUDO_USD_BRAND ?? 'MasterCard',
+    ngnIssueFee: process.env.SUDO_NGN_ISSUE_FEE ?? '0.00',
+    usdIssueFee: process.env.SUDO_USD_ISSUE_FEE ?? '0.00',
+    withdrawalFee: process.env.SAFE_HAVEN_WITHDRAWAL_FEE ?? '0.00',
+    incomingFeeBearer:
+      process.env.SAFE_HAVEN_INCOMING_FEE_BEARER === 'sender'
+        ? 'sender'
+        : process.env.SAFE_HAVEN_INCOMING_FEE_BEARER === 'recipient'
+          ? 'recipient'
+          : 'unknown',
+    jobToken: process.env.FINANCE_JOB_TOKEN ?? '',
+  },
   nodeEnv: process.env.NODE_ENV ?? 'development',
   profileHub: {
     billingEnabled: (process.env.PROFILE_BILLING_ENABLED ?? 'true').toLowerCase() === 'true',

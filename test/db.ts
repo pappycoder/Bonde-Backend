@@ -36,6 +36,15 @@ export const SEED_TICKET_MESSAGE_ID = '20202020-2020-4202-8202-202020202020';
 type AnyPrisma = PrismaService | PrismaClient;
 
 const PHYSICAL_TABLES = [
+  'finance_installations',
+  'finance_entries',
+  'finance_journals',
+  'finance_accounts',
+  'finance_operations',
+  'finance_customers',
+  'finance_authorizations',
+  'finance_inbox',
+  'finance_proofs',
   'billing_orders',
   'ai_credit_accounts',
   'provider_events',

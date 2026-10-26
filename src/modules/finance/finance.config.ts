@@ -1,0 +1,30 @@
+export interface FinanceConfig {
+  enabled: boolean;
+  environment: 'sandbox' | 'production';
+  ngnEnabled: boolean;
+  usdEnabled: boolean;
+  sudoBaseUrl: string;
+  sudoKey: string;
+  sudoBusinessId: string;
+  sudoWebhookToken: string;
+  safeHavenBaseUrl: string;
+  safeHavenClientId: string;
+  safeHavenIssuer: string;
+  safeHavenPrivateKey: string;
+  safeHavenWebhookToken: string;
+  safeHavenBankCode: string;
+  treasuryAccountNumber: string;
+  ngnFundingSourceId: string;
+  usdFundingSourceId: string;
+  ngnSettlementId: string;
+  usdSettlementId: string;
+  ngnBrand: string;
+  usdBrand: string;
+  ngnIssueFee: string;
+  usdIssueFee: string;
+  withdrawalFee: string;
+  incomingFeeBearer: 'unknown' | 'sender' | 'recipient';
+  feesVerified: boolean;
+  treasuryVerified: boolean;
+  jobToken: string;
+}

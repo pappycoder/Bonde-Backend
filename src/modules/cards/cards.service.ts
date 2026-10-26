@@ -77,6 +77,7 @@ export class CardsService {
     const { page, pageSize, skip, take } = parsePaging(options.page, options.pageSize);
     const where = {
       userId,
+      ...(this.config.get('finance')?.enabled ? { issuer: 'sudo' } : {}),
       ...buildFilterWhere(parseFilterEntries(options.filter), CARD_FILTER_FIELDS),
       ...qWhere(options.q, ['nickname', 'cardNumberLast4']),
     } as Prisma.CardWhereInput;
@@ -124,6 +125,8 @@ export class CardsService {
           ? { ...card, cardCvvEncrypted: encryptedCvv }
           : await this.assertOwnedCard(userId, cardId);
     }
+    if (!card.cardNumberEncrypted || card.issuer === 'sudo')
+      throw new BadRequestException('Use secure card display');
     const key = this.config.get('encryption.cardKey', { infer: true });
     return {
       cardNumber: decrypt(card.cardNumberEncrypted, key),

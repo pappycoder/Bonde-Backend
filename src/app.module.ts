@@ -1,3 +1,5 @@
+import { FinanceModule } from './modules/finance/finance.module.js';
+import { FinanceLegacyGuard } from './modules/finance/finance-legacy.guard.js';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
@@ -145,6 +147,7 @@ import { RedisClient } from './common/redis/redis-client.interface.js';
     PasscodeModule,
     FlutterwaveModule,
     FundingModule,
+    FinanceModule,
     CommonModule,
   ],
   controllers: [AppController],
@@ -162,6 +165,7 @@ import { RedisClient } from './common/redis/redis-client.interface.js';
       provide: APP_GUARD,
       useClass: RolesGuard,
     },
+    { provide: APP_GUARD, useClass: FinanceLegacyGuard },
     {
       provide: APP_FILTER,
       useClass: HttpExceptionFilter,
