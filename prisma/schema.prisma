@@ -14,7 +14,30 @@ datasource db {
 }
 
 // ---------------------------------------------------------------------------
-// Enums
+// Enums — Banking
+// ---------------------------------------------------------------------------
+
+enum AccountType {
+  CHECKING
+  SAVINGS
+  BUSINESS
+}
+
+enum VirtualAccountStatus {
+  ACTIVE
+  EXPIRED
+  INACTIVE
+}
+
+enum ProviderEventStatus {
+  RECEIVED
+  PROCESSED
+  DUPLICATE
+  FAILED
+}
+
+// ---------------------------------------------------------------------------
+// Enums — Cards
 // ---------------------------------------------------------------------------
 
 enum CardStatus {
@@ -42,29 +65,9 @@ enum CardRestrictedCategory {
   TRAVEL
 }
 
-enum MessageRole {
-  USER
-  ASSISTANT
-  SYSTEM
-}
-
-enum TicketPriority {
-  LOW
-  MEDIUM
-  HIGH
-  URGENT
-}
-
-enum TicketStatus {
-  OPEN
-  PENDING
-  RESOLVED
-}
-
-enum SupportMessageRole {
-  USER
-  SUPPORT
-}
+// ---------------------------------------------------------------------------
+// Enums — Transactions
+// ---------------------------------------------------------------------------
 
 enum TransactionType {
   DEPOSIT
@@ -96,6 +99,38 @@ enum ThresholdType {
   LARGE_AMOUNT
 }
 
+// ---------------------------------------------------------------------------
+// Enums — Chat / Support
+// ---------------------------------------------------------------------------
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketStatus {
+  OPEN
+  PENDING
+  RESOLVED
+}
+
+enum SupportMessageRole {
+  USER
+  SUPPORT
+}
+
+// ---------------------------------------------------------------------------
+// Enums — Notifications
+// ---------------------------------------------------------------------------
+
 enum NotificationStatus {
   UNREAD
   READ
@@ -114,6 +149,10 @@ enum PushPlatform {
   IOS
 }
 
+// ---------------------------------------------------------------------------
+// Enums — Security / Identity
+// ---------------------------------------------------------------------------
+
 enum OtpChannel {
   EMAIL
   PHONE
@@ -123,25 +162,6 @@ enum BiometricType {
   DEVICE
   FACE
   FINGERPRINT
-}
-
-enum AccountType {
-  CHECKING
-  SAVINGS
-  BUSINESS
-}
-
-enum VirtualAccountStatus {
-  ACTIVE
-  EXPIRED
-  INACTIVE
-}
-
-enum ProviderEventStatus {
-  RECEIVED
-  PROCESSED
-  DUPLICATE
-  FAILED
 }
 
 /// Outcome of a user's BVN/NIN identity check. `PENDING` = submitted but not
@@ -154,98 +174,137 @@ enum KycStatus {
 }
 
 // ---------------------------------------------------------------------------
-// Models — Auth / Identity
+// Models — Profiles / Identity
 // ---------------------------------------------------------------------------
 
 /// Extends Supabase `auth.users` (1:1). Stores app-specific profile data;
 /// auth fields (password hash, etc.) live in `auth.users`. `email` mirrors
 /// `auth.users.email` so app-side lookups never touch those tables.
 model Profile {
-  merchantAccess FinanceMerchantAccess[]
-  merchantEnrollments FinanceMerchantEnrollment[]
-  captures FinanceCapture[]
-  id        String   @id @db.Uuid
-  fullName  String   @map("full_name") @db.VarChar(255)
-  email     String   @unique @db.VarChar(254)
-  phone     String?  @unique @db.VarChar(20)
-  phoneVerified Boolean @default(false) @map("phone_verified")
-  emailVerified Boolean @default(false) @map("email_verified")
-  avatarUrl String?  @map("avatar_url")
-  onboardingCompletedAt DateTime? @map("onboarding_completed_at")
+  id                       String    @id @db.Uuid
+  fullName                 String    @map("full_name") @db.VarChar(255)
+  email                    String    @unique @db.VarChar(254)
+  phone                    String?   @unique @db.VarChar(20)
+  phoneVerified            Boolean   @default(false) @map("phone_verified")
+  emailVerified            Boolean   @default(false) @map("email_verified")
+  avatarUrl                String?   @map("avatar_url")
+  onboardingCompletedAt    DateTime? @map("onboarding_completed_at")
   /// Trusted subscription entitlement; never writable through self-service profile updates.
-  cardPlan String @default("FREE") @map("card_plan") @db.VarChar(16)
-  cardPlanExpiresAt DateTime? @map("card_plan_expires_at")
-  preferences Json @default("{}")
-  billingCancelAtPeriodEnd Boolean @default(false) @map("billing_cancel_at_period_end")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  cardPlan                 String    @default("FREE") @map("card_plan") @db.VarChar(16)
+  cardPlanExpiresAt        DateTime? @map("card_plan_expires_at")
+  preferences              Json      @default("{}")
+  billingCancelAtPeriodEnd Boolean   @default(false) @map("billing_cancel_at_period_end")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
 
-  accounts            Account[]
-  cards               Card[]
-  chats               Chat[]
-  supportTickets      SupportTicket[]    @relation("SupportTicketOwner")
-  assignedTickets     SupportTicket[]    @relation("SupportTicketAssignee")
-  transactions        Transaction[]
-  notifications       Notification[]
-  pushDevices         PushDevice[]
-  otpCodes            OtpCode[]
-  passcode            Passcode?
-  biometricDevices    BiometricDevice[]
-  thresholds          TransactionThreshold[]
-  auditLogs           AuditLog[]
-  transactionApprovals TransactionApproval[]
-  virtualAccounts     VirtualAccount[]
-  authSessions        AuthSession[]
+  deliveryAddress DeliveryAddress?
+  kyc             KycVerification?
+
+  authSessions     AuthSession[]
+  invitesIssued    UserInvite[]      @relation("InviteIssuer")
+  twoFactor        TwoFactor?
+  otpCodes         OtpCode[]
+  passcode         Passcode?
+  biometricDevices BiometricDevice[]
+  auditLogs        AuditLog[]
+
+  accounts               Account[]
   withdrawalBankAccounts WithdrawalBankAccount[]
-  twoFactor           TwoFactor?
-  invitesIssued       UserInvite[]  @relation("InviteIssuer")
-  broadcastsSent      Broadcast[]   @relation("BroadcastSender")
-  kyc                 KycVerification?
-  financeAccounts FinanceAccount[]
-  financeOperations FinanceOperation[]
-  financeCustomer FinanceCustomer?
+  cards                  Card[]
+  virtualAccounts        VirtualAccount[]
+
+  financeAccounts       FinanceAccount[]
+  financeCustomer       FinanceCustomer?
+  financeOperations     FinanceOperation[]
   financeAuthorizations FinanceAuthorization[]
-  aiCredits           AiCreditAccount?
-  billingOrders       BillingOrder[]
+  merchantAccess        FinanceMerchantAccess[]
+  merchantEnrollments   FinanceMerchantEnrollment[]
+  captures              FinanceCapture[]
+
+  transactions         Transaction[]
+  transactionApprovals TransactionApproval[]
+  thresholds           TransactionThreshold[]
+
+  chats         Chat[]
+  aiCredits     AiCreditAccount?
+  billingOrders BillingOrder[]
+
+  supportTickets  SupportTicket[] @relation("SupportTicketOwner")
+  assignedTickets SupportTicket[] @relation("SupportTicketAssignee")
+
+  notifications  Notification[]
+  pushDevices    PushDevice[]
+  broadcastsSent Broadcast[]    @relation("BroadcastSender")
 
   @@map("profiles")
 }
 
-/// Credit units are separate from wallet money; the welcome grant is one-time.
-model AiCreditAccount {
-  userId String @id @map("user_id") @db.Uuid
-  welcomeRemaining Int @default(100) @map("welcome_remaining")
-  planRemaining Int @default(0) @map("plan_remaining")
-  planGranted Int @default(0) @map("plan_granted")
-  planUsed Int @default(0) @map("plan_used")
-  purchasedRemaining Int @default(0) @map("purchased_remaining")
-  periodEnd DateTime? @map("period_end")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@map("ai_credit_accounts")
+/// One default delivery address per profile; recipient details remain on the profile.
+model DeliveryAddress {
+  userId       String @id @map("user_id") @db.Uuid
+  street       String @db.VarChar(255)
+  addressLine2 String @map("address_line_2") @db.VarChar(255)
+  city         String @db.VarChar(100)
+  region       String @db.VarChar(100)
+  country      String @db.VarChar(100)
+  postalCode   String @map("postal_code") @db.VarChar(32)
+
+  profile Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("delivery_addresses")
 }
 
-/// Retry identity is permanent. Only a confirmed settlement grants entitlements.
-model BillingOrder {
-  id String @id @db.Uuid
-  userId String @map("user_id") @db.Uuid
-  idempotencyKey String @map("idempotency_key") @db.VarChar(64)
-  kind String @db.VarChar(20)
-  productId String @map("product_id") @db.VarChar(40)
-  amount Decimal @db.Decimal(15, 2)
-  currency String @default("NGN") @db.VarChar(3)
-  credits Int @default(0)
-  status String @default("PENDING") @db.VarChar(16)
-  paymentMethod String @map("payment_method") @db.VarChar(16)
-  cardId String? @map("card_id") @db.Uuid
-  transactionId String? @unique @map("transaction_id") @db.Uuid
-  failureReason String? @map("failure_reason") @db.VarChar(255)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+/// A user's one-time KYC result. The raw BVN/NIN are **never** stored — only a
+/// keyed HMAC-SHA-256 digest (so a stolen row cannot be brute-forced or replayed
+/// against the provider) plus per-identifier verification timestamps. The
+/// overall `status` is `VERIFIED` only once both identifiers have passed.
+model KycVerification {
+  id            String    @id @db.Uuid
+  userId        String    @unique @map("user_id") @db.Uuid
+  provider      String    @default("dojah") @db.VarChar(50)
+  /// Keyed HMAC-SHA-256 digest of the BVN, hex-encoded. Null until verified.
+  bvnHash       String?   @map("bvn_hash") @db.VarChar(64)
+  /// Keyed HMAC-SHA-256 digest of the NIN, hex-encoded. Null until verified.
+  ninHash       String?   @map("nin_hash") @db.VarChar(64)
+  bvnVerifiedAt DateTime? @map("bvn_verified_at")
+  ninVerifiedAt DateTime? @map("nin_verified_at")
+  status        KycStatus @default(PENDING)
+  /// Non-sensitive provider response metadata (references, statuses). Never
+  /// contains the identifier values.
+  providerRef   Json      @default("{}") @map("provider_ref")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
   user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@unique([userId, idempotencyKey])
-  @@index([userId, createdAt])
-  @@map("billing_orders")
+
+  @@map("kyc_verifications")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Authentication / Security
+// ---------------------------------------------------------------------------
+
+/// A signed-in device session, mirrored from the Supabase session id. Rows are
+/// created on login and touched on refresh so a user can review and revoke the
+/// devices signed in to their account.
+model AuthSession {
+  id           String    @id @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  /// Supabase `session_id` claim — unique per issued token pair.
+  sessionId    String    @unique @map("session_id") @db.VarChar(64)
+  userAgent    String?   @map("user_agent") @db.VarChar(512)
+  ipAddress    String?   @map("ip_address") @db.VarChar(64)
+  /// Access-token expiry of the last grant that touched this row.
+  expiresAt    DateTime  @map("expires_at")
+  lastUsedAt   DateTime  @default(now()) @map("last_used_at")
+  revokedAt    DateTime? @map("revoked_at")
+  revokeReason String?   @map("revoke_reason") @db.VarChar(64)
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@map("auth_sessions")
 }
 
 /// A single-use, expiring invitation to join. The token is only ever stored as
@@ -274,23 +333,6 @@ model UserInvite {
   @@map("user_invites")
 }
 
-/// An admin-authored message fanned out to every active profile as one
-/// `Notification` row each. The row is the send record (title/body/sender/
-/// recipientCount); the per-user copies live in `notifications`.
-model Broadcast {
-  id             String   @id @db.Uuid
-  title          String   @db.VarChar(140)
-  body           String   @db.VarChar(1000)
-  recipientCount Int      @map("recipient_count")
-  sentBy         String?  @map("sent_by") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at")
-
-  sender Profile? @relation("BroadcastSender", fields: [sentBy], references: [id], onDelete: SetNull)
-
-  @@index([createdAt])
-  @@map("broadcasts")
-}
-
 /// Authenticator-app second factor for a profile. The TOTP secret is stored
 /// encrypted at rest; recovery codes are stored as SHA-256 digests so a stolen
 /// row cannot be replayed. A row exists from the moment enrolment starts but
@@ -312,417 +354,6 @@ model TwoFactor {
 
   @@map("two_factors")
 }
-
-/// A signed-in device session, mirrored from the Supabase session id. Rows are
-/// created on login and touched on refresh so a user can review and revoke the
-/// devices signed in to their account.
-model AuthSession {
-  id           String    @id @db.Uuid
-  userId       String    @map("user_id") @db.Uuid
-  /// Supabase `session_id` claim — unique per issued token pair.
-  sessionId    String    @unique @map("session_id") @db.VarChar(64)
-  userAgent    String?   @map("user_agent") @db.VarChar(512)
-  ipAddress    String?   @map("ip_address") @db.VarChar(64)
-  /// Access-token expiry of the last grant that touched this row.
-  expiresAt    DateTime  @map("expires_at")
-  lastUsedAt   DateTime  @default(now()) @map("last_used_at")
-  revokedAt    DateTime? @map("revoked_at")
-  revokeReason String?   @map("revoke_reason") @db.VarChar(64)
-  createdAt    DateTime  @default(now()) @map("created_at")
-
-  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, revokedAt])
-  @@map("auth_sessions")
-}
-
-// ---------------------------------------------------------------------------
-// Models — Banking
-// ---------------------------------------------------------------------------
-
-/// Bank account with a generated account number (bank-style + Luhn check digit).
-model Account {
-  id            String   @id @db.Uuid
-  /// A user can hold exactly one account (and, via Wallet.accountId, one wallet).
-  userId        String   @unique @map("user_id") @db.Uuid
-  accountNumber String      @unique @map("account_number") @db.VarChar(20)
-  accountType   AccountType @default(CHECKING) @map("account_type")
-  isActive      Boolean     @default(true) @map("is_active")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-
-  user      Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  wallets   Wallet[]
-
-  @@map("accounts")
-}
-
-/// Provider-verified external bank accounts saved by the authenticated owner.
-model WithdrawalBankAccount {
-  id            String   @id @db.Uuid
-  userId        String   @map("user_id") @db.Uuid
-  bankCode      String   @map("bank_code") @db.VarChar(10)
-  bankName      String   @map("bank_name") @db.VarChar(255)
-  accountNumber String   @map("account_number") @db.VarChar(10)
-  accountName   String   @map("account_name") @db.VarChar(255)
-  verifiedAt    DateTime @map("verified_at")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-  user          Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, bankCode, accountNumber])
-  @@map("withdrawal_bank_accounts")
-}
-
-/// Wallet linked 1:1 to an account. Balance is authoritative (local).
-model Wallet {
-  id        String   @id @db.Uuid
-  accountId String   @unique @map("account_id") @db.Uuid
-  balance   Decimal  @default(0) @db.Decimal(15, 2)
-  monthlyBudget Decimal? @map("monthly_budget") @db.Decimal(15, 2)
-  currency  String   @default("NGN") @db.VarChar(3)
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  account      Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  transactions Transaction[]
-
-  @@map("wallets")
-}
-
-// ---------------------------------------------------------------------------
-// Models — Cards
-// ---------------------------------------------------------------------------
-
-/// Generic third-party card issuers. `config` holds API keys / secrets
-/// encrypted at the application level.
-model CardProvider {
-  id        String   @id @db.Uuid
-  name      String   @unique @db.VarChar(100)
-  baseUrl   String   @map("base_url")
-  isActive  Boolean  @default(true) @map("is_active")
-  config    Json     @default("{}")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  cards Card[]
-
-  @@map("card_providers")
-}
-
-/// Virtual or physical card. `cardNumberEncrypted` (and, for provider-issued
-/// cards, `cardCvvEncrypted`) is AES-256-GCM encrypted; `cardNumberLast4` is
-/// plaintext for display. `issuer` discriminates locally generated cards
-/// (`bonde`) from provider-issued cards (`flutterwave`); `balance` is the
-/// funded-balance cache on issued cards (provider authoritative), and
-/// `totalSpent` is synced from provider card transactions.
-model Card {
-  retiredAt DateTime? @map("retired_at")
-  retirementReason String? @map("retirement_reason")
-  retirementStatus String? @map("retirement_status")
-  controlExpiresAt DateTime? @map("control_expires_at")
-  rulesVersion Int @default(1) @map("rules_version")
-  providerLeaseUntil DateTime? @map("provider_lease_until")
-  providerLeaseOwner String? @map("provider_lease_owner")
-  merchantEnrollments FinanceMerchantEnrollment[]
-  captures FinanceCapture[]
-  id                    String     @id @db.Uuid
-  userId                String     @map("user_id") @db.Uuid
-  providerId            String     @map("provider_id") @db.Uuid
-  cardNumberEncrypted   String?    @map("card_number_encrypted")
-  cardNumberLast4       String     @map("card_number_last4") @db.VarChar(4)
-  cardCvvEncrypted      String?    @map("card_cvv_encrypted")
-  cardType              String     @default("virtual") @map("card_type") @db.VarChar(20)
-  creationLockType      LockType? @map("creation_lock_type")
-  issuer                String     @default("bonde") @db.VarChar(20)
-  currency              String     @default("NGN") @db.VarChar(3)
-  nameOnCard            String?    @map("name_on_card") @db.VarChar(100)
-  status                CardStatus @default(ACTIVE)
-  nickname              String?    @db.VarChar(100)
-  maxSpendLimit         Decimal?   @map("max_spend_limit") @db.Decimal(15, 2)
-  monthlyLimit          Decimal?   @map("monthly_limit") @db.Decimal(15, 2)
-  allowTopUp            Boolean    @default(true) @map("allow_top_up")
-  notifyHalfSpent       Boolean    @default(true) @map("notify_half_spent")
-  notifyLowBalance      Boolean    @default(true) @map("notify_low_balance")
-  notifyBudgetReached   Boolean    @default(true) @map("notify_budget_reached")
-  totalSpent            Decimal    @default(0) @map("total_spent") @db.Decimal(15, 2)
-  balance               Decimal    @default(0) @db.Decimal(15, 2)
-  expirationType        String     @map("expiration_type") @db.VarChar(20)
-  expirationDate        DateTime   @map("expiration_date")
-  externalReferenceId   String?    @map("external_reference_id") @db.VarChar(100)
-  lastSyncAt            DateTime?  @map("last_sync_at")
-  createdAt             DateTime   @default(now()) @map("created_at")
-  updatedAt             DateTime   @updatedAt @map("updated_at")
-
-  user                  Profile    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  provider              CardProvider @relation(fields: [providerId], references: [id])
-  locks                 CardLock[]
-  restrictedCategories  CardCategory[]
-  merchants             CardMerchant[]
-  history               CardHistory[]
-  transactions          Transaction[]
-  financeOperations FinanceOperation[]
-  financeAuthorizations FinanceAuthorization[]
-
-  @@index([userId])
-  @@index([providerId])
-  @@map("cards")
-}
-
-/// Composable lock on a card. A card can have multiple locks of different types.
-/// `config` holds type-specific payload as JSONB.
-model CardLock {
-  id        String   @id @db.Uuid
-  cardId    String   @map("card_id") @db.Uuid
-  lockType  LockType @map("lock_type")
-  config    Json     @default("{}")
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
-
-  @@unique([cardId, lockType])
-  @@map("card_locks")
-}
-
-/// Timeline of changes to a card (create, patch, pause/resume, limits,
-/// locks, categories, merchants). `changes` holds `{ before?, after? }` for
-/// patch-type events and `{}` otherwise.
-model CardHistory {
-  id        String   @id @db.Uuid
-  cardId    String   @map("card_id") @db.Uuid
-  event     String   @db.VarChar(50)
-  changes   Json?    @default("{}")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
-
-  @@index([cardId, createdAt])
-  @@map("card_history")
-}
-
-/// Merchant allowlist on a card (deny-by-default): the card may only be used
-/// to purchase from the merchants listed here. `merchantCode` is the provider
-/// identifier; when absent, the name is used for uniqueness.
-model CardMerchant {
-  id           String     @id @db.Uuid
-  cardId       String     @map("card_id") @db.Uuid
-  merchantName String     @map("merchant_name") @db.VarChar(200)
-  merchantCode String?    @map("merchant_code") @db.VarChar(100)
-  createdAt    DateTime   @default(now()) @map("created_at")
-
-  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
-
-  @@unique([cardId, merchantCode])
-  @@index([cardId, merchantName])
-  @@map("card_merchants")
-}
-
-/// Restricted spending category on a card. Deny-by default (`isAllowed` = false).
-model CardCategory {
-  id        String                  @id @db.Uuid
-  cardId    String                  @map("card_id") @db.Uuid
-  category  CardRestrictedCategory
-  isAllowed Boolean                 @default(false) @map("is_allowed")
-  createdAt DateTime                @default(now()) @map("created_at")
-
-  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
-
-  @@unique([cardId, category])
-  @@map("card_categories")
-}
-
-// ---------------------------------------------------------------------------
-// Models — Chat / AI
-// ---------------------------------------------------------------------------
-
-/// AI conversation session.
-model Chat {
-  id        String     @id @db.Uuid
-  userId    String     @map("user_id") @db.Uuid
-  title     String?    @db.VarChar(255)
-  createdAt DateTime   @default(now()) @map("created_at")
-  updatedAt DateTime   @updatedAt @map("updated_at")
-
-  user         Profile       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages     Message[]
-  transactions Transaction[]
-
-  @@index([userId])
-  @@map("chats")
-}
-
-/// Single message inside a chat.
-model Message {
-  id        String      @id @db.Uuid
-  chatId    String      @map("chat_id") @db.Uuid
-  role      MessageRole
-  content   String
-  createdAt DateTime    @default(now()) @map("created_at")
-
-  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
-
-  @@index([chatId, createdAt])
-  @@map("messages")
-}
-
-/// Admin support surface: a user-raised (or admin-raised) ticket carrying a
-/// back-and-forth conversation of USER/SUPPORT messages. Lives outside the
-/// generic `crud` registry; dedicated admin-console flows own it.
-model SupportTicket {
-  id         String         @id @db.Uuid
-  userId     String         @map("user_id") @db.Uuid
-  subject    String         @db.VarChar(255)
-  priority   TicketPriority @default(MEDIUM)
-  status     TicketStatus   @default(OPEN)
-  assigneeId String?        @map("assignee_id") @db.Uuid
-  createdAt  DateTime       @default(now()) @map("created_at")
-  updatedAt  DateTime       @updatedAt @map("updated_at")
-
-  user     Profile          @relation("SupportTicketOwner", fields: [userId], references: [id], onDelete: Cascade)
-  assignee Profile?         @relation("SupportTicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  messages SupportMessage[]
-
-  @@index([userId])
-  @@index([status, priority])
-  @@map("support_tickets")
-}
-
-/// One message in a support ticket conversation.
-model SupportMessage {
-  id        String             @id @db.Uuid
-  ticketId  String             @map("ticket_id") @db.Uuid
-  role      SupportMessageRole
-  body      String
-  createdAt DateTime           @default(now()) @map("created_at")
-
-  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-
-  @@index([ticketId, createdAt])
-  @@map("support_messages")
-}
-
-// ---------------------------------------------------------------------------
-// Models — Transactions
-// ---------------------------------------------------------------------------
-
-/// Financial transaction. `chatId` is set when the transaction was initiated
-/// by the AI. `nextOccurrenceDate` is indexed for the recurring-payment
-/// scheduler (`WHERE is_recurring AND nextOccurrenceDate <= now()`).
-model Transaction {
-  id                  String           @id @db.Uuid
-  userId              String           @map("user_id") @db.Uuid
-  walletId            String           @map("wallet_id") @db.Uuid
-  cardId              String?          @map("card_id") @db.Uuid
-  chatId              String?          @map("chat_id") @db.Uuid
-  type                TransactionType
-  status              TransactionStatus @default(PENDING)
-  approvalStatus      ApprovalStatus   @default(PENDING) @map("approval_status")
-  amount              Decimal          @db.Decimal(15, 2)
-  currency            String           @default("NGN") @db.VarChar(3)
-  description         String?          @db.VarChar(500)
-  metadata            Json?            @default("{}")
-  frequency           TransactionFrequency @default(ONE_TIME)
-  isRecurring         Boolean          @default(false) @map("is_recurring")
-  recurrenceEndDate   DateTime?        @map("recurrence_end_date")
-  nextOccurrenceDate  DateTime?        @map("next_occurrence_date")
-  thresholdWarning    Boolean          @default(false) @map("threshold_warning")
-  approvalNotes       String?          @map("approval_notes") @db.VarChar(500)
-  approvedAt          DateTime?        @map("approved_at")
-  createdAt           DateTime         @default(now()) @map("created_at")
-  updatedAt           DateTime         @updatedAt @map("updated_at")
-
-  user    Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  wallet  Wallet   @relation(fields: [walletId], references: [id])
-  card    Card?    @relation(fields: [cardId], references: [id], onDelete: SetNull)
-  chat    Chat?    @relation(fields: [chatId], references: [id], onDelete: SetNull)
-
-  approvals TransactionApproval[]
-  providerEvents ProviderEvent[]
-
-  @@index([userId, status])
-  @@index([walletId])
-  @@index([chatId])
-  @@index([nextOccurrenceDate])
-  @@map("transactions")
-}
-
-/// Audit trail of approval decisions for a transaction.
-model TransactionApproval {
-  id            String         @id @db.Uuid
-  transactionId String         @map("transaction_id") @db.Uuid
-  status        ApprovalStatus
-  approvedBy    String         @map("approved_by") @db.Uuid
-  notes         String?        @db.VarChar(500)
-  createdAt     DateTime       @default(now()) @map("created_at")
-
-  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  approver    Profile     @relation(fields: [approvedBy], references: [id])
-
-  @@index([transactionId])
-  @@map("transaction_approvals")
-}
-
-/// Per-user configurable warning thresholds.
-model TransactionThreshold {
-  id             String        @id @db.Uuid
-  userId         String        @map("user_id") @db.Uuid
-  thresholdType  ThresholdType @map("threshold_type")
-  thresholdValue Decimal       @map("threshold_value") @db.Decimal(15, 2)
-  isActive       Boolean       @default(true) @map("is_active")
-  createdAt      DateTime      @default(now()) @map("created_at")
-  updatedAt      DateTime      @updatedAt @map("updated_at")
-
-  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, thresholdType])
-  @@map("transaction_thresholds")
-}
-
-// ---------------------------------------------------------------------------
-// Models — Notifications
-// ---------------------------------------------------------------------------
-
-/// In-app notification. Supports real-time delivery via Supabase Realtime
-/// (INSERT subscription) or NestJS WebSocket gateway.
-model Notification {
-  id        String             @id @db.Uuid
-  userId    String             @map("user_id") @db.Uuid
-  title     String             @db.VarChar(255)
-  content   String
-  status    NotificationStatus @default(UNREAD)
-  type      NotificationType   @default(SYSTEM)
-  metadata  Json?              @default("{}")
-  readAt    DateTime?          @map("read_at")
-  createdAt DateTime           @default(now()) @map("created_at")
-
-  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, status])
-  @@index([createdAt])
-  @@map("notifications")
-}
-
-/// FCM-registered device owned by a user (one row per active install). Token
-/// registrations power push delivery for new in-app notifications.
-model PushDevice {
-  id        String       @id @db.Uuid
-  userId    String       @map("user_id") @db.Uuid
-  token     String       @unique @db.VarChar(4096)
-  platform  PushPlatform @default(ANDROID)
-  createdAt DateTime     @default(now()) @map("created_at")
-  updatedAt DateTime     @updatedAt @map("updated_at")
-
-  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@map("push_devices")
-}
-
-// ---------------------------------------------------------------------------
-// Models — Security
-// ---------------------------------------------------------------------------
 
 /// 4-digit OTP codes for password recovery. Stored SHA-256 hashed (never
 /// plaintext). Expire after 5 minutes.
@@ -800,7 +431,724 @@ model AuditLog {
 }
 
 // ---------------------------------------------------------------------------
-// Models — Payment provider (Flutterwave) integration
+// Models — Banking
+// ---------------------------------------------------------------------------
+
+/// Bank account with a generated account number (bank-style + Luhn check digit).
+model Account {
+  id            String      @id @db.Uuid
+  /// A user can hold exactly one account (and, via Wallet.accountId, one wallet).
+  userId        String      @unique @map("user_id") @db.Uuid
+  accountNumber String      @unique @map("account_number") @db.VarChar(20)
+  accountType   AccountType @default(CHECKING) @map("account_type")
+  isActive      Boolean     @default(true) @map("is_active")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  user    Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallets Wallet[]
+
+  @@map("accounts")
+}
+
+/// Wallet linked 1:1 to an account. Balance is authoritative (local).
+model Wallet {
+  id            String   @id @db.Uuid
+  accountId     String   @unique @map("account_id") @db.Uuid
+  balance       Decimal  @default(0) @db.Decimal(15, 2)
+  monthlyBudget Decimal? @map("monthly_budget") @db.Decimal(15, 2)
+  currency      String   @default("NGN") @db.VarChar(3)
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  account      Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@map("wallets")
+}
+
+/// Provider-verified external bank accounts saved by the authenticated owner.
+model WithdrawalBankAccount {
+  id            String   @id @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  bankCode      String   @map("bank_code") @db.VarChar(10)
+  bankName      String   @map("bank_name") @db.VarChar(255)
+  accountNumber String   @map("account_number") @db.VarChar(10)
+  accountName   String   @map("account_name") @db.VarChar(255)
+  verifiedAt    DateTime @map("verified_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, bankCode, accountNumber])
+  @@map("withdrawal_bank_accounts")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Cards
+// ---------------------------------------------------------------------------
+
+/// Generic third-party card issuers. `config` holds API keys / secrets
+/// encrypted at the application level.
+model CardProvider {
+  id        String   @id @db.Uuid
+  name      String   @unique @db.VarChar(100)
+  baseUrl   String   @map("base_url")
+  isActive  Boolean  @default(true) @map("is_active")
+  config    Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  cards Card[]
+
+  @@map("card_providers")
+}
+
+/// Virtual or physical card. `cardNumberEncrypted` (and, for provider-issued
+/// cards, `cardCvvEncrypted`) is AES-256-GCM encrypted; `cardNumberLast4` is
+/// plaintext for display. `issuer` discriminates locally generated cards
+/// (`bonde`) from provider-issued cards (`flutterwave`); `balance` is the
+/// funded-balance cache on issued cards (provider authoritative), and
+/// `totalSpent` is synced from provider card transactions.
+model Card {
+  id                  String     @id @db.Uuid
+  retiredAt           DateTime?  @map("retired_at")
+  retirementReason    String?    @map("retirement_reason")
+  retirementStatus    String?    @map("retirement_status")
+  controlExpiresAt    DateTime?  @map("control_expires_at")
+  rulesVersion        Int        @default(1) @map("rules_version")
+  providerLeaseUntil  DateTime?  @map("provider_lease_until")
+  providerLeaseOwner  String?    @map("provider_lease_owner")
+  userId              String     @map("user_id") @db.Uuid
+  providerId          String     @map("provider_id") @db.Uuid
+  cardNumberEncrypted String?    @map("card_number_encrypted")
+  cardNumberLast4     String     @map("card_number_last4") @db.VarChar(4)
+  cardCvvEncrypted    String?    @map("card_cvv_encrypted")
+  cardType            String     @default("virtual") @map("card_type") @db.VarChar(20)
+  creationLockType    LockType?  @map("creation_lock_type")
+  issuer              String     @default("bonde") @db.VarChar(20)
+  currency            String     @default("NGN") @db.VarChar(3)
+  nameOnCard          String?    @map("name_on_card") @db.VarChar(100)
+  status              CardStatus @default(ACTIVE)
+  nickname            String?    @db.VarChar(100)
+  maxSpendLimit       Decimal?   @map("max_spend_limit") @db.Decimal(15, 2)
+  monthlyLimit        Decimal?   @map("monthly_limit") @db.Decimal(15, 2)
+  allowTopUp          Boolean    @default(true) @map("allow_top_up")
+  notifyHalfSpent     Boolean    @default(true) @map("notify_half_spent")
+  notifyLowBalance    Boolean    @default(true) @map("notify_low_balance")
+  notifyBudgetReached Boolean    @default(true) @map("notify_budget_reached")
+  totalSpent          Decimal    @default(0) @map("total_spent") @db.Decimal(15, 2)
+  balance             Decimal    @default(0) @db.Decimal(15, 2)
+  expirationType      String     @map("expiration_type") @db.VarChar(20)
+  expirationDate      DateTime   @map("expiration_date")
+  externalReferenceId String?    @map("external_reference_id") @db.VarChar(100)
+  lastSyncAt          DateTime?  @map("last_sync_at")
+  createdAt           DateTime   @default(now()) @map("created_at")
+  updatedAt           DateTime   @updatedAt @map("updated_at")
+
+  merchantEnrollments   FinanceMerchantEnrollment[]
+  captures              FinanceCapture[]
+  user                  Profile                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider              CardProvider                @relation(fields: [providerId], references: [id])
+  locks                 CardLock[]
+  restrictedCategories  CardCategory[]
+  merchants             CardMerchant[]
+  history               CardHistory[]
+  transactions          Transaction[]
+  financeOperations     FinanceOperation[]
+  financeAuthorizations FinanceAuthorization[]
+
+  @@index([userId])
+  @@index([providerId])
+  @@map("cards")
+}
+
+/// Composable lock on a card. A card can have multiple locks of different types.
+/// `config` holds type-specific payload as JSONB.
+model CardLock {
+  id        String   @id @db.Uuid
+  cardId    String   @map("card_id") @db.Uuid
+  lockType  LockType @map("lock_type")
+  config    Json     @default("{}")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([cardId, lockType])
+  @@map("card_locks")
+}
+
+/// Merchant allowlist on a card (deny-by-default): the card may only be used
+/// to purchase from the merchants listed here. `merchantCode` is the provider
+/// identifier; when absent, the name is used for uniqueness.
+model CardMerchant {
+  id           String   @id @db.Uuid
+  cardId       String   @map("card_id") @db.Uuid
+  merchantName String   @map("merchant_name") @db.VarChar(200)
+  merchantCode String?  @map("merchant_code") @db.VarChar(100)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([cardId, merchantCode])
+  @@index([cardId, merchantName])
+  @@map("card_merchants")
+}
+
+/// Restricted spending category on a card. Deny-by default (`isAllowed` = false).
+model CardCategory {
+  id        String                 @id @db.Uuid
+  cardId    String                 @map("card_id") @db.Uuid
+  category  CardRestrictedCategory
+  isAllowed Boolean                @default(false) @map("is_allowed")
+  createdAt DateTime               @default(now()) @map("created_at")
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([cardId, category])
+  @@map("card_categories")
+}
+
+/// Timeline of changes to a card (create, patch, pause/resume, limits,
+/// locks, categories, merchants). `changes` holds `{ before?, after? }` for
+/// patch-type events and `{}` otherwise.
+model CardHistory {
+  id        String   @id @db.Uuid
+  cardId    String   @map("card_id") @db.Uuid
+  event     String   @db.VarChar(50)
+  changes   Json?    @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId, createdAt])
+  @@map("card_history")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Finance / Ledger
+// ---------------------------------------------------------------------------
+
+// Live money is deliberately isolated from development wallet/card balances.
+model FinanceAccount {
+  key       String   @id
+  userId    String?  @map("user_id") @db.Uuid
+  currency  String   @db.VarChar(3)
+  kind      String   @db.VarChar(30)
+  balance   Decimal  @default(0) @db.Decimal(20, 2)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user    Profile?       @relation(fields: [userId], references: [id], onDelete: Restrict, map: "finance_owner")
+  entries FinanceEntry[]
+
+  @@index([userId, currency])
+  @@map("finance_accounts")
+}
+
+model FinanceJournal {
+  id            String   @id @db.Uuid
+  transactionId BigInt   @default(dbgenerated("txid_current()")) @map("transaction_id")
+  reference     String   @unique
+  description   String
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  capture FinanceCapture?
+  entries FinanceEntry[]
+
+  @@map("finance_journals")
+}
+
+model FinanceEntry {
+  id         String  @id @db.Uuid
+  journalId  String  @map("journal_id") @db.Uuid
+  accountKey String  @map("account_key")
+  amount     Decimal @db.Decimal(20, 2)
+
+  journal FinanceJournal @relation(fields: [journalId], references: [id], onDelete: Restrict)
+  account FinanceAccount @relation(fields: [accountKey], references: [key], onDelete: Restrict)
+
+  @@index([accountKey])
+  @@map("finance_entries")
+}
+
+model FinanceCapture {
+  id                String   @id @db.Uuid
+  providerReference String   @unique @map("provider_reference")
+  journalId         String   @unique @map("journal_id") @db.Uuid
+  authorizationId   String   @map("authorization_id")
+  cardId            String   @map("card_id") @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  currency          String
+  amount            Decimal  @db.Decimal(20, 2)
+  isPurchase        Boolean  @default(true) @map("is_purchase")
+  bookedAt          DateTime @default(now()) @map("booked_at")
+
+  journal       FinanceJournal       @relation(fields: [journalId], references: [id], onDelete: Restrict)
+  authorization FinanceAuthorization @relation(fields: [authorizationId], references: [id], onDelete: Restrict)
+  card          Card                 @relation(fields: [cardId], references: [id], onDelete: Restrict)
+  user          Profile              @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([cardId, bookedAt])
+  @@map("finance_captures")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Finance / Customers and Operations
+// ---------------------------------------------------------------------------
+
+model FinanceCustomer {
+  userId            String   @id @map("user_id") @db.Uuid
+  sudoId            String?  @unique @map("sudo_id")
+  bankAccountId     String?  @unique @map("bank_account_id")
+  bankAccountNumber String?  @unique @map("bank_account_number")
+  bankAccountName   String?  @map("bank_account_name")
+  bankCode          String?  @map("bank_code")
+  identityRef       String?  @map("identity_ref")
+  identityHash      String?  @map("identity_hash")
+  bankStatus        String   @default("PENDING") @map("bank_status")
+  sudoStatus        String   @default("PENDING") @map("sudo_status")
+  status            String   @default("PENDING")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Restrict, map: "finance_customer_owner")
+
+  @@map("finance_customers")
+}
+
+model FinanceOperation {
+  id                String    @id @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  idempotencyKey    String    @map("idempotency_key")
+  fingerprint       String
+  kind              String
+  currency          String    @db.VarChar(3)
+  amount            Decimal   @db.Decimal(20, 2)
+  fee               Decimal   @default(0) @db.Decimal(20, 2)
+  status            String    @default("QUEUED")
+  cardId            String?   @map("card_id") @db.Uuid
+  providerReference String?   @map("provider_reference")
+  request           Json      @default("{}")
+  result            Json      @default("{}")
+  attempts          Int       @default(0)
+  leaseUntil        DateTime? @map("lease_until")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Restrict, map: "finance_operation_owner")
+  card Card?   @relation(fields: [cardId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, idempotencyKey])
+  @@index([status, createdAt])
+  @@map("finance_operations")
+}
+
+model FinanceAuthorization {
+  id                 String    @id
+  requestType        String    @default("PURCHASE") @map("request_type")
+  merchantIdentityId String?   @map("merchant_identity_id") @db.Uuid
+  userId             String    @map("user_id") @db.Uuid
+  cardId             String    @map("card_id") @db.Uuid
+  currency           String    @db.VarChar(3)
+  amount             Decimal   @db.Decimal(20, 2)
+  settled            Decimal   @default(0) @db.Decimal(20, 2)
+  refunded           Decimal   @default(0) @db.Decimal(20, 2)
+  released           Decimal   @default(0) @db.Decimal(20, 2)
+  status             String
+  merchantId         String    @map("merchant_id")
+  merchantName       String    @map("merchant_name")
+  mcc                String
+  responseCode       String    @map("response_code")
+  approvalExpiresAt  DateTime? @map("approval_expires_at")
+  approvalUsedAt     DateTime? @map("approval_used_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  captures           FinanceCapture[]
+  merchantCandidates FinanceMerchantCandidate[]
+  user               Profile                    @relation(fields: [userId], references: [id], onDelete: Restrict, map: "finance_authorization_owner")
+  card               Card                       @relation(fields: [cardId], references: [id], onDelete: Restrict, map: "finance_authorization_card")
+
+  @@index([cardId, createdAt])
+  @@index([userId, status])
+  @@map("finance_authorizations")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Finance / Merchants
+// ---------------------------------------------------------------------------
+
+model FinanceMerchantIdentity {
+  id          String    @id @db.Uuid
+  environment String
+  merchantId  String    @map("merchant_id")
+  country     String
+  name        String
+  mcc         String
+  revokedAt   DateTime? @map("revoked_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  access     FinanceMerchantAccess[]
+  candidates FinanceMerchantCandidate[]
+
+  @@unique([environment, merchantId, country])
+  @@map("finance_merchant_identities")
+}
+
+model FinanceMerchantCatalog {
+  id          String   @id @db.Uuid
+  label       String
+  website     String?
+  status      String   @default("DRAFT")
+  version     Int      @default(1)
+  identityIds String[] @map("identity_ids") @db.Uuid
+  evidence    Json     @default("[]")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("finance_merchant_catalog")
+}
+
+model FinanceMerchantAccess {
+  userId     String @map("user_id") @db.Uuid
+  identityId String @map("identity_id") @db.Uuid
+
+  user     Profile                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  identity FinanceMerchantIdentity @relation(fields: [identityId], references: [id], onDelete: Restrict)
+
+  @@id([userId, identityId])
+  @@map("finance_merchant_access")
+}
+
+model FinanceMerchantEnrollment {
+  id           String   @id @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  cardId       String   @map("card_id") @db.Uuid
+  label        String
+  rulesVersion Int      @map("rules_version")
+  status       String   @default("PENDING")
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user       Profile                    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  card       Card                       @relation(fields: [cardId], references: [id], onDelete: Restrict)
+  candidates FinanceMerchantCandidate[]
+
+  @@index([cardId, status, expiresAt])
+  @@map("finance_merchant_enrollments")
+}
+
+model FinanceMerchantCandidate {
+  id              String   @id @db.Uuid
+  enrollmentId    String   @map("enrollment_id") @db.Uuid
+  identityId      String   @map("identity_id") @db.Uuid
+  authorizationId String   @map("authorization_id")
+  requestHash     String   @map("request_hash")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  enrollment    FinanceMerchantEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+  identity      FinanceMerchantIdentity   @relation(fields: [identityId], references: [id], onDelete: Restrict)
+  authorization FinanceAuthorization      @relation(fields: [authorizationId], references: [id], onDelete: Restrict)
+
+  @@unique([enrollmentId, authorizationId])
+  @@map("finance_merchant_candidates")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Finance / Provider Events and Controls
+// ---------------------------------------------------------------------------
+
+model FinanceInbox {
+  id        String   @id @db.Uuid
+  cardId    String?  @map("card_id") @db.Uuid
+  provider  String
+  reference String
+  eventType String   @map("event_type")
+  payload   Json
+  status    String   @default("RECEIVED")
+  errorCode String?  @map("error_code")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([provider, reference])
+  @@index([status, createdAt])
+  @@map("finance_inbox")
+}
+
+model FinanceProof {
+  hash        String    @id
+  userId      String    @map("user_id") @db.Uuid
+  fingerprint String
+  expiresAt   DateTime  @map("expires_at")
+  consumedAt  DateTime? @map("consumed_at")
+
+  @@map("finance_proofs")
+}
+
+model FinanceInstallation {
+  id          String   @id
+  environment String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("finance_installations")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Transactions
+// ---------------------------------------------------------------------------
+
+/// Financial transaction. `chatId` is set when the transaction was initiated
+/// by the AI. `nextOccurrenceDate` is indexed for the recurring-payment
+/// scheduler (`WHERE is_recurring AND nextOccurrenceDate <= now()`).
+model Transaction {
+  id                 String               @id @db.Uuid
+  userId             String               @map("user_id") @db.Uuid
+  walletId           String               @map("wallet_id") @db.Uuid
+  cardId             String?              @map("card_id") @db.Uuid
+  chatId             String?              @map("chat_id") @db.Uuid
+  type               TransactionType
+  status             TransactionStatus    @default(PENDING)
+  approvalStatus     ApprovalStatus       @default(PENDING) @map("approval_status")
+  amount             Decimal              @db.Decimal(15, 2)
+  currency           String               @default("NGN") @db.VarChar(3)
+  description        String?              @db.VarChar(500)
+  metadata           Json?                @default("{}")
+  frequency          TransactionFrequency @default(ONE_TIME)
+  isRecurring        Boolean              @default(false) @map("is_recurring")
+  recurrenceEndDate  DateTime?            @map("recurrence_end_date")
+  nextOccurrenceDate DateTime?            @map("next_occurrence_date")
+  thresholdWarning   Boolean              @default(false) @map("threshold_warning")
+  approvalNotes      String?              @map("approval_notes") @db.VarChar(500)
+  approvedAt         DateTime?            @map("approved_at")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
+
+  user           Profile               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet         Wallet                @relation(fields: [walletId], references: [id])
+  card           Card?                 @relation(fields: [cardId], references: [id], onDelete: SetNull)
+  chat           Chat?                 @relation(fields: [chatId], references: [id], onDelete: SetNull)
+  approvals      TransactionApproval[]
+  providerEvents ProviderEvent[]
+
+  @@index([userId, status])
+  @@index([walletId])
+  @@index([chatId])
+  @@index([nextOccurrenceDate])
+  @@map("transactions")
+}
+
+/// Audit trail of approval decisions for a transaction.
+model TransactionApproval {
+  id            String         @id @db.Uuid
+  transactionId String         @map("transaction_id") @db.Uuid
+  status        ApprovalStatus
+  approvedBy    String         @map("approved_by") @db.Uuid
+  notes         String?        @db.VarChar(500)
+  createdAt     DateTime       @default(now()) @map("created_at")
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  approver    Profile     @relation(fields: [approvedBy], references: [id])
+
+  @@index([transactionId])
+  @@map("transaction_approvals")
+}
+
+/// Per-user configurable warning thresholds.
+model TransactionThreshold {
+  id             String        @id @db.Uuid
+  userId         String        @map("user_id") @db.Uuid
+  thresholdType  ThresholdType @map("threshold_type")
+  thresholdValue Decimal       @map("threshold_value") @db.Decimal(15, 2)
+  isActive       Boolean       @default(true) @map("is_active")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, thresholdType])
+  @@map("transaction_thresholds")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Chat / AI
+// ---------------------------------------------------------------------------
+
+/// AI conversation session.
+model Chat {
+  id        String   @id @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  title     String?  @db.VarChar(255)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user         Profile       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages     Message[]
+  transactions Transaction[]
+
+  @@index([userId])
+  @@map("chats")
+}
+
+/// Single message inside a chat.
+model Message {
+  id        String      @id @db.Uuid
+  chatId    String      @map("chat_id") @db.Uuid
+  role      MessageRole
+  content   String
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId, createdAt])
+  @@map("messages")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Billing / AI Credits
+// ---------------------------------------------------------------------------
+
+/// Credit units are separate from wallet money; the welcome grant is one-time.
+model AiCreditAccount {
+  userId             String    @id @map("user_id") @db.Uuid
+  welcomeRemaining   Int       @default(100) @map("welcome_remaining")
+  planRemaining      Int       @default(0) @map("plan_remaining")
+  planGranted        Int       @default(0) @map("plan_granted")
+  planUsed           Int       @default(0) @map("plan_used")
+  purchasedRemaining Int       @default(0) @map("purchased_remaining")
+  periodEnd          DateTime? @map("period_end")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("ai_credit_accounts")
+}
+
+/// Retry identity is permanent. Only a confirmed settlement grants entitlements.
+model BillingOrder {
+  id             String   @id @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  idempotencyKey String   @map("idempotency_key") @db.VarChar(64)
+  kind           String   @db.VarChar(20)
+  productId      String   @map("product_id") @db.VarChar(40)
+  amount         Decimal  @db.Decimal(15, 2)
+  currency       String   @default("NGN") @db.VarChar(3)
+  credits        Int      @default(0)
+  status         String   @default("PENDING") @db.VarChar(16)
+  paymentMethod  String   @map("payment_method") @db.VarChar(16)
+  cardId         String?  @map("card_id") @db.Uuid
+  transactionId  String?  @unique @map("transaction_id") @db.Uuid
+  failureReason  String?  @map("failure_reason") @db.VarChar(255)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+  @@map("billing_orders")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Support
+// ---------------------------------------------------------------------------
+
+/// Admin support surface: a user-raised (or admin-raised) ticket carrying a
+/// back-and-forth conversation of USER/SUPPORT messages. Lives outside the
+/// generic `crud` registry; dedicated admin-console flows own it.
+model SupportTicket {
+  id         String         @id @db.Uuid
+  userId     String         @map("user_id") @db.Uuid
+  subject    String         @db.VarChar(255)
+  priority   TicketPriority @default(MEDIUM)
+  status     TicketStatus   @default(OPEN)
+  assigneeId String?        @map("assignee_id") @db.Uuid
+  createdAt  DateTime       @default(now()) @map("created_at")
+  updatedAt  DateTime       @updatedAt @map("updated_at")
+
+  user     Profile          @relation("SupportTicketOwner", fields: [userId], references: [id], onDelete: Cascade)
+  assignee Profile?         @relation("SupportTicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  messages SupportMessage[]
+
+  @@index([userId])
+  @@index([status, priority])
+  @@map("support_tickets")
+}
+
+/// One message in a support ticket conversation.
+model SupportMessage {
+  id        String             @id @db.Uuid
+  ticketId  String             @map("ticket_id") @db.Uuid
+  role      SupportMessageRole
+  body      String
+  createdAt DateTime           @default(now()) @map("created_at")
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+  @@map("support_messages")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Notifications
+// ---------------------------------------------------------------------------
+
+/// In-app notification. Supports real-time delivery via Supabase Realtime
+/// (INSERT subscription) or NestJS WebSocket gateway.
+model Notification {
+  id        String             @id @db.Uuid
+  userId    String             @map("user_id") @db.Uuid
+  title     String             @db.VarChar(255)
+  content   String
+  status    NotificationStatus @default(UNREAD)
+  type      NotificationType   @default(SYSTEM)
+  metadata  Json?              @default("{}")
+  readAt    DateTime?          @map("read_at")
+  createdAt DateTime           @default(now()) @map("created_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+/// FCM-registered device owned by a user (one row per active install). Token
+/// registrations power push delivery for new in-app notifications.
+model PushDevice {
+  id        String       @id @db.Uuid
+  userId    String       @map("user_id") @db.Uuid
+  token     String       @unique @db.VarChar(4096)
+  platform  PushPlatform @default(ANDROID)
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_devices")
+}
+
+/// An admin-authored message fanned out to every active profile as one
+/// `Notification` row each. The row is the send record (title/body/sender/
+/// recipientCount); the per-user copies live in `notifications`.
+model Broadcast {
+  id             String   @id @db.Uuid
+  title          String   @db.VarChar(140)
+  body           String   @db.VarChar(1000)
+  recipientCount Int      @map("recipient_count")
+  sentBy         String?  @map("sent_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  sender Profile? @relation("BroadcastSender", fields: [sentBy], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@map("broadcasts")
+}
+
+// ---------------------------------------------------------------------------
+// Models — Payment Provider Integration
 // ---------------------------------------------------------------------------
 
 /// Per-user Flutterwave virtual account used to receive wallet deposits.
@@ -852,37 +1200,7 @@ model ProviderEvent {
 }
 
 // ---------------------------------------------------------------------------
-// Models — Identity verification (BVN / NIN)
-// ---------------------------------------------------------------------------
-
-/// A user's one-time KYC result. The raw BVN/NIN are **never** stored — only a
-/// keyed HMAC-SHA-256 digest (so a stolen row cannot be brute-forced or replayed
-/// against the provider) plus per-identifier verification timestamps. The
-/// overall `status` is `VERIFIED` only once both identifiers have passed.
-model KycVerification {
-  id            String    @id @db.Uuid
-  userId        String    @unique @map("user_id") @db.Uuid
-  provider      String    @default("dojah") @db.VarChar(50)
-  /// Keyed HMAC-SHA-256 digest of the BVN, hex-encoded. Null until verified.
-  bvnHash       String?   @map("bvn_hash") @db.VarChar(64)
-  /// Keyed HMAC-SHA-256 digest of the NIN, hex-encoded. Null until verified.
-  ninHash       String?   @map("nin_hash") @db.VarChar(64)
-  bvnVerifiedAt DateTime? @map("bvn_verified_at")
-  ninVerifiedAt DateTime? @map("nin_verified_at")
-  status        KycStatus @default(PENDING)
-  /// Non-sensitive provider response metadata (references, statuses). Never
-  /// contains the identifier values.
-  providerRef   Json      @default("{}") @map("provider_ref")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-
-  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("kyc_verifications")
-}
-
-// ---------------------------------------------------------------------------
-// Models — Public marketing site (Bonde-Web)
+// Models — Public Marketing Site (Bonde-Web)
 // ---------------------------------------------------------------------------
 
 /// A visitor who asked to be notified about Bonde before the app launches.
@@ -916,224 +1234,4 @@ model ContactMessage {
   @@index([email])
   @@index([createdAt])
   @@map("contact_messages")
-}
-
-// Live money is deliberately isolated from development wallet/card balances.
-model FinanceAccount {
-  key String @id
-  userId String? @map("user_id") @db.Uuid
-  currency String @db.VarChar(3)
-  kind String @db.VarChar(30)
-  balance Decimal @default(0) @db.Decimal(20, 2)
-  updatedAt DateTime @updatedAt @map("updated_at")
-  user Profile? @relation(fields:[userId],references:[id],onDelete:Restrict,map:"finance_owner")
-  entries FinanceEntry[]
-  @@index([userId, currency])
-  @@map("finance_accounts")
-}
-
-model FinanceJournal {
-  capture FinanceCapture?
-  transactionId BigInt @default(dbgenerated("txid_current()")) @map("transaction_id")
-  id String @id @db.Uuid
-  reference String @unique
-  description String
-  createdAt DateTime @default(now()) @map("created_at")
-  entries FinanceEntry[]
-  @@map("finance_journals")
-}
-
-model FinanceEntry {
-  id String @id @db.Uuid
-  journalId String @map("journal_id") @db.Uuid
-  accountKey String @map("account_key")
-  amount Decimal @db.Decimal(20, 2)
-  journal FinanceJournal @relation(fields:[journalId], references:[id], onDelete:Restrict)
-  account FinanceAccount @relation(fields:[accountKey], references:[key], onDelete:Restrict)
-  @@index([accountKey])
-  @@map("finance_entries")
-}
-
-model FinanceOperation {
-  id String @id @db.Uuid
-  userId String @map("user_id") @db.Uuid
-  idempotencyKey String @map("idempotency_key")
-  fingerprint String
-  kind String
-  currency String @db.VarChar(3)
-  amount Decimal @db.Decimal(20, 2)
-  fee Decimal @default(0) @db.Decimal(20, 2)
-  status String @default("QUEUED")
-  cardId String? @map("card_id") @db.Uuid
-  providerReference String? @map("provider_reference")
-  request Json @default("{}")
-  result Json @default("{}")
-  attempts Int @default(0)
-  leaseUntil DateTime? @map("lease_until")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  user Profile @relation(fields:[userId],references:[id],onDelete:Restrict,map:"finance_operation_owner")
-  card Card? @relation(fields:[cardId],references:[id],onDelete:Restrict)
-  @@unique([userId, idempotencyKey])
-  @@index([status, createdAt])
-  @@map("finance_operations")
-}
-
-model FinanceCustomer {
-  userId String @id @map("user_id") @db.Uuid
-  sudoId String? @unique @map("sudo_id")
-  bankAccountId String? @unique @map("bank_account_id")
-  bankAccountNumber String? @unique @map("bank_account_number")
-  bankAccountName String? @map("bank_account_name")
-  bankCode String? @map("bank_code")
-  identityRef String? @map("identity_ref")
-  identityHash String? @map("identity_hash")
-  bankStatus String @default("PENDING") @map("bank_status")
-  sudoStatus String @default("PENDING") @map("sudo_status")
-  status String @default("PENDING")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  user Profile @relation(fields:[userId],references:[id],onDelete:Restrict,map:"finance_customer_owner")
-  @@map("finance_customers")
-}
-
-model FinanceAuthorization {
-  requestType String @default("PURCHASE") @map("request_type")
-  merchantIdentityId String? @map("merchant_identity_id") @db.Uuid
-  captures FinanceCapture[]
-  merchantCandidates FinanceMerchantCandidate[]
-  id String @id
-  userId String @map("user_id") @db.Uuid
-  cardId String @map("card_id") @db.Uuid
-  currency String @db.VarChar(3)
-  amount Decimal @db.Decimal(20, 2)
-  settled Decimal @default(0) @db.Decimal(20, 2)
-  refunded Decimal @default(0) @db.Decimal(20, 2)
-  released Decimal @default(0) @db.Decimal(20, 2)
-  status String
-  merchantId String @map("merchant_id")
-  merchantName String @map("merchant_name")
-  mcc String
-  responseCode String @map("response_code")
-  approvalExpiresAt DateTime? @map("approval_expires_at")
-  approvalUsedAt DateTime? @map("approval_used_at")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  user Profile @relation(fields:[userId],references:[id],onDelete:Restrict,map:"finance_authorization_owner")
-  card Card @relation(fields:[cardId],references:[id],onDelete:Restrict,map:"finance_authorization_card")
-  @@index([cardId, createdAt])
-  @@index([userId, status])
-  @@map("finance_authorizations")
-}
-
-model FinanceInbox {
-  cardId String? @map("card_id") @db.Uuid
-  id String @id @db.Uuid
-  provider String
-  reference String
-  eventType String @map("event_type")
-  payload Json
-  status String @default("RECEIVED")
-  errorCode String? @map("error_code")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  @@unique([provider, reference])
-  @@index([status, createdAt])
-  @@map("finance_inbox")
-}
-
-model FinanceProof {
-  hash String @id
-  userId String @map("user_id") @db.Uuid
-  fingerprint String
-  expiresAt DateTime @map("expires_at")
-  consumedAt DateTime? @map("consumed_at")
-  @@map("finance_proofs")
-}
-
-model FinanceInstallation {
-  id String @id
-  environment String
-  createdAt DateTime @default(now()) @map("created_at")
-  @@map("finance_installations")
-}
-
-model FinanceMerchantIdentity {
-  id String @id @db.Uuid
-  environment String
-  merchantId String @map("merchant_id")
-  country String
-  name String
-  mcc String
-  revokedAt DateTime? @map("revoked_at")
-  createdAt DateTime @default(now()) @map("created_at")
-  access FinanceMerchantAccess[]
-  candidates FinanceMerchantCandidate[]
-  @@unique([environment, merchantId, country])
-  @@map("finance_merchant_identities")
-}
-model FinanceMerchantAccess {
-  userId String @map("user_id") @db.Uuid
-  identityId String @map("identity_id") @db.Uuid
-  user Profile @relation(fields:[userId], references:[id], onDelete:Restrict)
-  identity FinanceMerchantIdentity @relation(fields:[identityId], references:[id], onDelete:Restrict)
-  @@id([userId, identityId])
-  @@map("finance_merchant_access")
-}
-model FinanceMerchantCatalog {
-  id String @id @db.Uuid
-  label String
-  website String?
-  status String @default("DRAFT")
-  version Int @default(1)
-  identityIds String[] @map("identity_ids") @db.Uuid
-  evidence Json @default("[]")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  @@map("finance_merchant_catalog")
-}
-model FinanceMerchantEnrollment {
-  id String @id @db.Uuid
-  userId String @map("user_id") @db.Uuid
-  cardId String @map("card_id") @db.Uuid
-  label String
-  rulesVersion Int @map("rules_version")
-  status String @default("PENDING")
-  expiresAt DateTime @map("expires_at")
-  createdAt DateTime @default(now()) @map("created_at")
-  user Profile @relation(fields:[userId], references:[id], onDelete:Restrict)
-  card Card @relation(fields:[cardId], references:[id], onDelete:Restrict)
-  candidates FinanceMerchantCandidate[]
-  @@index([cardId,status,expiresAt])
-  @@map("finance_merchant_enrollments")
-}
-model FinanceMerchantCandidate {
-  id String @id @db.Uuid
-  enrollmentId String @map("enrollment_id") @db.Uuid
-  identityId String @map("identity_id") @db.Uuid
-  authorizationId String @map("authorization_id")
-  requestHash String @map("request_hash")
-  createdAt DateTime @default(now()) @map("created_at")
-  enrollment FinanceMerchantEnrollment @relation(fields:[enrollmentId],references:[id],onDelete:Restrict)
-  identity FinanceMerchantIdentity @relation(fields:[identityId],references:[id],onDelete:Restrict)
-  authorization FinanceAuthorization @relation(fields:[authorizationId],references:[id],onDelete:Restrict)
-  @@unique([enrollmentId,authorizationId])
-  @@map("finance_merchant_candidates")
-}
-model FinanceCapture {
-  id String @id @db.Uuid
-  providerReference String @unique @map("provider_reference")
-  journalId String @unique @map("journal_id") @db.Uuid
-  authorizationId String @map("authorization_id")
-  cardId String @map("card_id") @db.Uuid
-  userId String @map("user_id") @db.Uuid
-  currency String
-  amount Decimal @db.Decimal(20,2)
-  isPurchase Boolean @default(true) @map("is_purchase")
-  bookedAt DateTime @default(now()) @map("booked_at")
-  journal FinanceJournal @relation(fields:[journalId],references:[id],onDelete:Restrict)
-  authorization FinanceAuthorization @relation(fields:[authorizationId],references:[id],onDelete:Restrict)
-  card Card @relation(fields:[cardId],references:[id],onDelete:Restrict)
-  user Profile @relation(fields:[userId],references:[id],onDelete:Restrict)
-  @@index([cardId,bookedAt])
-  @@map("finance_captures")
 }

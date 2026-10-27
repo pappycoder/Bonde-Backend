@@ -59,6 +59,8 @@ function setup({ approvalId = APPROVAL, amount = '349.00' } = {}) {
     $transaction: vi.fn(),
   };
   prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
+  const delivery = { deliveryAddress: null, recipient: { name: 'Amina', phone: '+2348000000001' } };
+  const addresses = { context: vi.fn(async () => delivery) };
   const agent = {
     reply: vi.fn(async () => ({
       text: 'Found options',
@@ -75,10 +77,12 @@ function setup({ approvalId = APPROVAL, amount = '349.00' } = {}) {
   };
   return {
     prisma,
+    addresses,
+    delivery,
     agent,
     message,
     envelope,
-    service: new ChatRepliesService(prisma as never, agent as never),
+    service: new ChatRepliesService(prisma as never, agent as never, addresses as never),
   };
 }
 describe('chat assistant replies', () => {
@@ -115,6 +119,17 @@ describe('chat assistant replies', () => {
     expect(reply.items[0].id).toMatch(/^[a-f0-9-]{36}$/);
     expect(reply.replyTo).toBe(USER_MESSAGE);
     expect(reply.items[0].decision).toBe('PENDING');
+  });
+  it('passes the owner’s saved delivery context to the assistant', async () => {
+    const { service, addresses, delivery, agent, prisma } = setup();
+    prisma.message.findMany
+      .mockResolvedValueOnce([
+        { id: USER_MESSAGE, role: 'USER', content: 'Find headphones' },
+      ] as never)
+      .mockResolvedValueOnce([]);
+    await service.respond(USER, CHAT, USER_MESSAGE);
+    expect(addresses.context).toHaveBeenCalledWith(USER);
+    expect(agent.reply).toHaveBeenCalledWith(expect.objectContaining({ delivery }));
   });
   const endpoint = {
     code: 'JFK',

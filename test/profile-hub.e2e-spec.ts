@@ -38,6 +38,50 @@ describe('Profile hub and billing (local database)', () => {
     ctx.setPrincipal({ userId: SEED_OTHER_ID });
     expect((await ctx.http.get('/profile/preferences').expect(200)).body.hideBalances).toBe(false);
   });
+  it('creates and updates an owner-scoped delivery address without exposing it to another user', async () => {
+    const empty = await ctx.http.get('/profile/delivery-address').expect(200);
+    expect(empty.body).toBeNull();
+    const address = {
+      street: ' 10 Test Road ',
+      addressLine2: '',
+      city: 'Lagos',
+      region: 'Lagos',
+      country: 'Nigeria',
+      postalCode: '00100',
+    };
+    await ctx.http.put('/profile/delivery-address').send(address).expect(200);
+    const updated = {
+      ...address,
+      street: '20 New Road',
+      city: 'London',
+      region: 'London',
+      country: 'United Kingdom',
+      postalCode: 'SW1A 1AA',
+    };
+    await ctx.http.put('/profile/delivery-address').send(updated).expect(200);
+    expect((await ctx.http.get('/profile/delivery-address').expect(200)).body).toEqual(updated);
+    expect(await ctx.prisma.deliveryAddress.count({ where: { userId: SEED_USER_ID } })).toBe(1);
+    const audit = await ctx.prisma.auditLog.findFirst({
+      where: { action: 'profile.delivery_address.update' },
+    });
+    expect(audit).not.toBeNull();
+    expect(JSON.stringify(audit?.metadata ?? {})).not.toContain('Road');
+    ctx.setPrincipal({ userId: SEED_OTHER_ID });
+    expect((await ctx.http.get('/profile/delivery-address').expect(200)).body).toBeNull();
+    await ctx.http
+      .put('/profile/delivery-address')
+      .send({ ...address, userId: SEED_USER_ID })
+      .expect(400);
+    await ctx.raw.get('/profile/delivery-address').expect(401);
+    await ctx.raw.put('/profile/delivery-address').send(address).expect(401);
+  });
+  it('rejects incomplete delivery addresses without saving them', async () => {
+    await ctx.http
+      .put('/profile/delivery-address')
+      .send({ street: ' ', country: 'Nigeria' })
+      .expect(400);
+    expect(await ctx.prisma.deliveryAddress.count()).toBe(0);
+  });
   it('uses fixed catalog prices and serializes concurrent confirmations', async () => {
     const quote = await ctx.http
       .post('/billing/orders')

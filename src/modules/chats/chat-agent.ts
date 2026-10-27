@@ -1,3 +1,4 @@
+import type { DeliveryContext } from '../profiles/delivery-address.dto.js';
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import type { AssistantReplyDto } from './chat-replies.dto.js';
 
@@ -7,6 +8,7 @@ import type { AssistantReplyDto } from './chat-replies.dto.js';
  */
 export abstract class ChatAgent {
   abstract reply(input: {
+    delivery: DeliveryContext;
     userId: string;
     chatId: string;
     messages: Array<{ role: string; content: string }>;

@@ -1,3 +1,4 @@
+import { ProfilesModule } from '../profiles/profiles.module.js';
 import { Module } from '@nestjs/common';
 import { AuditLogModule } from '../audit/audit-log.module.js';
 import { ChatAgent, UnconfiguredChatAgent } from './chat-agent.js';
@@ -7,7 +8,7 @@ import { ChatsController } from './chats.controller.js';
 import { ChatsService } from './chats.service.js';
 
 @Module({
-  imports: [AuditLogModule],
+  imports: [AuditLogModule, ProfilesModule],
   controllers: [ChatsController],
   providers: [
     ChatsService,

@@ -4,6 +4,7 @@ import { PaymentPreviewDto } from './payment-preview.dto.js';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsObject,
   IsOptional,
@@ -16,6 +17,9 @@ import {
 } from 'class-validator';
 
 export class ChatProductDto {
+  @IsOptional()
+  @IsBoolean()
+  requiresDelivery?: boolean;
   @IsOptional()
   @ValidateNested()
   @Type(() => PaymentPreviewDto)

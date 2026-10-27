@@ -1,3 +1,4 @@
+import { DeliveryAddressService } from '../profiles/delivery-address.service.js';
 import {
   BadGatewayException,
   BadRequestException,
@@ -19,6 +20,7 @@ export class ChatRepliesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly agent: ChatAgent,
+    private readonly addresses: DeliveryAddressService,
   ) {}
 
   async respond(userId: string, chatId: string, messageId: string) {
@@ -36,7 +38,9 @@ export class ChatRepliesService {
       (message) => message.id === messageId && message.role === MessageRole.USER,
     );
     if (target < 0) throw new NotFoundException('User message not found');
+    const delivery = await this.addresses.context(userId);
     const result = await this.agent.reply({
+      delivery,
       userId,
       chatId,
       messages: messages.slice(0, target + 1).map(({ role, content }) => ({ role, content })),

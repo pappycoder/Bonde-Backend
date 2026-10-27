@@ -136,6 +136,16 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   be under `u-<userId>/`; URLs come from
   `StorageService.getPublicUrl('bonde-avatars', path)` — the API never proxies
   bytes.
+- **Delivery address**: authenticated `GET/PUT /api/profile/delivery-address` reads or
+  replaces the owner's one saved address (`delivery_addresses`, profile FK with cascade).
+  GET returns JSON `null` when none is saved. Street, city, region and country are
+  required; optional addressLine2/postalCode default to empty strings. Recipient
+  name/phone stay on the profile. Updates record `profile.delivery_address.update`
+  without address contents in the audit. Chat agent context includes these details;
+  approved payment instructions return `requiresDelivery`, `deliveryAddress` and
+  `recipient`. Trusted `requiresDelivery` overrides mode defaults (retail or
+  unclassified requires delivery; flight/subscription/software does not). Mobile
+  confirms delivery details before showing the manual merchant/card handoff.
 - **OTP**: codes are **4-digit** (`OTP_CODE_LENGTH = 4`), stored as **SHA-256
   digests** (never plaintext), 5-min TTL, single-use; sending a new code
   invalidates earlier ones. `OtpService` exposes principal-free primitives

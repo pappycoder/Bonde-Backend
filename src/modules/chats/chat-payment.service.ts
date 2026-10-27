@@ -1,3 +1,4 @@
+import { DeliveryAddressService } from '../profiles/delivery-address.service.js';
 import {
   BadRequestException,
   ConflictException,
@@ -9,7 +10,10 @@ import type { AssistantReplyDto } from './chat-replies.dto.js';
 
 @Injectable()
 export class ChatPaymentService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly addresses: DeliveryAddressService,
+  ) {}
   private async proposal(userId: string, chatId: string, messageId: string, itemId: string) {
     if (!(await this.prisma.chat.findFirst({ where: { id: chatId, userId } })))
       throw new NotFoundException('Chat not found');
@@ -48,7 +52,13 @@ export class ChatPaymentService {
 
   async instructions(userId: string, chatId: string, messageId: string, itemId: string) {
     const { item, transaction } = await this.proposal(userId, chatId, messageId, itemId);
+    const requiresDelivery =
+      item.requiresDelivery ?? (!item.preview || item.preview.mode === 'RETAIL');
+    const delivery = requiresDelivery ? await this.addresses.context(userId) : null;
     return {
+      requiresDelivery,
+      deliveryAddress: delivery?.deliveryAddress ?? null,
+      recipient: delivery?.recipient ?? null,
       transactionId: transaction.id,
       amount: transaction.amount.toFixed(2),
       currency: transaction.currency,
