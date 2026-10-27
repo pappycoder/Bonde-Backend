@@ -9,6 +9,8 @@ import { cardRegisteredEmail } from './card-registered.js';
 import { passwordResetEmail } from './password-reset.js';
 import { passwordChangedEmail } from './password-changed.js';
 import { waitlistConfirmationEmail } from './waitlist-confirmation.js';
+import { waitlistSignupEmail } from './waitlist-signup.js';
+import { contactMessageEmail } from './contact-message.js';
 import { inviteEmail } from './invite.js';
 
 /** Every anchor the shared footer contributes: 3 social icons + 1 support link. */
@@ -25,6 +27,19 @@ function allDocs() {
       email: 'amina@example.com',
       name: 'Amina',
       alreadyJoined: false,
+    }),
+    'waitlist-signup': waitlistSignupEmail({
+      email: 'amina@example.com',
+      firstName: 'Amina',
+      lastName: 'Sule',
+      phone: '+2348012345678',
+      source: 'website',
+    }),
+    contact: contactMessageEmail({
+      name: 'Amina',
+      email: 'amina@example.com',
+      subject: 'Hello',
+      message: 'Hello Bonde',
     }),
     welcome: welcomeEmail({ firstName: 'Amina', accountNumber: '1234567890' }),
     'card-registered': cardRegisteredEmail({
@@ -83,6 +98,29 @@ describe('email templates', () => {
     expect(doc.html).toContain('early access');
     expect(doc.html).toContain('&lt;script&gt;');
     expect(doc.html).not.toContain('<script>');
+  });
+
+  it('escapes all collected waitlist details exactly once', () => {
+    const doc = waitlistSignupEmail({
+      email: 'ada@example.com',
+      firstName: '<Ada>',
+      lastName: 'Ben & Jerry',
+      phone: '+2348012345678',
+      source: '<website>',
+    });
+    expect(doc.html).toContain('&lt;Ada&gt;');
+    expect(doc.html).toContain('Ben &amp; Jerry');
+    expect(doc.html).toContain('+2348012345678');
+    expect(doc.html).not.toContain('&amp;amp;');
+    expect(doc.html).not.toContain('<Ada>');
+  });
+
+  it('uses the supplied social destinations including query parameters', () => {
+    expect(brandLinks.social).toEqual({
+      linkedin: 'https://www.linkedin.com/company/usebonde/',
+      x: 'https://x.com/usebonde?s=11',
+      instagram: 'https://www.instagram.com/use_bonde?vrfl=dWs3cnZyOTM2M3hz&utm_source=qr',
+    });
   });
 
   describe('shared layout', () => {
@@ -155,7 +193,7 @@ describe('email templates', () => {
       expect(doc.html).toContain(`&copy; ${brandLinks.copyrightYear} ${brandLinks.legalEntity}`);
       expect(doc.html).toContain(brandLinks.supportUrl);
       for (const url of Object.values(brandLinks.social)) {
-        expect(doc.html).toContain(url);
+        expect(doc.html).toContain(`href="${esc(url)}"`);
       }
       // No dead anchors.
       expect(doc.html).not.toContain('href="#"');

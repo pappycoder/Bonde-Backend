@@ -221,7 +221,7 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
 ## Public marketing site (Bonde-Web)
 - `src/modules/marketing/` serves the public website (Bonde-Web). Two
   **unauthenticated** writes, both `@Public()` + `@StrictThrottle()`:
-  `POST /api/waitlist` (`{ email, name?, source? }`, 201, idempotent per email —
+  `POST /api/waitlist` (`{ email, firstName, lastName, phone, source? }`, 201, idempotent per email —
   a repeat answers `alreadyJoined: true` without a new row or team notification,
   and resends the visitor’s membership confirmation) and
   `POST /api/contact` (`{ name, email, subject?, message }`, 201).

@@ -40,24 +40,45 @@ export class MarketingService {
   ) {}
 
   async joinWaitlist(dto: JoinWaitlistDto): Promise<WaitlistJoinResult> {
-    const existing = await this.prisma.waitlistSignup.findUnique({
-      where: { email: dto.email },
-      select: { id: true, name: true },
+    // A unique-email insert and conditional updates keep concurrent submissions
+    // idempotent and prevent a repeat signup from replacing saved details.
+    const { signup, alreadyJoined } = await this.prisma.$transaction(async (tx) => {
+      const id = randomUUID();
+      const inserted = await tx.waitlistSignup.createMany({
+        data: {
+          id,
+          email: dto.email,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          phone: dto.phone,
+          name: `${dto.firstName} ${dto.lastName}`,
+          source: dto.source || null,
+        },
+        skipDuplicates: true,
+      });
+      if (!inserted.count) {
+        for (const field of ['firstName', 'lastName', 'phone'] as const) {
+          await tx.waitlistSignup.updateMany({
+            where: { email: dto.email, OR: [{ [field]: null }, { [field]: '' }] },
+            data: { [field]: dto[field] },
+          });
+        }
+      }
+      const saved = await tx.waitlistSignup.findUniqueOrThrow({ where: { email: dto.email } });
+      if (!saved.name) {
+        saved.name = `${saved.firstName} ${saved.lastName}`;
+        await tx.waitlistSignup.updateMany({
+          where: { id: saved.id, OR: [{ name: null }, { name: '' }] },
+          data: { name: saved.name },
+        });
+      }
+      return { signup: saved, alreadyJoined: inserted.count === 0 };
     });
-    if (existing) {
-      await this.confirmWaitlist(existing.id, dto.email, existing.name, true);
+    const { id } = signup;
+    if (alreadyJoined) {
+      await this.confirmWaitlist(id, dto.email, signup.name, true);
       return { status: 'joined', email: dto.email, alreadyJoined: true };
     }
-
-    const id = randomUUID();
-    await this.prisma.waitlistSignup.create({
-      data: {
-        id,
-        email: dto.email,
-        name: dto.name || null,
-        source: dto.source || null,
-      },
-    });
 
     await this.audit.record({
       action: 'marketing.waitlist.join',
@@ -66,11 +87,13 @@ export class MarketingService {
       metadata: { email: dto.email, source: dto.source ?? null },
     });
 
-    await this.confirmWaitlist(id, dto.email, dto.name || null, false);
+    await this.confirmWaitlist(id, dto.email, signup.name, false);
 
     const mail = waitlistSignupEmail({
       email: dto.email,
-      name: dto.name || null,
+      firstName: signup.firstName,
+      lastName: signup.lastName,
+      phone: signup.phone,
       source: dto.source || null,
     });
     await this.notifyInbox('mail.waitlist', id, dto.email, mail.subject, mail.html);

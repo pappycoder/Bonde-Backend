@@ -38,7 +38,9 @@ const docs = {
   }),
   'waitlist-signup': waitlistSignupEmail({
     email: 'amina@example.com',
-    name: 'Amina',
+    firstName: 'Amina',
+    lastName: 'Sule',
+    phone: '+2348012345678',
     source: 'Preview',
   }),
   contact: contactMessageEmail({

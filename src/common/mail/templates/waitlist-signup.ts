@@ -4,7 +4,9 @@ import type { EmailDoc } from './types.js';
 
 export interface WaitlistSignupEmailInput {
   email: string;
-  name: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  phone: string | null;
   source: string | null;
 }
 
@@ -24,7 +26,9 @@ export function waitlistSignupEmail(input: WaitlistSignupEmailInput): EmailDoc {
     {
       kind: 'facts',
       rows: [
-        { label: 'Name', value: input.name },
+        { label: 'First name', value: input.firstName },
+        { label: 'Last name', value: input.lastName },
+        { label: 'Phone', value: input.phone },
         { label: 'Email', value: input.email },
         { label: 'Source', value: input.source },
       ],

@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsEmail, IsOptional, IsString, Length, MaxLength } from 'class-validator';
+import { IsEmail, IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
 
 /** Trim then lowercase — emails are normalized everywhere in the API. */
 const normalizeEmail = ({ value }: { value: unknown }): string =>
@@ -16,11 +16,24 @@ export class JoinWaitlistDto {
   @Transform(normalizeEmail)
   email: string;
 
-  @IsOptional()
   @IsString()
-  @MaxLength(255)
-  @Transform(trim)
-  name?: string;
+  @Length(1, 255)
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  firstName: string;
+
+  @IsString()
+  @Length(1, 255)
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  lastName: string;
+
+  @IsString()
+  @Matches(/^\+?[0-9]{7,15}$/, {
+    message: 'phone must contain 7–15 digits and an optional leading +',
+  })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.replace(/[\s()-]/g, '') : value,
+  )
+  phone: string;
 
   @IsOptional()
   @IsString()

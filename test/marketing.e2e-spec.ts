@@ -37,6 +37,13 @@ class CaptureMail implements MailSender {
   }
 }
 
+const signup = {
+  email: 'ada@example.com',
+  firstName: 'Ada',
+  lastName: 'Okafor',
+  phone: '08012345678',
+};
+
 describe('Marketing (e2e)', () => {
   let ctx: BootedE2EApp;
   const mail = new CaptureMail();
@@ -59,7 +66,13 @@ describe('Marketing (e2e)', () => {
   it('persists the signup, confirms the visitor and notifies the inbox', async () => {
     const res = await ctx.raw
       .post('/waitlist')
-      .send({ email: 'Ada@Example.com', name: 'Ada', source: 'hero' })
+      .send({
+        ...signup,
+        email: ' Ada@Example.com ',
+        firstName: ' Ada ',
+        phone: '(080) 1234-5678',
+        source: 'hero',
+      })
       .expect(201);
 
     expect(res.body).toMatchObject({
@@ -71,18 +84,26 @@ describe('Marketing (e2e)', () => {
     const row = await ctx.prisma.waitlistSignup.findUniqueOrThrow({
       where: { email: 'ada@example.com' },
     });
-    expect(row).toMatchObject({ name: 'Ada', source: 'hero' });
+    expect(row).toMatchObject({
+      name: 'Ada Okafor',
+      firstName: 'Ada',
+      lastName: 'Okafor',
+      phone: '08012345678',
+      source: 'hero',
+    });
 
     expect(mail.sent).toHaveLength(2);
     expect(mail.sent[0]!.to).toBe('ada@example.com');
     expect(mail.sent[0]!.subject).toContain('on the Bonde waitlist');
     expect(mail.sent[1]!.to).toBe('usebonde@gmail.com');
     expect(mail.sent[1]!.html).toContain('ada@example.com');
+    expect(mail.sent[1]!.html).toContain('Okafor');
+    expect(mail.sent[1]!.html).toContain('08012345678');
   });
 
   it('confirms a repeat signup without duplicating rows or notifying the team again', async () => {
-    await ctx.raw.post('/waitlist').send({ email: 'ada@example.com' }).expect(201);
-    const again = await ctx.raw.post('/waitlist').send({ email: 'ada@example.com' }).expect(201);
+    await ctx.raw.post('/waitlist').send(signup).expect(201);
+    const again = await ctx.raw.post('/waitlist').send(signup).expect(201);
 
     expect(again.body.alreadyJoined).toBe(true);
     expect(await ctx.prisma.waitlistSignup.count({ where: { email: 'ada@example.com' } })).toBe(1);
@@ -93,7 +114,7 @@ describe('Marketing (e2e)', () => {
 
   it('keeps a place when confirmation fails and retries confirmation on resubmission', async () => {
     mail.failNext = true;
-    await ctx.raw.post('/waitlist').send({ email: 'ada@example.com' }).expect(201);
+    await ctx.raw.post('/waitlist').send(signup).expect(201);
     expect(await ctx.prisma.waitlistSignup.count({ where: { email: 'ada@example.com' } })).toBe(1);
     const failed = await ctx.prisma.auditLog.findFirst({
       where: { action: 'mail.waitlist_confirmation' },
@@ -102,16 +123,110 @@ describe('Marketing (e2e)', () => {
     expect(mail.sent).toHaveLength(1);
     expect(mail.sent[0]!.to).toBe('usebonde@gmail.com');
 
-    const retry = await ctx.raw.post('/waitlist').send({ email: 'ada@example.com' }).expect(201);
+    const retry = await ctx.raw.post('/waitlist').send(signup).expect(201);
     expect(retry.body.alreadyJoined).toBe(true);
     expect(mail.sent).toHaveLength(2);
     expect(mail.sent[1]!.to).toBe('ada@example.com');
   });
 
   it('rejects an invalid waitlist email (400)', async () => {
-    const res = await ctx.raw.post('/waitlist').send({ email: 'not-an-email' }).expect(400);
+    const res = await ctx.raw
+      .post('/waitlist')
+      .send({ ...signup, email: 'not-an-email' })
+      .expect(400);
     expect(Array.isArray(res.body.message)).toBe(true);
     expect(mail.sent).toHaveLength(0);
+  });
+
+  it.each(['email', 'firstName', 'lastName', 'phone'] as const)('requires %s', async (field) => {
+    const body: Record<string, unknown> = { ...signup };
+    delete body[field];
+    await ctx.raw.post('/waitlist').send(body).expect(400);
+    expect(await ctx.prisma.waitlistSignup.count()).toBe(0);
+    expect(mail.sent).toHaveLength(0);
+  });
+
+  it.each([
+    { firstName: '   ' },
+    { lastName: '   ' },
+    { firstName: 'a'.repeat(256) },
+    { lastName: 'a'.repeat(256) },
+    { firstName: 123 },
+    { lastName: ['Ada'] },
+    { phone: '123456' },
+    { phone: '+1234567890123456' },
+    { phone: '080letters123' },
+    { phone: '++2348012345678' },
+    { phone: 8012345678 },
+  ])('rejects invalid contact details: %j', async (invalid) => {
+    await ctx.raw
+      .post('/waitlist')
+      .send({ ...signup, ...invalid })
+      .expect(400);
+    expect(await ctx.prisma.waitlistSignup.count()).toBe(0);
+  });
+
+  it('accepts international formatting and maximum-length names', async () => {
+    const names = { firstName: 'A'.repeat(255), lastName: 'B'.repeat(255) };
+    await ctx.raw
+      .post('/waitlist')
+      .send({ ...signup, ...names, phone: '+234 (801) 234-5678' })
+      .expect(201);
+    const saved = await ctx.prisma.waitlistSignup.findUniqueOrThrow({
+      where: { email: signup.email },
+    });
+    expect(saved).toMatchObject({ ...names, phone: '+2348012345678' });
+    expect(saved.name).toHaveLength(511);
+  });
+
+  it('fills only missing legacy details and preserves the signup date and name', async () => {
+    const { randomUUID } = await import('node:crypto');
+    const legacy = await ctx.prisma.waitlistSignup.create({
+      data: {
+        id: randomUUID(),
+        email: signup.email,
+        name: 'Original Name',
+        firstName: 'Original',
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        source: 'legacy',
+      },
+    });
+    const response = await ctx.raw.post('/waitlist').send(signup).expect(201);
+    expect(response.body.alreadyJoined).toBe(true);
+    expect(
+      await ctx.prisma.waitlistSignup.findUniqueOrThrow({ where: { id: legacy.id } }),
+    ).toMatchObject({
+      firstName: 'Original',
+      lastName: signup.lastName,
+      phone: signup.phone,
+      name: 'Original Name',
+      createdAt: legacy.createdAt,
+      source: 'legacy',
+    });
+    await ctx.raw
+      .post('/waitlist')
+      .send({ ...signup, firstName: 'Replacement', lastName: 'Changed', phone: '+2348011111111' })
+      .expect(201);
+    expect(
+      await ctx.prisma.waitlistSignup.findUniqueOrThrow({ where: { id: legacy.id } }),
+    ).toMatchObject({
+      firstName: 'Original',
+      lastName: signup.lastName,
+      phone: signup.phone,
+    });
+    expect(mail.sent).toHaveLength(2);
+    expect(mail.sent.every((message) => message.to === signup.email)).toBe(true);
+  });
+
+  it('keeps concurrent submissions idempotent', async () => {
+    const responses = await Promise.all([
+      ctx.raw.post('/waitlist').send(signup),
+      ctx.raw.post('/waitlist').send(signup),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([201, 201]);
+    expect(responses.filter((response) => !response.body.alreadyJoined)).toHaveLength(1);
+    expect(await ctx.prisma.waitlistSignup.count()).toBe(1);
+    expect(mail.sent.filter((message) => message.to === 'usebonde@gmail.com')).toHaveLength(1);
   });
 
   it('stores a contact message and notifies the inbox', async () => {
@@ -147,7 +262,7 @@ describe('Marketing (e2e)', () => {
   });
 
   it('audits waitlist joins and contact submissions', async () => {
-    await ctx.raw.post('/waitlist').send({ email: 'ada@example.com' }).expect(201);
+    await ctx.raw.post('/waitlist').send(signup).expect(201);
     await ctx.raw
       .post('/contact')
       .send({ name: 'Chidi', email: 'chidi@example.com', message: 'Hello' })
@@ -161,7 +276,7 @@ describe('Marketing (e2e)', () => {
   });
 
   it('exposes read-only admin lists to an admin', async () => {
-    await ctx.raw.post('/waitlist').send({ email: 'ada@example.com', name: 'Ada' }).expect(201);
+    await ctx.raw.post('/waitlist').send(signup).expect(201);
     await ctx.raw
       .post('/contact')
       .send({ name: 'Chidi', email: 'chidi@example.com', message: 'Hello' })
@@ -170,7 +285,7 @@ describe('Marketing (e2e)', () => {
 
     const waitlist = await ctx.http.get('/admin/waitlist').expect(200);
     expect(waitlist.body).toMatchObject({ total: 1, page: 1, totalPages: 1 });
-    expect(waitlist.body.items[0]).toMatchObject({ email: 'ada@example.com', name: 'Ada' });
+    expect(waitlist.body.items[0]).toMatchObject({ ...signup, name: 'Ada Okafor' });
 
     const contacts = await ctx.http.get('/admin/contacts').expect(200);
     expect(contacts.body).toMatchObject({ total: 1 });
@@ -191,8 +306,11 @@ describe('Marketing (e2e)', () => {
   });
 
   it('searches the admin waitlist by email', async () => {
-    await ctx.raw.post('/waitlist').send({ email: 'ada@example.com' }).expect(201);
-    await ctx.raw.post('/waitlist').send({ email: 'bola@example.com' }).expect(201);
+    await ctx.raw.post('/waitlist').send(signup).expect(201);
+    await ctx.raw
+      .post('/waitlist')
+      .send({ ...signup, email: 'bola@example.com' })
+      .expect(201);
     ctx.role('ADMIN');
 
     const res = await ctx.http.get('/admin/waitlist').query({ q: 'bola@' }).expect(200);
@@ -200,9 +318,17 @@ describe('Marketing (e2e)', () => {
     expect(res.body.items[0].email).toBe('bola@example.com');
   });
 
+  it.each(['Ada', 'Okafor', '0801234'])('searches new contact fields for %s', async (q) => {
+    await ctx.raw.post('/waitlist').send(signup).expect(201);
+    ctx.role('ADMIN');
+    const response = await ctx.http.get('/admin/waitlist').query({ q }).expect(200);
+    expect(response.body.total).toBe(1);
+    expect(response.body.items[0]).toMatchObject(signup);
+  });
+
   it('keeps the seeded admin user untouched by public submissions', async () => {
     // Sanity: public writes never create notifications or touch profiles.
-    await ctx.raw.post('/waitlist').send({ email: 'ada@example.com' }).expect(201);
+    await ctx.raw.post('/waitlist').send(signup).expect(201);
     expect(await ctx.prisma.notification.count({ where: { userId: SEED_USER_ID } })).toBe(1);
   });
 });
