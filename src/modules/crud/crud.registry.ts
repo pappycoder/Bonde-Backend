@@ -227,7 +227,7 @@ export const CRUD_REGISTRY: readonly CrudModelDef[] = [
     modelName: 'WaitlistSignup',
     resource: 'waitlist',
     label: 'Waitlist signup',
-    methods: ['list', 'get'],
+    methods: ['list', 'get', 'delete'],
     searchable: ['email', 'name', 'firstName', 'lastName', 'phone'],
     fields: {
       id: idField(),

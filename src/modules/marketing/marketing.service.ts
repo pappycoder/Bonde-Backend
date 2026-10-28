@@ -76,7 +76,7 @@ export class MarketingService {
     });
     const { id } = signup;
     if (alreadyJoined) {
-      await this.confirmWaitlist(id, dto.email, signup.name, true);
+      await this.confirmWaitlist(id, dto.email, dto.firstName, true);
       return { status: 'joined', email: dto.email, alreadyJoined: true };
     }
 
@@ -87,7 +87,7 @@ export class MarketingService {
       metadata: { email: dto.email, source: dto.source ?? null },
     });
 
-    await this.confirmWaitlist(id, dto.email, signup.name, false);
+    await this.confirmWaitlist(id, dto.email, dto.firstName, false);
 
     const mail = waitlistSignupEmail({
       email: dto.email,
@@ -135,10 +135,10 @@ export class MarketingService {
   private async confirmWaitlist(
     id: string,
     email: string,
-    name: string | null,
+    firstName: string | null,
     alreadyJoined: boolean,
   ): Promise<void> {
-    const message = waitlistConfirmationEmail({ email, name, alreadyJoined });
+    const message = waitlistConfirmationEmail({ email, firstName, alreadyJoined });
     let sent = false;
     try {
       await this.mail.send({ to: email, ...message });

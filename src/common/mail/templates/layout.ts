@@ -13,6 +13,8 @@ export interface LayoutOptions {
   sections: EmailSection[];
   /** Optional friendly sender line above the headline. */
   eyebrow?: string;
+  /** Spacious welcome layout with a left-aligned letter body. */
+  variant?: 'waitlist';
 }
 
 /**
@@ -61,6 +63,7 @@ const DARK_MODE_CSS = `
  * — an accepted degradation, not a bug).
  */
 export function emailLayout(options: LayoutOptions): string {
+  const isWaitlist = options.variant === 'waitlist';
   const eyebrow = options.eyebrow
     ? `<div style="margin:0 0 10px;font-size:12px;line-height:1.4;font-weight:600;letter-spacing:1px;text-transform:uppercase;font-family:${font.sans};color:${brand.orange}">${esc(options.eyebrow)}</div>`
     : '';
@@ -93,7 +96,7 @@ ${DARK_MODE_CSS}
 
             <tr>
               <td align="center" bgcolor="${header.solid}"
-                  style="padding:40px 24px;background-color:${header.solid};background-image:linear-gradient(180deg,${header.top} 0%,${header.bottom} 100%);text-align:center">
+                  style="padding:${isWaitlist ? '56px 24px' : '40px 24px'};background-color:${header.solid};background-image:linear-gradient(180deg,${header.top} 0%,${header.bottom} 100%);text-align:center">
                 <img src="${mailAssets.logo.src}" alt="Bonde" width="132" height="42"
                      style="display:block;width:132px;height:auto;margin:0 auto;border:0;outline:none;text-decoration:none" />
               </td>
@@ -101,10 +104,10 @@ ${DARK_MODE_CSS}
 
             <tr>
               <td class="email-card" bgcolor="${brand.card}"
-                  style="padding:36px 32px 32px;background-color:${brand.card};text-align:center">
-                <h1 class="email-title" style="margin:0 0 12px;font-size:24px;line-height:1.3;font-weight:700;font-family:${font.sans};color:${brand.ink}">${esc(options.headline)}</h1>
+                  style="padding:${isWaitlist ? '60px 40px 48px' : '36px 32px 32px'};background-color:${brand.card};text-align:center">
+                <h1 class="email-title" style="margin:0 0 ${isWaitlist ? '60px' : '12px'};font-size:${isWaitlist ? '21px' : '24px'};line-height:1.3;font-weight:700;font-family:${font.sans};color:${brand.ink}">${esc(options.headline)}</h1>
                 ${eyebrow}
-                <div class="email-muted" style="font-family:${font.sans};color:${brand.muted}">
+                <div class="email-muted" style="text-align:${isWaitlist ? 'left' : 'center'};font-family:${font.sans};color:${brand.muted}">
                   ${renderSections(options.sections)}
                 </div>
               </td>

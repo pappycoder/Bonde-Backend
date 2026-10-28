@@ -25,7 +25,7 @@ function allDocs() {
     'verification-code': verificationCodeEmail('1234', 'verify-email'),
     'waitlist-confirmation': waitlistConfirmationEmail({
       email: 'amina@example.com',
-      name: 'Amina',
+      firstName: 'Amina',
       alreadyJoined: false,
     }),
     'waitlist-signup': waitlistSignupEmail({
@@ -90,14 +90,35 @@ describe('email templates', () => {
   it('confirms existing waitlist membership and escapes visitor input', () => {
     const doc = waitlistConfirmationEmail({
       email: 'amina@example.com',
-      name: '<script>unsafe</script>',
+      firstName: '<script>unsafe</script>',
       alreadyJoined: true,
     });
     expect(doc.subject).toContain('already on');
-    expect(doc.html).toContain('amina@example.com');
+    expect(doc.html).toContain('Hello &lt;script&gt;unsafe&lt;/script&gt;,');
     expect(doc.html).toContain('early access');
     expect(doc.html).toContain('&lt;script&gt;');
     expect(doc.html).not.toContain('<script>');
+  });
+
+  it('matches the waitlist welcome letter and handles a missing first name', () => {
+    const named = waitlistConfirmationEmail({
+      email: 'ada@example.com',
+      firstName: ' Ada ',
+      alreadyJoined: false,
+    });
+    expect(named.html).toContain('Hello Ada,');
+    expect(named.html).toContain('Thank you for joining the waitlist!');
+    expect(named.html).toContain('delegate purchases and supported financial tasks to AI');
+    expect(named.html).toContain('The AI does the work. You stay in control.');
+    expect(named.html).toContain('<strong>The BONDE Team</strong>');
+    expect(named.html).not.toContain('What happens next');
+    const unnamed = waitlistConfirmationEmail({
+      email: 'ada@example.com',
+      firstName: ' ',
+      alreadyJoined: false,
+    });
+    expect(unnamed.html).toContain('Hello,');
+    expect(unnamed.html).not.toContain('Hello null');
   });
 
   it('escapes all collected waitlist details exactly once', () => {
@@ -163,9 +184,7 @@ describe('email templates', () => {
       '%s repeats the header background-color before the gradient for Outlook',
       (_name, doc) => {
         // Outlook's Word engine drops the `background` shorthand entirely.
-        expect(doc.html).toContain(
-          'padding:40px 24px;background-color:#0B0B0C;background-image:linear-gradient',
-        );
+        expect(doc.html).toContain('background-color:#0B0B0C;background-image:linear-gradient');
       },
     );
 

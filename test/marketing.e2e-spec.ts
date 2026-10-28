@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   MAIL_SENDER,
@@ -94,7 +95,9 @@ describe('Marketing (e2e)', () => {
 
     expect(mail.sent).toHaveLength(2);
     expect(mail.sent[0]!.to).toBe('ada@example.com');
-    expect(mail.sent[0]!.subject).toContain('on the Bonde waitlist');
+    expect(mail.sent[0]!.subject).toContain('Welcome to BONDE!');
+    expect(mail.sent[0]!.html).toContain('Hello Ada,');
+    expect(mail.sent[0]!.html).not.toContain('Hello Ada Okafor,');
     expect(mail.sent[1]!.to).toBe('usebonde@gmail.com');
     expect(mail.sent[1]!.html).toContain('ada@example.com');
     expect(mail.sent[1]!.html).toContain('Okafor');
@@ -103,13 +106,18 @@ describe('Marketing (e2e)', () => {
 
   it('confirms a repeat signup without duplicating rows or notifying the team again', async () => {
     await ctx.raw.post('/waitlist').send(signup).expect(201);
-    const again = await ctx.raw.post('/waitlist').send(signup).expect(201);
+    const again = await ctx.raw
+      .post('/waitlist')
+      .send({ ...signup, firstName: 'Adanna' })
+      .expect(201);
 
     expect(again.body.alreadyJoined).toBe(true);
     expect(await ctx.prisma.waitlistSignup.count({ where: { email: 'ada@example.com' } })).toBe(1);
     expect(mail.sent).toHaveLength(3);
     expect(mail.sent[2]!.to).toBe('ada@example.com');
     expect(mail.sent[2]!.subject).toContain('already on');
+    expect(mail.sent[2]!.html).toContain('Hello Adanna,');
+    expect(mail.sent[2]!.html).not.toContain('Hello Ada,');
   });
 
   it('keeps a place when confirmation fails and retries confirmation on resubmission', async () => {
@@ -275,7 +283,7 @@ describe('Marketing (e2e)', () => {
     expect(actions).toContain('marketing.contact.create');
   });
 
-  it('exposes read-only admin lists to an admin', async () => {
+  it('allows an admin to list marketing records and delete waitlist records', async () => {
     await ctx.raw.post('/waitlist').send(signup).expect(201);
     await ctx.raw
       .post('/contact')
@@ -291,18 +299,26 @@ describe('Marketing (e2e)', () => {
     expect(contacts.body).toMatchObject({ total: 1 });
     expect(contacts.body.items[0]).toMatchObject({ email: 'chidi@example.com' });
 
-    // Read-only: writes are not exposed on these resources.
+    // Waitlist entries can be deleted, but cannot be created or edited here.
     await ctx.http.post('/admin/waitlist').send({ email: 'x@example.com' }).expect(405);
-    await ctx.http.delete(`/admin/waitlist/${waitlist.body.items[0].id}`).expect(405);
+    await ctx.http.delete(`/admin/waitlist/${waitlist.body.items[0].id}`).expect(200);
+    expect(await ctx.prisma.waitlistSignup.count()).toBe(0);
+    expect(
+      await ctx.prisma.auditLog.count({
+        where: { action: 'admin.crud.delete', entityType: 'waitlist' },
+      }),
+    ).toBe(1);
   });
 
   it('denies the admin lists to non-admins (403) and unauthenticated callers (401)', async () => {
     ctx.setPrincipal();
     await ctx.http.get('/admin/waitlist').expect(403);
     await ctx.http.get('/admin/contacts').expect(403);
+    await ctx.http.delete(`/admin/waitlist/${randomUUID()}`).expect(403);
 
     await ctx.raw.get('/admin/waitlist').expect(401);
     await ctx.raw.get('/admin/contacts').expect(401);
+    await ctx.raw.delete(`/admin/waitlist/${randomUUID()}`).expect(401);
   });
 
   it('searches the admin waitlist by email', async () => {

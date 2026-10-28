@@ -4,42 +4,35 @@ import type { EmailDoc } from './types.js';
 /** Confirmation for both a new signup and a request to an existing signup. */
 export function waitlistConfirmationEmail(input: {
   email: string;
-  name: string | null;
+  firstName: string | null;
   alreadyJoined: boolean;
 }): EmailDoc {
-  const greeting = input.name?.trim() ? `Hi ${input.name.trim()},` : 'Hello,';
+  const firstName = input.firstName?.trim();
   return {
     subject: input.alreadyJoined
       ? 'You’re already on the Bonde waitlist'
-      : 'You’re on the Bonde waitlist',
+      : "You're on the list. Welcome to BONDE!🚀",
     html: emailLayout({
-      preheader:
-        'Your place on the Bonde waitlist is confirmed. We’ll let you know when early access opens.',
-      headline: input.alreadyJoined ? 'Your place is already saved' : 'Welcome to the waitlist',
-      eyebrow: 'Bonde early access',
+      preheader: 'Thank you for joining the waitlist! The AI does the work. You stay in control.',
+      headline: "You're on the list. Welcome to BONDE!🚀",
+      variant: 'waitlist',
       sections: [
-        { kind: 'paragraph', text: greeting },
+        { kind: 'paragraph', text: firstName ? `Hello ${firstName},` : 'Hello,' },
+        { kind: 'paragraph', text: 'Thank you for joining the waitlist!' },
         {
-          kind: 'lead',
-          text: input.alreadyJoined
-            ? 'You’re already on the Bonde waitlist. Your place is confirmed, and there’s nothing else you need to do.'
-            : 'Thanks for joining the Bonde waitlist. Your place is confirmed, and we’re glad to have you here.',
-        },
-        { kind: 'facts', rows: [{ label: 'Waitlist email', value: input.email }] },
-        { kind: 'paragraph', text: 'What happens next' },
-        {
-          kind: 'bullets',
-          items: [
-            'We’ll email you when early access becomes available.',
-            'You’ll receive the next steps for getting started with Bonde.',
-            'You don’t need to sign up again — we’ve saved your email address.',
-          ],
+          kind: 'paragraph',
+          text: 'We’re building a smarter way to get things done online. Soon, you’ll be able to delegate purchases and supported financial tasks to AI, with spending controls that help you stay in charge.',
         },
         {
-          kind: 'note',
-          text: 'If you didn’t request this email, you can safely ignore it. Joining the waitlist does not create a Bonde wallet or account.',
+          kind: 'paragraph',
+          text: 'We’re still building, and you’ll be among the first to hear when BONDE is ready for early access.',
         },
-        { kind: 'paragraph', text: 'Thanks for being part of the journey.\nThe Bonde team' },
+        {
+          kind: 'paragraph',
+          text: 'In the meantime, stay tuned. We’re just getting started!',
+        },
+        { kind: 'paragraph', text: 'The AI does the work. You stay in control.' },
+        { kind: 'paragraph', text: 'The BONDE Team', bold: true },
       ],
     }),
   };

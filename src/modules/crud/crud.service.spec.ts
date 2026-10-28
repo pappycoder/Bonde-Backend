@@ -180,6 +180,16 @@ describe('CrudService.get / update / delete', () => {
     await expect(service.remove('chats', UUID)).resolves.toEqual({ deleted: true, id: UUID });
   });
 
+  it('deletes waitlist entries while continuing to block creation and edits', async () => {
+    const { service, delegates } = makeService({
+      WaitlistSignup: { delete: vi.fn(async () => ({ id: UUID })) },
+    });
+    await expect(service.remove('waitlist', UUID)).resolves.toEqual({ deleted: true, id: UUID });
+    expect(delegates.WaitlistSignup.delete).toHaveBeenCalledWith({ where: { id: UUID } });
+    await expect(service.create('waitlist', {})).rejects.toThrow(MethodNotAllowedException);
+    await expect(service.update('waitlist', UUID, {})).rejects.toThrow(MethodNotAllowedException);
+  });
+
   it('delete of a missing record maps to 404', async () => {
     const { service } = makeService({
       Chat: { delete: vi.fn(async () => Promise.reject(prismaError('P2025'))) },

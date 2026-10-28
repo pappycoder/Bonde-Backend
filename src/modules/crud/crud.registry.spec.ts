@@ -75,10 +75,12 @@ describe('CRUD registry invariants', () => {
     }
   });
 
-  it('marks the website waitlist and contacts read-only', () => {
+  it('allows only deletion as an admin mutation for the waitlist', () => {
     for (const resource of ['waitlist', 'contacts']) {
       const def = CRUD_REGISTRY.find((entry) => entry.resource === resource)!;
-      expect(def.methods).toEqual(['list', 'get']);
+      expect(def.methods).toEqual(
+        resource === 'waitlist' ? ['list', 'get', 'delete'] : ['list', 'get'],
+      );
       for (const field of Object.values(def.fields)) {
         expect(field.writable, `${resource}.${field}`).toBe(false);
       }

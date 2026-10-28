@@ -32,8 +32,8 @@ const docs = {
     expiresInDays: 7,
   }),
   'waitlist-confirmation': waitlistConfirmationEmail({
-    email: 'amina@example.com',
-    name: 'Amina',
+    email: 'preview@example.com',
+    firstName: '{{firstName}}',
     alreadyJoined: false,
   }),
   'waitlist-signup': waitlistSignupEmail({

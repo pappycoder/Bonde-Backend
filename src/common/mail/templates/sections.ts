@@ -16,7 +16,7 @@ import { brand, font } from './theme.js';
  */
 export type EmailSection =
   | { kind: 'lead'; text: string }
-  | { kind: 'paragraph'; text: string }
+  | { kind: 'paragraph'; text: string; bold?: boolean }
   | { kind: 'note'; text: string }
   | { kind: 'code'; code: string }
   | { kind: 'facts'; rows: EmailFact[] }
@@ -41,7 +41,7 @@ export function renderSection(section: EmailSection): string {
       return `<p class="email-muted" style="margin:0 0 20px;font-size:15px;line-height:1.6;font-family:${font.sans};color:${brand.muted}">${esc(section.text)}</p>`;
 
     case 'paragraph':
-      return `<p class="email-ink" style="margin:0 0 16px;font-size:15px;line-height:1.6;font-family:${font.sans};color:${brand.ink}">${esc(section.text)}</p>`;
+      return `<p class="email-ink" style="margin:0 0 16px;font-size:15px;line-height:1.6;font-family:${font.sans};color:${brand.ink}">${section.bold ? `<strong>${esc(section.text)}</strong>` : esc(section.text)}</p>`;
 
     case 'note':
       return `<p class="email-muted" style="margin:0;font-size:13px;line-height:1.5;font-family:${font.sans};color:${brand.muted}">${esc(section.text)}</p>`;
