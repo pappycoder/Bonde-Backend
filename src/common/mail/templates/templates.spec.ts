@@ -204,7 +204,7 @@ describe('email templates', () => {
       (name, doc) => {
         const anchors = doc.html.match(/<a\s/g) ?? [];
         expect(anchors).toHaveLength(FOOTER_ANCHORS + (EXTRA_ANCHORS[name] ?? 0));
-        expect(doc.html).not.toContain('mailto:');
+        expect(doc.html).toContain('href="mailto:usebonde@gmail.com"');
       },
     );
 

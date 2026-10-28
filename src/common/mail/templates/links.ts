@@ -10,8 +10,7 @@ export const brandLinks = {
   legalEntity: 'BONDE Technologies and Innovations Limited',
   copyrightYear: 2026,
 
-  /** TODO: real support landing page (or a `mailto:` support address). */
-  supportUrl: 'https://bonde.app/support',
+  supportUrl: 'mailto:usebonde@gmail.com',
 
   social: {
     linkedin: 'https://www.linkedin.com/company/usebonde/',
