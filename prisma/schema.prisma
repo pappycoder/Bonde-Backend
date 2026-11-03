@@ -197,8 +197,8 @@ model Profile {
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @updatedAt @map("updated_at")
 
-  deliveryAddress DeliveryAddress?
-  kyc             KycVerification?
+  deliveryAddresses DeliveryAddress[]
+  kyc               KycVerification?
 
   authSessions     AuthSession[]
   invitesIssued    UserInvite[]      @relation("InviteIssuer")
@@ -239,18 +239,28 @@ model Profile {
   @@map("profiles")
 }
 
-/// One default delivery address per profile; recipient details remain on the profile.
+/// One delivery address per row; profiles may save many. The `isDefault` row is
+/// the address served to approved purchases. Recipient contact details live on
+/// the address so each destination can be delivered for a different person.
 model DeliveryAddress {
-  userId       String @id @map("user_id") @db.Uuid
-  street       String @db.VarChar(255)
-  addressLine2 String @map("address_line_2") @db.VarChar(255)
-  city         String @db.VarChar(100)
-  region       String @db.VarChar(100)
-  country      String @db.VarChar(100)
-  postalCode   String @map("postal_code") @db.VarChar(32)
+  id             String   @id @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  recipientName  String   @map("recipient_name") @db.VarChar(100)
+  recipientPhone String   @map("recipient_phone") @db.VarChar(20)
+  street         String   @db.VarChar(255)
+  addressLine2   String   @map("address_line_2") @db.VarChar(255)
+  city           String   @db.VarChar(100)
+  region         String   @db.VarChar(100)
+  lga            String   @db.VarChar(100)
+  country        String   @db.VarChar(100)
+  postalCode     String   @map("postal_code") @db.VarChar(32)
+  isDefault      Boolean  @default(false) @map("is_default")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   profile Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@map("delivery_addresses")
 }
 

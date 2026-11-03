@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import {
@@ -20,6 +21,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
+import { DeliveryAddressInputDto } from '../profiles/delivery-address.dto.js';
 import { StrictThrottle } from '../../common/throttling/strict-throttle.decorator.js';
 import { AuditLogService } from '../audit/audit-log.service.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
@@ -198,6 +200,36 @@ export class ChatsController {
     @Param('itemId', new ParseUUIDPipe({ version: '4' })) itemId: string,
   ) {
     return this.payments.instructions(p.userId, id, messageId, itemId);
+  }
+
+  @Put(':id/messages/:messageId/items/:itemId/delivery-address')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Attach a one-time delivery address to an approved purchase without saving it',
+  })
+  @ApiErrorResponse()
+  async setItemDeliveryAddress(
+    @CurrentUser() p: AuthPrincipal,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Param('messageId', new ParseUUIDPipe({ version: '4' })) messageId: string,
+    @Param('itemId', new ParseUUIDPipe({ version: '4' })) itemId: string,
+    @Body() dto: DeliveryAddressInputDto,
+  ) {
+    const address = await this.payments.setItemDeliveryAddress(
+      p.userId,
+      id,
+      messageId,
+      itemId,
+      dto,
+    );
+    await this.audit.record({
+      userId: p.userId,
+      action: 'chat.item.delivery_address',
+      entityType: 'chat',
+      entityId: id,
+      metadata: { messageId, itemId },
+    });
+    return address;
   }
 
   @Patch(':id')

@@ -38,48 +38,63 @@ describe('Profile hub and billing (local database)', () => {
     ctx.setPrincipal({ userId: SEED_OTHER_ID });
     expect((await ctx.http.get('/profile/preferences').expect(200)).body.hideBalances).toBe(false);
   });
-  it('creates and updates an owner-scoped delivery address without exposing it to another user', async () => {
-    const empty = await ctx.http.get('/profile/delivery-address').expect(200);
-    expect(empty.body).toBeNull();
+  it('manages owner-scoped saved addresses without exposing them to another user', async () => {
+    expect((await ctx.http.get('/profile/addresses').expect(200)).body).toEqual([]);
     const address = {
+      recipientName: ' Tunde Bakare ',
+      recipientPhone: '09034688362',
       street: ' 10 Test Road ',
       addressLine2: '',
       city: 'Lagos',
       region: 'Lagos',
+      lga: 'Ikorodu',
       country: 'Nigeria',
       postalCode: '00100',
     };
-    await ctx.http.put('/profile/delivery-address').send(address).expect(200);
-    const updated = {
-      ...address,
-      street: '20 New Road',
-      city: 'London',
-      region: 'London',
-      country: 'United Kingdom',
-      postalCode: 'SW1A 1AA',
-    };
-    await ctx.http.put('/profile/delivery-address').send(updated).expect(200);
-    expect((await ctx.http.get('/profile/delivery-address').expect(200)).body).toEqual(updated);
-    expect(await ctx.prisma.deliveryAddress.count({ where: { userId: SEED_USER_ID } })).toBe(1);
+    const created = await ctx.http.post('/profile/addresses').send(address).expect(201);
+    expect(created.body).toMatchObject({
+      recipientName: 'Tunde Bakare',
+      street: '10 Test Road',
+      isDefault: true,
+    });
+    const second = await ctx.http
+      .post('/profile/addresses')
+      .send({ ...address, street: '20 New Road' })
+      .expect(201);
+    expect(second.body.isDefault).toBe(false);
+    await ctx.http
+      .patch(`/profile/addresses/${second.body.id}`)
+      .send({ ...address, street: '22 Updated Road', city: 'Ikoyi', lga: 'Lagos Island' })
+      .expect(200);
+    await ctx.http.post(`/profile/addresses/${second.body.id}/default`).expect(200);
+    const list = (await ctx.http.get('/profile/addresses').expect(200)).body;
+    expect(list.map((entry: { id: string }) => entry.id)).toEqual([
+      second.body.id,
+      created.body.id,
+    ]);
+    expect(list[0]).toMatchObject({ isDefault: true, street: '22 Updated Road' });
+    await ctx.http.delete(`/profile/addresses/${second.body.id}`).expect(200);
+    const after = (await ctx.http.get('/profile/addresses').expect(200)).body;
+    expect(after).toHaveLength(1);
+    expect(after[0]).toMatchObject({ id: created.body.id, isDefault: true });
     const audit = await ctx.prisma.auditLog.findFirst({
       where: { action: 'profile.delivery_address.update' },
     });
     expect(audit).not.toBeNull();
     expect(JSON.stringify(audit?.metadata ?? {})).not.toContain('Road');
     ctx.setPrincipal({ userId: SEED_OTHER_ID });
-    expect((await ctx.http.get('/profile/delivery-address').expect(200)).body).toBeNull();
+    expect((await ctx.http.get('/profile/addresses').expect(200)).body).toEqual([]);
+    await ctx.http.patch(`/profile/addresses/${created.body.id}`).send(address).expect(404);
+    await ctx.http.delete(`/profile/addresses/${created.body.id}`).expect(404);
     await ctx.http
-      .put('/profile/delivery-address')
+      .post('/profile/addresses')
       .send({ ...address, userId: SEED_USER_ID })
       .expect(400);
-    await ctx.raw.get('/profile/delivery-address').expect(401);
-    await ctx.raw.put('/profile/delivery-address').send(address).expect(401);
+    await ctx.raw.get('/profile/addresses').expect(401);
+    await ctx.raw.post('/profile/addresses').send(address).expect(401);
   });
   it('rejects incomplete delivery addresses without saving them', async () => {
-    await ctx.http
-      .put('/profile/delivery-address')
-      .send({ street: ' ', country: 'Nigeria' })
-      .expect(400);
+    await ctx.http.post('/profile/addresses').send({ street: ' ', country: 'Nigeria' }).expect(400);
     expect(await ctx.prisma.deliveryAddress.count()).toBe(0);
   });
   it('uses fixed catalog prices and serializes concurrent confirmations', async () => {

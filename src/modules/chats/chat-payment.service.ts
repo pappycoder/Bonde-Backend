@@ -1,4 +1,5 @@
 import { DeliveryAddressService } from '../profiles/delivery-address.service.js';
+import type { DeliveryAddressInputDto } from '../profiles/delivery-address.dto.js';
 import {
   BadRequestException,
   ConflictException,
@@ -54,11 +55,15 @@ export class ChatPaymentService {
     const { item, transaction } = await this.proposal(userId, chatId, messageId, itemId);
     const requiresDelivery =
       item.requiresDelivery ?? (!item.preview || item.preview.mode === 'RETAIL');
-    const delivery = requiresDelivery ? await this.addresses.context(userId) : null;
+    const snapshot = item.deliveryAddress ?? null;
+    const delivery = requiresDelivery && !snapshot ? await this.addresses.context(userId) : null;
     return {
       requiresDelivery,
-      deliveryAddress: delivery?.deliveryAddress ?? null,
-      recipient: delivery?.recipient ?? null,
+      deliveryAddress: snapshot ?? delivery?.deliveryAddress ?? null,
+      recipient: snapshot
+        ? { name: snapshot.recipientName, phone: snapshot.recipientPhone }
+        : (delivery?.recipient ?? null),
+      oneTimeAddress: Boolean(snapshot),
       transactionId: transaction.id,
       amount: transaction.amount.toFixed(2),
       currency: transaction.currency,
@@ -67,5 +72,68 @@ export class ChatPaymentService {
       instructions:
         'Use your funded virtual card at the merchant checkout. Purchases appear in your activity after the card provider confirms them.',
     };
+  }
+
+  /**
+   * Attach a one-time delivery address to an approved purchase item without saving
+   * it to the buyer's address book. Replaces any previous snapshot for the item.
+   */
+  async setItemDeliveryAddress(
+    userId: string,
+    chatId: string,
+    messageId: string,
+    itemId: string,
+    address: DeliveryAddressInputDto,
+  ) {
+    await this.proposal(userId, chatId, messageId, itemId);
+    const {
+      recipientName,
+      recipientPhone,
+      street,
+      addressLine2,
+      city,
+      region,
+      lga,
+      country,
+      postalCode,
+    } = address;
+    const snapshot = {
+      recipientName,
+      recipientPhone,
+      street,
+      addressLine2,
+      city,
+      region,
+      lga,
+      country,
+      postalCode,
+    };
+    return this.prisma.$transaction(async (tx) => {
+      const owned = await tx.$queryRaw<
+        Array<{ id: string }>
+      >`SELECT "id" FROM "chats" WHERE "id" = ${chatId}::uuid AND "user_id" = ${userId}::uuid FOR UPDATE`;
+      if (!owned.length) throw new NotFoundException('Chat not found');
+      const message = await tx.message.findFirst({
+        where: { id: messageId, chatId, role: 'ASSISTANT' },
+      });
+      let envelope: (AssistantReplyDto & { version: number }) | null = null;
+      try {
+        const parsed = JSON.parse(message?.content ?? '{}') as AssistantReplyDto & {
+          version: number;
+        };
+        if (parsed.version === 1 && Array.isArray(parsed.items)) envelope = parsed;
+      } catch {
+        /* Invalid stored content is not an actionable proposal. */
+      }
+      const item = envelope?.items.find((entry) => entry.id === itemId);
+      if (!message || !envelope || !item) throw new NotFoundException('Purchase request not found');
+      item.deliveryAddress = snapshot;
+      await tx.message.update({
+        where: { id: message.id },
+        data: { content: JSON.stringify(envelope) },
+      });
+      await tx.chat.update({ where: { id: chatId }, data: { updatedAt: new Date() } });
+      return snapshot;
+    });
   }
 }

@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { PaymentPreviewDto } from './payment-preview.dto.js';
+import { DeliveryAddressInputDto } from '../profiles/delivery-address.dto.js';
 import {
   ArrayMaxSize,
   IsArray,
@@ -56,6 +57,14 @@ export class ChatProductDto {
   @IsOptional()
   @IsIn(['PENDING', 'APPROVED', 'DECLINED'])
   decision?: string;
+  /**
+   * One-time delivery address attached to an approved purchase when the buyer chose
+   * NOT to save it to their address book. Mirrors the saved-address shape minus ids.
+   */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DeliveryAddressInputDto)
+  deliveryAddress?: DeliveryAddressInputDto;
 }
 
 /** Provider-neutral response contract; only trusted backend integrations write it. */

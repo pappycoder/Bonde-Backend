@@ -136,16 +136,23 @@ A NestJS 12 (ESM) REST API serving both the Bonde admin dashboard and mobile app
   be under `u-<userId>/`; URLs come from
   `StorageService.getPublicUrl('bonde-avatars', path)` — the API never proxies
   bytes.
-- **Delivery address**: authenticated `GET/PUT /api/profile/delivery-address` reads or
-  replaces the owner's one saved address (`delivery_addresses`, profile FK with cascade).
-  GET returns JSON `null` when none is saved. Street, city, region and country are
-  required; optional addressLine2/postalCode default to empty strings. Recipient
-  name/phone stay on the profile. Updates record `profile.delivery_address.update`
-  without address contents in the audit. Chat agent context includes these details;
-  approved payment instructions return `requiresDelivery`, `deliveryAddress` and
-  `recipient`. Trusted `requiresDelivery` overrides mode defaults (retail or
-  unclassified requires delivery; flight/subscription/software does not). Mobile
-  confirms delivery details before showing the manual merchant/card handoff.
+- **Delivery address**: authenticated `GET/POST /api/profile/addresses` and `PATCH/DELETE
+  /api/profile/addresses/:id` manage the owner's saved delivery addresses
+  (`delivery_addresses`, one row per address, profile FK with cascade, cap of 10). Each
+  row carries its own `recipientName`/`recipientPhone` plus street, city, region (state),
+  lga and country (required; optional addressLine2/postalCode default to empty strings).
+  Exactly one row is `isDefault` (the first save wins; `POST /:id/default` flips it; deleting
+  the default promotes the newest survivor). `GET` returns a plain array, default first then
+  newest updated. Recipient details fall back to the profile only for legacy rows. Writes
+  record `profile.delivery_address.create|update|delete|default` without address contents in
+  the audit. Chat agent context includes the default address; approved payment instructions
+  return `requiresDelivery`, `deliveryAddress`, `recipient` and `oneTimeAddress`. A buyer may
+  attach a one-time address to an approved purchase without saving it via `PUT
+  /api/chats/:id/messages/:messageId/items/:itemId/delivery-address` (snapshot stored on the
+  message item, preferred by later reads, audited as `chat.item.delivery_address`). Trusted
+  `requiresDelivery` overrides mode defaults (retail or unclassified requires delivery;
+  flight/subscription/software does not). Mobile confirms delivery details before showing
+  the manual merchant/card handoff.
 - **OTP**: codes are **4-digit** (`OTP_CODE_LENGTH = 4`), stored as **SHA-256
   digests** (never plaintext), 5-min TTL, single-use; sending a new code
   invalidates earlier ones. `OtpService` exposes principal-free primitives

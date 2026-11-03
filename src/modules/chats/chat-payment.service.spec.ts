@@ -12,11 +12,34 @@ const setup = () => {
     currency: 'NGN',
     merchant: 'Shop',
   };
-  const db = {
-    chat: { findFirst: vi.fn(async () => ({ id: 'chat' })) },
-    message: {
-      findFirst: vi.fn(async () => ({ content: JSON.stringify({ version: 1, items: [item] }) })),
+  const delivery = {
+    deliveryAddress: {
+      id: 'addr-1',
+      recipientName: 'Amina Sule',
+      recipientPhone: '+2348000000001',
+      street: '10 Test Road',
+      addressLine2: '',
+      city: 'Lagos',
+      region: 'Lagos',
+      lga: 'Ikorodu',
+      country: 'Nigeria',
+      postalCode: '00100',
+      isDefault: true,
     },
+    recipient: { name: 'Amina', phone: '+2348000000001' },
+  };
+  const content = () => JSON.stringify({ version: 1, items: [item] });
+  const tx = {
+    $queryRaw: vi.fn(async () => [{ id: 'chat' }]),
+    message: {
+      findFirst: vi.fn(async () => ({ id: 'message', content: content() })),
+      update: vi.fn(async () => ({ id: 'message' })),
+    },
+    chat: { update: vi.fn(async () => ({ id: 'chat' })) },
+  };
+  const dbBase = {
+    chat: { findFirst: vi.fn(async () => ({ id: 'chat' })) },
+    message: { findFirst: vi.fn(async () => ({ id: 'message', content: content() })) },
     transactionApproval: {
       findFirst: vi.fn(async () => ({
         status: 'APPROVED',
@@ -29,20 +52,14 @@ const setup = () => {
       })),
     },
   };
-  const delivery = {
-    deliveryAddress: {
-      street: '10 Test Road',
-      addressLine2: '',
-      city: 'Lagos',
-      region: 'Lagos',
-      country: 'Nigeria',
-      postalCode: '00100',
-    },
-    recipient: { name: 'Amina', phone: '+2348000000001' },
+  const db = {
+    ...dbBase,
+    $transaction: vi.fn(async (fn: (t: never) => Promise<unknown>) => fn(tx as never)),
   };
   const addresses = { context: vi.fn(async () => delivery) };
   return {
     db,
+    tx,
     item,
     delivery,
     addresses,
@@ -138,5 +155,50 @@ describe('purchase delivery details', () => {
       'Chat not found',
     );
     expect(addresses.context).not.toHaveBeenCalled();
+  });
+});
+
+const oneTime = {
+  recipientName: 'Bola Ahmed',
+  recipientPhone: '08012345678',
+  street: '5 Marina Close',
+  addressLine2: '',
+  city: 'Ikoyi',
+  region: 'Lagos',
+  lga: 'Lagos Island',
+  country: 'Nigeria',
+  postalCode: '',
+};
+
+describe('one-time delivery addresses', () => {
+  it('prefers the item snapshot over the saved default in instructions', async () => {
+    const { service, item, addresses } = setup();
+    item.deliveryAddress = oneTime;
+    expect(await service.instructions('owner', 'chat', 'message', 'item')).toMatchObject({
+      deliveryAddress: oneTime,
+      recipient: { name: 'Bola Ahmed', phone: '08012345678' },
+      oneTimeAddress: true,
+    });
+    expect(addresses.context).not.toHaveBeenCalled();
+  });
+  it('persists a validated snapshot onto the approved item without touching the address book', async () => {
+    const { service, tx } = setup();
+    expect(
+      await service.setItemDeliveryAddress('owner', 'chat', 'message', 'item', oneTime),
+    ).toEqual(oneTime);
+    const saved = JSON.parse(tx.message.update.mock.calls[0][0].data.content);
+    expect(saved.items[0].deliveryAddress).toEqual(oneTime);
+    expect(tx.chat.update).toHaveBeenCalledWith({
+      where: { id: 'chat' },
+      data: { updatedAt: expect.any(Date) },
+    });
+  });
+  it('refuses to attach an address to an unapproved proposal', async () => {
+    const { service, item, tx } = setup();
+    item.decision = 'PENDING';
+    await expect(
+      service.setItemDeliveryAddress('owner', 'chat', 'message', 'item', oneTime),
+    ).rejects.toThrow('Approve this purchase first');
+    expect(tx.message.update).not.toHaveBeenCalled();
   });
 });

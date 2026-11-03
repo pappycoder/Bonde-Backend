@@ -48,3 +48,4 @@ docker-compose.override.yml
 
 # bonde.sh auto-started backend log
 .bonde-api.log
+.vercel
