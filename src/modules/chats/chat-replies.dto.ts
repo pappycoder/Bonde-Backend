@@ -21,6 +21,7 @@ export class ChatProductDto {
   @IsOptional()
   @IsBoolean()
   requiresDelivery?: boolean;
+  @ApiPropertyOptional({ type: () => PaymentPreviewDto })
   @IsOptional()
   @ValidateNested()
   @Type(() => PaymentPreviewDto)
@@ -63,6 +64,7 @@ export class ChatProductDto {
    */
   @IsOptional()
   @ValidateNested()
+  @ApiPropertyOptional({ type: () => DeliveryAddressInputDto })
   @Type(() => DeliveryAddressInputDto)
   deliveryAddress?: DeliveryAddressInputDto;
 }
@@ -75,6 +77,7 @@ export class AssistantReplyDto {
   @IsArray()
   @ArrayMaxSize(20)
   @ValidateNested({ each: true })
+  @ApiProperty({ type: () => [ChatProductDto] })
   @Type(() => ChatProductDto)
   items: ChatProductDto[];
 }

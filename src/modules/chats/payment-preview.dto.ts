@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -78,6 +78,7 @@ export class PaymentPreviewDto {
   )
   @IsDefined()
   @ValidateNested()
+  @ApiPropertyOptional({ type: () => FlightEndpointDto })
   @Type(() => FlightEndpointDto)
   departure?: FlightEndpointDto;
   @ValidateIf(
@@ -85,6 +86,7 @@ export class PaymentPreviewDto {
   )
   @IsDefined()
   @ValidateNested()
+  @ApiPropertyOptional({ type: () => FlightEndpointDto })
   @Type(() => FlightEndpointDto)
   arrival?: FlightEndpointDto;
   @IsOptional()

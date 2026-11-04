@@ -1,3 +1,4 @@
+import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsIn,
@@ -52,11 +53,17 @@ export class FinanceCommandDto {
   @IsOptional() @IsObject() rules?: Record<string, unknown>;
 }
 export class FinanceProofDto {
-  @ValidateNested() @Type(() => FinanceCommandDto) command!: FinanceCommandDto;
+  @ApiProperty({ type: () => FinanceCommandDto })
+  @ValidateNested()
+  @Type(() => FinanceCommandDto)
+  command!: FinanceCommandDto;
   @Matches(/^\d{4}$/) passcode!: string;
 }
 export class FinanceExecuteDto {
-  @ValidateNested() @Type(() => FinanceCommandDto) command!: FinanceCommandDto;
+  @ApiProperty({ type: () => FinanceCommandDto })
+  @ValidateNested()
+  @Type(() => FinanceCommandDto)
+  command!: FinanceCommandDto;
   @IsString() @MaxLength(100) proof!: string;
 }
 export class FinanceIdentityDto {
