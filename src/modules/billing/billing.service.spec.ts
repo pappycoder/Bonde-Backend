@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
+import { AiCreditsService } from './ai-credits.service.js';
 import { BillingService } from './billing.service.js';
 
 /** A transactional in-memory ledger: failures roll back all balances, grants and orders. */
@@ -15,6 +16,7 @@ function setup(balance = '20000.00') {
       billingCancelAtPeriodEnd: false,
     },
     credits: {
+      ledgerInitialized: false,
       userId: 'owner',
       welcomeRemaining: 100,
       planRemaining: 0,
@@ -23,6 +25,8 @@ function setup(balance = '20000.00') {
       purchasedRemaining: 0,
       periodEnd: null as Date | null,
     },
+    grants: [] as Array<Record<string, any>>,
+    entries: [] as Array<Record<string, any>>,
     orders: [] as Array<Record<string, any>>,
     transactions: [] as Array<Record<string, any>>,
   };
@@ -51,6 +55,36 @@ function setup(balance = '20000.00') {
               : value;
         }
         return state.credits;
+      }),
+    },
+    aiCreditGrant: {
+      findUnique: vi.fn(
+        async ({ where }) => state.grants.find((g) => g.sourceKey === where.sourceKey) ?? null,
+      ),
+      findMany: vi.fn(async ({ where }) =>
+        state.grants.filter(
+          (g) =>
+            g.userId === where.userId &&
+            (!where.expiresAt || (g.expiresAt && g.expiresAt <= where.expiresAt.lte)) &&
+            (!where.remaining || g.remaining > where.remaining.gt),
+        ),
+      ),
+      create: vi.fn(async ({ data }) => {
+        const grant = { reserved: 0, createdAt: new Date(), ...data };
+        state.grants.push(grant);
+        return grant;
+      }),
+      update: vi.fn(async ({ where, data }) =>
+        Object.assign(
+          state.grants.find((g) => g.id === where.id)!,
+          data,
+        ),
+      ),
+    },
+    aiCreditEntry: {
+      create: vi.fn(async ({ data }) => {
+        state.entries.push(data);
+        return data;
       }),
     },
     billingOrder: {
@@ -120,6 +154,8 @@ function setup(balance = '20000.00') {
         wallet: { ...state.wallet },
         profile: { ...state.profile },
         credits: { ...state.credits },
+        grants: state.grants.map((g) => ({ ...g })),
+        entries: state.entries.map((e) => ({ ...e })),
         orders: state.orders.map((o) => ({ ...o })),
         transactions: [...state.transactions],
       };
@@ -155,6 +191,7 @@ function setup(balance = '20000.00') {
     config as never,
     ledger as never,
     capabilities as never,
+    new AiCreditsService(),
   );
   const create = (
     productId = 'pack-50',
@@ -247,6 +284,9 @@ describe('Billing ledger', () => {
     const order = await f.create('premium-monthly', 'premium', true);
     await f.service.confirm('owner', order.id, '1234');
     f.state().profile.cardPlanExpiresAt = new Date('2000-01-01');
+    f.state().credits.periodEnd = new Date('2000-01-01');
+    for (const grant of f.state().grants.filter((g) => g.source === 'PLAN'))
+      grant.expiresAt = new Date('2000-01-01');
     await Promise.all([f.service.renewDue(), f.service.renewDue()]);
     expect(f.state().ledgerBalance.toFixed(2)).toBe('8000.00');
     expect(f.state().transactions).toHaveLength(2);

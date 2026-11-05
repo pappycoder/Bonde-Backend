@@ -4,6 +4,7 @@ import { PaymentPreviewDto } from './payment-preview.dto.js';
 import { DeliveryAddressInputDto } from '../profiles/delivery-address.dto.js';
 import {
   ArrayMaxSize,
+  IsDefined,
   IsArray,
   IsBoolean,
   IsIn,
@@ -71,6 +72,20 @@ export class ChatProductDto {
 
 /** Provider-neutral response contract; only trusted backend integrations write it. */
 export class AssistantReplyDto {
+  @ApiPropertyOptional({ type: () => [ShoppingDiscoveryDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @ValidateNested({ each: true })
+  @Type(() => ShoppingDiscoveryDto)
+  discoveries?: ShoppingDiscoveryDto[];
+  @ApiPropertyOptional({ type: () => [ChatServiceQuoteDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(3)
+  @ValidateNested({ each: true })
+  @Type(() => ChatServiceQuoteDto)
+  serviceQuotes?: ChatServiceQuoteDto[];
   @IsString()
   @MaxLength(8000)
   text: string;
@@ -98,4 +113,30 @@ export class ChatDecisionResponseDto {
   decision: string;
   @ApiPropertyOptional({ format: 'uuid' })
   approvalId?: string;
+}
+
+export class ShoppingDiscoveryDto {
+  @IsUUID('4') id!: string;
+  @IsString() @MaxLength(300) title!: string;
+  @IsString() @MaxLength(255) merchant!: string;
+  @IsString() @MaxLength(4000) @Matches(/^https:\/\//) url!: string;
+  @IsString() @MaxLength(1000) description!: string;
+  @IsBoolean() priceVerified!: boolean;
+  @IsBoolean() availabilityVerified!: boolean;
+  @IsIn(['OFFICIAL_LINK']) checkout!: string;
+}
+export class ChatServiceQuoteDto {
+  @IsUUID('4') id!: string;
+  @IsString() serviceId!: string;
+  @IsString() variationCode!: string;
+  @IsString() name!: string;
+  @IsString() beneficiary!: string;
+  @IsOptional() @IsString() beneficiaryName?: string | null;
+  @IsString() phone!: string;
+  @IsString() amount!: string;
+  @IsString() fee!: string;
+  @IsString() total!: string;
+  @IsIn(['NGN']) currency!: string;
+  @IsDefined() expiresAt!: Date | string;
+  @IsBoolean() autoRenew!: boolean;
 }

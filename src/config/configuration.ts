@@ -7,6 +7,23 @@ import type { FinanceConfig } from '../modules/finance/finance.config.js';
  * feature modules never touch raw `process.env` directly.
  */
 export interface AppConfig {
+  shopping: {
+    aiEnabled: boolean;
+    pricingApproved: boolean;
+    openaiKey: string;
+    model: string;
+    braveEnabled: boolean;
+    braveKey: string;
+    merchantHosts: string[];
+    vtpassEnabled: boolean;
+    vtpassEnvironment: 'sandbox' | 'production';
+    vtpassLiveApproved: boolean;
+    vtpassKey: string;
+    vtpassSecret: string;
+    vtpassPublic: string;
+    vtpassWebhookToken: string;
+    serviceFee: string;
+  };
   finance: FinanceConfig;
   nodeEnv: string;
   profileHub: {
@@ -84,6 +101,26 @@ export interface AppConfig {
 }
 
 export default (): AppConfig => ({
+  shopping: {
+    aiEnabled: process.env.AI_SHOPPING_ENABLED === 'true',
+    pricingApproved: process.env.AI_PRICING_APPROVED === 'true',
+    openaiKey: process.env.OPENAI_API_KEY ?? '',
+    model: process.env.OPENAI_SHOPPING_MODEL ?? '',
+    braveEnabled: process.env.SHOPPING_SEARCH_ENABLED === 'true',
+    braveKey: process.env.BRAVE_SEARCH_API_KEY ?? '',
+    merchantHosts: (process.env.SHOPPING_MERCHANT_HOSTS ?? '')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+    vtpassEnabled: process.env.VTPASS_ENABLED === 'true',
+    vtpassEnvironment: process.env.VTPASS_ENVIRONMENT === 'production' ? 'production' : 'sandbox',
+    vtpassLiveApproved: process.env.VTPASS_LIVE_APPROVED === 'true',
+    vtpassKey: process.env.VTPASS_API_KEY ?? '',
+    vtpassSecret: process.env.VTPASS_SECRET_KEY ?? '',
+    vtpassPublic: process.env.VTPASS_PUBLIC_KEY ?? '',
+    vtpassWebhookToken: process.env.VTPASS_WEBHOOK_TOKEN ?? '',
+    serviceFee: process.env.SERVICE_PURCHASE_FEE ?? '0.00',
+  },
   finance: {
     environment: process.env.FINANCE_ENVIRONMENT === 'production' ? 'production' : 'sandbox',
     enabled: process.env.FINANCE_ENABLED === 'true',

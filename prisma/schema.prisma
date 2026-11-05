@@ -225,9 +225,16 @@ model Profile {
   transactionApprovals TransactionApproval[]
   thresholds           TransactionThreshold[]
 
-  chats         Chat[]
-  aiCredits     AiCreditAccount?
-  billingOrders BillingOrder[]
+  chats            Chat[]
+  creditGrants     AiCreditGrant[]
+  creditEntries    AiCreditEntry[]
+  chatTurns        AiChatTurn[]
+  shoppingResults  ShoppingResult[]
+  serviceQuotes    ServiceQuote[]
+  serviceOrders    ServiceOrder[]
+  serviceReminders ServiceReminder[]
+  aiCredits        AiCreditAccount?
+  billingOrders    BillingOrder[]
 
   supportTickets  SupportTicket[] @relation("SupportTicketOwner")
   assignedTickets SupportTicket[] @relation("SupportTicketAssignee")
@@ -1021,6 +1028,7 @@ model Message {
 
 /// Credit units are separate from wallet money; the welcome grant is one-time.
 model AiCreditAccount {
+  ledgerInitialized  Boolean   @default(false) @map("ledger_initialized")
   userId             String    @id @map("user_id") @db.Uuid
   welcomeRemaining   Int       @default(100) @map("welcome_remaining")
   planRemaining      Int       @default(0) @map("plan_remaining")
@@ -1244,4 +1252,151 @@ model ContactMessage {
   @@index([email])
   @@index([createdAt])
   @@map("contact_messages")
+}
+
+/// A finite credit allowance. Purchased and welcome allowances have no expiry.
+model AiCreditGrant {
+  id        String          @id @db.Uuid
+  userId    String          @map("user_id") @db.Uuid
+  source    String
+  sourceKey String          @unique @map("source_key")
+  units     Int
+  remaining Int
+  reserved  Int             @default(0)
+  expiresAt DateTime?       @map("expires_at")
+  createdAt DateTime        @default(now()) @map("created_at")
+  user      Profile         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  entries   AiCreditEntry[]
+  turns     AiChatTurn[]
+
+  @@index([userId, expiresAt])
+  @@map("ai_credit_grants")
+}
+
+/// Immutable accounting events; available/reserved deltas are stored explicitly.
+model AiCreditEntry {
+  id             String        @id @db.Uuid
+  userId         String        @map("user_id") @db.Uuid
+  grantId        String        @map("grant_id") @db.Uuid
+  reference      String        @unique
+  kind           String
+  availableDelta Int           @map("available_delta")
+  reservedDelta  Int           @map("reserved_delta")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  user           Profile       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  grant          AiCreditGrant @relation(fields: [grantId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@map("ai_credit_entries")
+}
+
+model AiChatTurn {
+  id          String         @id @db.Uuid
+  userId      String         @map("user_id") @db.Uuid
+  chatId      String         @map("chat_id") @db.Uuid
+  requestKey  String         @map("request_key")
+  messageId   String         @unique @map("message_id") @db.Uuid
+  replyId     String?        @map("reply_id") @db.Uuid
+  grantId     String?        @map("grant_id") @db.Uuid
+  status      String         @default("RESERVED")
+  attempt     Int            @default(0)
+  leaseUntil  DateTime?      @map("lease_until")
+  failureCode String?        @map("failure_code")
+  usage       Json           @default("{}")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+  user        Profile        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  grant       AiCreditGrant? @relation(fields: [grantId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, requestKey])
+  @@index([status, leaseUntil])
+  @@index([userId, chatId])
+  @@map("ai_chat_turns")
+}
+
+/// Discovery evidence, never a payment authorization.
+model ShoppingResult {
+  id          String   @id @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  chatId      String   @map("chat_id") @db.Uuid
+  title       String
+  merchant    String
+  url         String
+  description String
+  createdAt   DateTime @default(now()) @map("created_at")
+  user        Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, chatId])
+  @@map("shopping_results")
+}
+
+model ServiceQuote {
+  id              String         @id @db.Uuid
+  userId          String         @map("user_id") @db.Uuid
+  serviceId       String         @map("service_id")
+  variationCode   String         @map("variation_code")
+  name            String
+  beneficiary     String
+  beneficiaryName String?        @map("beneficiary_name")
+  phone           String
+  amount          Decimal        @db.Decimal(15, 2)
+  fee             Decimal        @db.Decimal(15, 2)
+  expiresAt       DateTime       @map("expires_at")
+  fingerprint     String
+  createdAt       DateTime       @default(now()) @map("created_at")
+  user            Profile        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  orders          ServiceOrder[]
+
+  @@index([userId, createdAt])
+  @@map("service_quotes")
+}
+
+model ServiceOrder {
+  id                    String            @id @db.Uuid
+  userId                String            @map("user_id") @db.Uuid
+  quoteId               String            @unique @map("quote_id") @db.Uuid
+  requestKey            String            @map("request_key")
+  providerReference     String            @unique @map("provider_reference")
+  environment           String
+  status                String            @default("QUEUED")
+  attempts              Int               @default(0)
+  leaseUntil            DateTime?         @map("lease_until")
+  providerTransactionId String?           @map("provider_transaction_id")
+  confirmedAt           DateTime?         @map("confirmed_at")
+  createdAt             DateTime          @default(now()) @map("created_at")
+  updatedAt             DateTime          @updatedAt @map("updated_at")
+  user                  Profile           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  quote                 ServiceQuote      @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  reminders             ServiceReminder[]
+
+  @@unique([userId, requestKey])
+  @@index([status, updatedAt])
+  @@map("service_orders")
+}
+
+model ServiceReminder {
+  id        String       @id @db.Uuid
+  userId    String       @map("user_id") @db.Uuid
+  orderId   String       @map("order_id") @db.Uuid
+  dueAt     DateTime     @map("due_at")
+  status    String       @default("SCHEDULED")
+  createdAt DateTime     @default(now()) @map("created_at")
+  user      Profile      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order     ServiceOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@unique([orderId, dueAt])
+  @@index([status, dueAt])
+  @@map("service_reminders")
+}
+
+/// Provider-reported prefunded balance, never a customer wallet liability.
+model SupplierBalanceSnapshot {
+  id          String   @id @db.Uuid
+  provider    String
+  environment String
+  balance     Decimal  @db.Decimal(20, 6)
+  observedAt  DateTime @default(now()) @map("observed_at")
+
+  @@index([provider, environment, observedAt])
+  @@map("supplier_balance_snapshots")
 }

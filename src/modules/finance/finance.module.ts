@@ -1,3 +1,9 @@
+import { ServicePurchases } from './service-purchases.service.js';
+import {
+  ServicePurchasesController,
+  ServiceWebhooksController,
+} from './service-purchases.controller.js';
+import { VtpassClient } from './vtpass.client.js';
 import { FinancePolicy } from './finance-policy.service.js';
 import { FinanceRetirement } from './finance-retirement.service.js';
 import { FinanceMerchants } from './finance-merchants.service.js';
@@ -23,8 +29,16 @@ import { SafeHavenClient, SudoClient } from './providers.js';
 @Global()
 @Module({
   imports: [PasscodeModule, AuditLogModule],
-  controllers: [FinanceController, FinanceWebhooksController, AdminFinanceController],
+  controllers: [
+    ServicePurchasesController,
+    ServiceWebhooksController,
+    FinanceController,
+    FinanceWebhooksController,
+    AdminFinanceController,
+  ],
   providers: [
+    ServicePurchases,
+    VtpassClient,
     FinancePolicy,
     FinanceRetirement,
     FinanceMerchants,
@@ -41,6 +55,7 @@ import { SafeHavenClient, SudoClient } from './providers.js';
     SudoClient,
   ],
   exports: [
+    ServicePurchases,
     FinancePolicy,
     FinanceRetirement,
     FinanceMerchants,

@@ -11,6 +11,8 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { shoppingDeadline } from './shopping-deadline.js';
+import { ChatTurnsService } from './chat-turns.service.js';
 import { ChatAgent } from './chat-agent.js';
 import { AssistantReplyDto } from './chat-replies.dto.js';
 
@@ -21,6 +23,7 @@ export class ChatRepliesService {
     private readonly prisma: PrismaService,
     private readonly agent: ChatAgent,
     private readonly addresses: DeliveryAddressService,
+    private readonly turns: ChatTurnsService,
   ) {}
 
   async respond(userId: string, chatId: string, messageId: string) {
@@ -38,67 +41,75 @@ export class ChatRepliesService {
       (message) => message.id === messageId && message.role === MessageRole.USER,
     );
     if (target < 0) throw new NotFoundException('User message not found');
-    const delivery = await this.addresses.context(userId);
-    const result = await this.agent.reply({
-      delivery,
-      userId,
-      chatId,
-      messages: messages.slice(0, target + 1).map(({ role, content }) => ({ role, content })),
-    });
-    if (!result || typeof result !== 'object' || Array.isArray(result))
-      throw new BadGatewayException('The AI service returned an invalid response');
-    const reply = plainToInstance(AssistantReplyDto, result);
-    if ((await validate(reply, { whitelist: true, forbidNonWhitelisted: true })).length)
-      throw new BadGatewayException('The AI service returned an invalid response');
-    if (!reply.text.trim() && !reply.items.length)
-      throw new BadGatewayException('The AI service returned an empty response');
-    for (const item of reply.items) {
-      if (new Prisma.Decimal(item.amount).lte(0))
-        throw new BadGatewayException('The AI service returned an invalid price');
-      for (const attributes of [
-        item.specifications,
-        item.preview?.selection,
-        item.preview?.attributes,
-      ]) {
-        if (
-          attributes &&
-          (Object.keys(attributes).length > 20 ||
-            Object.entries(attributes).some(
-              ([key, value]) => key.length > 100 || typeof value !== 'string' || value.length > 500,
-            ))
-        )
-          throw new BadGatewayException('The AI service returned invalid specifications');
-      }
-      if (item.preview?.recurringAmount && new Prisma.Decimal(item.preview.recurringAmount).lte(0))
-        throw new BadGatewayException('The AI service returned an invalid recurring price');
-      if (item.preview?.autoRenew && !['SUBSCRIPTION', 'SOFTWARE'].includes(item.preview.mode))
-        throw new BadGatewayException('The AI service returned invalid renewal details');
-      item.id = randomUUID();
-      item.decision = 'PENDING';
-    }
-    const content = JSON.stringify({
-      version: 1,
-      replyTo: messageId,
-      text: reply.text,
-      items: reply.items,
-    });
-    // Recheck under a row lock so retries/concurrent calls persist one reply.
-    return this.prisma.$transaction(async (tx) => {
-      const owned = await tx.$queryRaw<
-        Array<{ id: string }>
-      >`SELECT "id" FROM "chats" WHERE "id" = ${chatId}::uuid AND "user_id" = ${userId}::uuid FOR UPDATE`;
-      if (!owned.length) throw new NotFoundException('Chat not found');
-      const prior = await tx.message.findMany({ where: { chatId, role: MessageRole.ASSISTANT } });
-      const duplicate = prior.find(
-        (message) => this.envelope(message.role, message.content)?.replyTo === messageId,
+    const turn = await this.turns.begin(userId, chatId, messageId);
+    if (turn.status === 'COMPLETED' && turn.replyId)
+      return this.prisma.message.findUniqueOrThrow({ where: { id: turn.replyId } });
+    try {
+      const delivery = await this.addresses.context(userId);
+      const signal = AbortSignal.timeout(60_000);
+      const result = await shoppingDeadline(
+        this.agent.reply({
+          delivery,
+          signal,
+          userId,
+          chatId,
+          messages: messages.slice(0, target + 1).map(({ role, content }) => ({ role, content })),
+        }),
+        signal,
       );
-      if (duplicate) return duplicate;
-      const message = await tx.message.create({
-        data: { id: randomUUID(), chatId, role: MessageRole.ASSISTANT, content },
+      if (!result || typeof result !== 'object' || Array.isArray(result))
+        throw new BadGatewayException('The AI service returned an invalid response');
+      const { chargeable = true, usage = {}, ...publicReply } = result;
+      const reply = plainToInstance(AssistantReplyDto, publicReply);
+      if ((await validate(reply, { whitelist: true, forbidNonWhitelisted: true })).length)
+        throw new BadGatewayException('The AI service returned an invalid response');
+      if (!reply.text.trim() && !reply.items.length)
+        throw new BadGatewayException('The AI service returned an empty response');
+      for (const item of reply.items) {
+        if (new Prisma.Decimal(item.amount).lte(0))
+          throw new BadGatewayException('The AI service returned an invalid price');
+        for (const attributes of [
+          item.specifications,
+          item.preview?.selection,
+          item.preview?.attributes,
+        ]) {
+          if (
+            attributes &&
+            (Object.keys(attributes).length > 20 ||
+              Object.entries(attributes).some(
+                ([key, value]) =>
+                  key.length > 100 || typeof value !== 'string' || value.length > 500,
+              ))
+          )
+            throw new BadGatewayException('The AI service returned invalid specifications');
+        }
+        if (
+          item.preview?.recurringAmount &&
+          new Prisma.Decimal(item.preview.recurringAmount).lte(0)
+        )
+          throw new BadGatewayException('The AI service returned an invalid recurring price');
+        if (item.preview?.autoRenew && !['SUBSCRIPTION', 'SOFTWARE'].includes(item.preview.mode))
+          throw new BadGatewayException('The AI service returned invalid renewal details');
+        item.id = randomUUID();
+        item.decision = 'PENDING';
+      }
+      const content = JSON.stringify({
+        version: 1,
+        replyTo: messageId,
+        text: reply.text,
+        items: reply.items,
+        discoveries: reply.discoveries ?? [],
+        serviceQuotes: reply.serviceQuotes ?? [],
       });
-      await tx.chat.update({ where: { id: chatId }, data: { updatedAt: new Date() } });
-      return message;
-    });
+      return await this.turns.complete(turn, content, chargeable, usage);
+    } catch (error) {
+      const usage =
+        error && typeof error === 'object' && 'shoppingUsage' in error
+          ? (error.shoppingUsage as Prisma.InputJsonValue)
+          : undefined;
+      await this.turns.fail(turn, 'AI_GENERATION_FAILED', usage);
+      throw error;
+    }
   }
 
   async decide(

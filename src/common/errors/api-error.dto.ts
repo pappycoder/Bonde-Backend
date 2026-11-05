@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /**
  * Uniform error response emitted by the global `HttpExceptionFilter` for every
@@ -6,6 +6,9 @@ import { ApiProperty } from '@nestjs/swagger';
  * and the mobile app.
  */
 export class ApiErrorDto {
+  @ApiPropertyOptional({ example: 'AI_CREDITS_REQUIRED' })
+  code?: string;
+
   @ApiProperty({ example: 401 })
   statusCode: number;
 

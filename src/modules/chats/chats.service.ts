@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { MessageRole, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { parsePaging, toPageResult } from '../../common/paging/paging.js';
 import {
@@ -8,6 +8,7 @@ import {
   parseFilterEntries,
 } from '../../common/paging/filter.js';
 import { qWhere } from '../../common/paging/search.js';
+import { ChatTurnsService } from './chat-turns.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
 interface PagedOptions {
@@ -29,7 +30,10 @@ const MESSAGE_FILTER_FIELDS: Record<string, FilterFieldSpec> = {
  */
 @Injectable()
 export class ChatsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly turns: ChatTurnsService,
+  ) {}
 
   async list(userId: string, options: PagedOptions = {}) {
     const { page, pageSize, skip, take } = parsePaging(options.page, options.pageSize);
@@ -98,11 +102,6 @@ export class ChatsService {
   }
 
   async createMessage(userId: string, chatId: string, dto: { content: string }) {
-    await this.get(userId, chatId);
-    // The database trigger stamps the parent with this exact message timestamp.
-    const message = await this.prisma.message.create({
-      data: { id: randomUUID(), chatId, role: MessageRole.USER, content: dto.content },
-    });
-    return message;
+    return (await this.turns.submit(userId, chatId, dto.content)).message;
   }
 }

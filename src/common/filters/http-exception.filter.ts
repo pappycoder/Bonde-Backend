@@ -69,6 +69,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     response.status(status).json({
+      ...(typeof errorResponse === 'object' &&
+      errorResponse !== null &&
+      typeof (errorResponse as Record<string, unknown>).code === 'string'
+        ? { code: (errorResponse as Record<string, unknown>).code }
+        : {}),
       statusCode: status,
       error: errorName,
       message: Array.isArray(message) ? message : [message],

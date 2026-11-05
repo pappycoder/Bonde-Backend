@@ -9,10 +9,16 @@ import type { AssistantReplyDto } from './chat-replies.dto.js';
 export abstract class ChatAgent {
   abstract reply(input: {
     delivery: DeliveryContext;
+    signal?: AbortSignal;
     userId: string;
     chatId: string;
     messages: Array<{ role: string; content: string }>;
-  }): Promise<AssistantReplyDto>;
+  }): Promise<
+    AssistantReplyDto & {
+      chargeable?: boolean;
+      usage?: import('@prisma/client').Prisma.InputJsonValue;
+    }
+  >;
 }
 @Injectable()
 export class UnconfiguredChatAgent extends ChatAgent {

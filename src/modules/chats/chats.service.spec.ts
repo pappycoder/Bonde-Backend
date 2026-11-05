@@ -33,7 +33,18 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     chat,
     message,
   };
-  const service = new ChatsService(prisma as never);
+  const service = new ChatsService(
+    prisma as never,
+    {
+      submit: vi.fn(async (userId, chatId, content) => {
+        if (!(await chat.findFirst({ where: { id: chatId, userId } })))
+          throw new NotFoundException();
+        return {
+          message: await message.create({ data: { chatId, role: MessageRole.USER, content } }),
+        };
+      }),
+    } as never,
+  );
   return { service, chat, message };
 }
 

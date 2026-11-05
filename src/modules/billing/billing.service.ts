@@ -15,6 +15,7 @@ import { currencyOf, systemKey, walletKey } from '../finance/finance.types.js';
 import { LedgerService } from '../finance/ledger.service.js';
 import { PasscodeService } from '../passcode/passcode.service.js';
 import { CREDIT_PACKS, PREMIUM_MONTHLY } from './billing.catalog.js';
+import { AiCreditsService } from './ai-credits.service.js';
 import { BillingOrderDto } from './billing.dto.js';
 
 @Injectable()
@@ -25,6 +26,7 @@ export class BillingService {
     private readonly config: ConfigService<AppConfig, true>,
     private readonly ledger: LedgerService,
     private readonly capabilities: FinanceCapabilities,
+    private readonly credits: AiCreditsService,
   ) {}
   catalog() {
     const settings = this.config.get('profileHub', { infer: true });
@@ -50,17 +52,8 @@ export class BillingService {
       await tx.$queryRaw`SELECT "id" FROM "profiles" WHERE "id" = ${userId}::uuid FOR UPDATE`;
       const profile = await tx.profile.findUnique({ where: { id: userId } });
       if (!profile) throw new NotFoundException('Profile not found');
-      let credits = await tx.aiCreditAccount.upsert({
-        where: { userId },
-        create: { userId },
-        update: {},
-      });
-      if (credits.periodEnd && credits.periodEnd <= new Date() && credits.planRemaining > 0) {
-        credits = await tx.aiCreditAccount.update({
-          where: { userId },
-          data: { planRemaining: 0 },
-        });
-      }
+      await this.credits.initialize(tx, userId);
+      const credits = await this.credits.project(tx, userId);
       const premium =
         profile.cardPlan === 'PREMIUM' &&
         (!profile.cardPlanExpiresAt || profile.cardPlanExpiresAt > new Date());
@@ -70,15 +63,7 @@ export class BillingService {
         periodEnd: profile.cardPlanExpiresAt,
         cancelAtPeriodEnd: profile.billingCancelAtPeriodEnd,
         activeCardLimit: premium ? 15 : 3,
-        credits: {
-          welcome: credits.welcomeRemaining,
-          plan: credits.planRemaining,
-          purchased: credits.purchasedRemaining,
-          granted: credits.planGranted,
-          used: credits.planUsed,
-          total: credits.welcomeRemaining + credits.planRemaining + credits.purchasedRemaining,
-          periodEnd: credits.periodEnd,
-        },
+        credits,
       };
     });
   }
@@ -219,7 +204,7 @@ export class BillingService {
           kind: 'BILLING_REVENUE',
         },
       ]);
-      await tx.aiCreditAccount.upsert({ where: { userId }, create: { userId }, update: {} });
+      await this.credits.initialize(tx, userId);
       const periodStart = new Date();
       const periodEnd = new Date(periodStart);
       // Calendar-month renewal, clamped at month end (e.g. Jan 31 -> Feb 28).
@@ -258,6 +243,15 @@ export class BillingService {
           data: { purchasedRemaining: { increment: order.credits } },
         });
       }
+      await this.credits.add(
+        tx,
+        userId,
+        order.kind === 'PREMIUM' ? 'PLAN' : 'PURCHASED',
+        `billing:${order.id}`,
+        order.credits,
+        order.kind === 'PREMIUM' ? periodEnd : null,
+      );
+      await this.credits.project(tx, userId);
       const transactionId = randomUUID();
       await tx.transaction.create({
         data: {

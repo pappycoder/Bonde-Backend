@@ -82,7 +82,20 @@ function setup({ approvalId = APPROVAL, amount = '349.00' } = {}) {
     agent,
     message,
     envelope,
-    service: new ChatRepliesService(prisma as never, agent as never, addresses as never),
+    service: new ChatRepliesService(
+      prisma as never,
+      agent as never,
+      addresses as never,
+      {
+        begin: vi.fn(async () => ({ id: 'turn', status: 'RUNNING' })),
+        complete: vi.fn(async (_turn, content) =>
+          prisma.message.create({
+            data: { id: ASSISTANT, chatId: CHAT, role: 'ASSISTANT', content },
+          }),
+        ),
+        fail: vi.fn(async () => undefined),
+      } as never,
+    ),
   };
 }
 describe('chat assistant replies', () => {

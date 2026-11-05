@@ -5,6 +5,7 @@ import { ApiErrorDto } from './api-error.dto.js';
 const ERROR_STATUSES: Record<number, string> = {
   [HttpStatus.BAD_REQUEST]: 'Validation or malformed request',
   [HttpStatus.UNAUTHORIZED]: 'Missing/expired bearer token (or invalid credentials)',
+  [HttpStatus.PAYMENT_REQUIRED]: 'AI credits are exhausted; purchase credits to continue',
   [HttpStatus.FORBIDDEN]: 'Authenticated but insufficient role',
   [HttpStatus.NOT_FOUND]: 'Route not found',
   [HttpStatus.CONFLICT]: 'Resource state conflict',
