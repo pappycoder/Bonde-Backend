@@ -14,7 +14,7 @@ import { FinanceCapabilities } from '../finance/finance-capabilities.service.js'
 import { currencyOf, systemKey, walletKey } from '../finance/finance.types.js';
 import { LedgerService } from '../finance/ledger.service.js';
 import { PasscodeService } from '../passcode/passcode.service.js';
-import { CREDIT_PACKS, PREMIUM_MONTHLY } from './billing.catalog.js';
+import { CREDIT_PACKS, PREMIUM_MONTHLY, WELCOME_CREDITS } from './billing.catalog.js';
 import { AiCreditsService } from './ai-credits.service.js';
 import { BillingOrderDto } from './billing.dto.js';
 
@@ -31,6 +31,7 @@ export class BillingService {
   catalog() {
     const settings = this.config.get('profileHub', { infer: true });
     return {
+      free: { welcomeCredits: WELCOME_CREDITS },
       premium: PREMIUM_MONTHLY,
       packs: CREDIT_PACKS,
       annual: null,
@@ -57,7 +58,16 @@ export class BillingService {
       const premium =
         profile.cardPlan === 'PREMIUM' &&
         (!profile.cardPlanExpiresAt || profile.cardPlanExpiresAt > new Date());
+      const mandate =
+        profile.cardPlan === 'PREMIUM'
+          ? await tx.billingOrder.findFirst({
+              where: { userId, kind: 'PREMIUM', status: 'SUCCESS', paymentMethod: 'WALLET' },
+              orderBy: { createdAt: 'desc' },
+            })
+          : null;
       return {
+        welcomeAllowance: WELCOME_CREDITS,
+        renewalRequiresReview: !!mandate && !this.currentOffer(mandate),
         plan: premium ? 'PREMIUM' : 'FREE',
         billingEmail: profile.email,
         periodEnd: profile.cardPlanExpiresAt,
@@ -91,8 +101,9 @@ export class BillingService {
       if (existing) {
         if (existing.productId !== dto.productId)
           throw new ConflictException('This purchase identity belongs to another product.');
-        if (existing.status === 'SUCCESS' || existing.status === 'PENDING')
-          return this.view(existing);
+        if (existing.status === 'SUCCESS') return this.view(existing);
+        this.assertCurrentOffer(existing);
+        if (existing.status === 'PENDING') return this.view(existing);
         const retry = await tx.billingOrder.update({
           where: { id: existing.id },
           data: {
@@ -142,6 +153,7 @@ export class BillingService {
       if (order.status === 'SUCCESS') return this.view(order);
       if (order.status !== 'PENDING')
         throw new ConflictException('Retry the confirmed failed purchase before paying again.');
+      this.assertCurrentOffer(order);
       if (order.paymentMethod !== 'WALLET')
         throw new ServiceUnavailableException(
           'Card payment processing is not configured. No charge was made.',
@@ -336,6 +348,42 @@ export class BillingService {
       });
       // Manually granted or legacy Premium never authorizes a wallet debit.
       if (!paid) continue;
+      if (!this.currentOffer(paid)) {
+        // An old recurring mandate does not authorize a smaller allowance at the same price.
+        // Guard the due date so a concurrent new subscription cannot be cancelled here.
+        await this.prisma.$transaction(async (tx) => {
+          const paused = await tx.profile.updateMany({
+            where: {
+              id: profile.id,
+              cardPlanExpiresAt: profile.cardPlanExpiresAt,
+              billingCancelAtPeriodEnd: false,
+            },
+            data: { billingCancelAtPeriodEnd: true },
+          });
+          if (!paused.count) return;
+          await tx.auditLog.create({
+            data: {
+              id: randomUUID(),
+              userId: profile.id,
+              action: 'billing.subscription.offer_changed',
+              entityType: 'profile',
+              entityId: profile.id,
+              metadata: { previousCredits: paid.credits, currentCredits: PREMIUM_MONTHLY.credits },
+            },
+          });
+          await tx.notification.create({
+            data: {
+              id: randomUUID(),
+              userId: profile.id,
+              type: 'SYSTEM',
+              title: 'Review your updated Premium offer',
+              content:
+                'Your previous Premium offer will not renew automatically. Review the current plan before subscribing again. Previously issued credits retain their existing expiry rules.',
+            },
+          });
+        });
+        continue;
+      }
       const idempotencyKey = createHash('sha256')
         .update(`renewal:${profile.id}:${profile.cardPlanExpiresAt.toISOString()}`)
         .digest('hex');
@@ -382,6 +430,31 @@ export class BillingService {
       take: 100,
     });
     return orders.map((order) => this.view(order));
+  }
+  private currentOffer(order: {
+    productId: string;
+    kind: string;
+    credits: number;
+    amount: Prisma.Decimal;
+    currency: string;
+  }) {
+    const product =
+      order.productId === PREMIUM_MONTHLY.id
+        ? PREMIUM_MONTHLY
+        : CREDIT_PACKS.find((pack) => pack.id === order.productId);
+    return (
+      !!product &&
+      order.credits === product.credits &&
+      order.amount.equals(product.amount) &&
+      order.currency === product.currency &&
+      order.kind === (order.productId === PREMIUM_MONTHLY.id ? 'PREMIUM' : 'CREDITS')
+    );
+  }
+  private assertCurrentOffer(order: Parameters<BillingService['currentOffer']>[0]) {
+    if (!this.currentOffer(order))
+      throw new ConflictException(
+        'This unpaid offer has changed. Cancel it and review a new offer before paying.',
+      );
   }
   private view(order: {
     id: string;

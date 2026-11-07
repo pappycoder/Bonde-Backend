@@ -8,6 +8,7 @@ import {
   type BootedE2EApp,
 } from './e2e-app.js';
 import { ConfigService } from '@nestjs/config';
+import { BillingService } from '../src/modules/billing/billing.service.js';
 import { bootFinanceE2EApp, seedFinanceFunds, financeTestEnvironment } from './finance-fixtures.js';
 const restoreEnvironment = financeTestEnvironment(6);
 afterAll(restoreEnvironment);
@@ -123,6 +124,92 @@ describe('Profile hub and billing (local database)', () => {
     expect(
       await ctx.prisma.billingOrder.count({ where: { userId: SEED_USER_ID, status: 'SUCCESS' } }),
     ).toBe(1);
+  });
+  it('sells the smaller Premium offer and pauses a legacy renewal without reducing issued credits', async () => {
+    expect((await ctx.http.get('/billing/catalog').expect(200)).body).toMatchObject({
+      free: { welcomeCredits: 10 },
+      premium: { amount: '6000.00', credits: 100 },
+    });
+    const order = await ctx.http
+      .post('/billing/orders')
+      .send({
+        idempotencyKey: randomUUID(),
+        productId: 'premium-monthly',
+        paymentMethod: 'WALLET',
+        recurringConsent: true,
+      })
+      .expect(201);
+    expect(order.body.credits).toBe(100);
+    await ctx.http
+      .post(`/billing/orders/${order.body.id}/confirm`)
+      .send({ passcode: '1234' })
+      .expect(201);
+    expect((await ctx.http.get('/billing/summary').expect(200)).body.credits.plan).toBe(100);
+    // Simulate an existing paid 8,000-credit period before the catalog change.
+    await ctx.prisma.billingOrder.update({ where: { id: order.body.id }, data: { credits: 8000 } });
+    await ctx.prisma.aiCreditGrant.updateMany({
+      where: { userId: SEED_USER_ID, source: 'PLAN' },
+      data: { units: 8000, remaining: 8000 },
+    });
+    expect((await ctx.http.get('/billing/summary').expect(200)).body).toMatchObject({
+      renewalRequiresReview: true,
+      credits: { plan: 8000 },
+    });
+    await ctx.prisma.profile.update({
+      where: { id: SEED_USER_ID },
+      data: { cardPlanExpiresAt: new Date('2000-01-01') },
+    });
+    const billing = ctx.app.get(BillingService);
+    await Promise.all([billing.renewDue(), billing.renewDue()]);
+    expect(
+      (await ctx.prisma.profile.findUniqueOrThrow({ where: { id: SEED_USER_ID } }))
+        .billingCancelAtPeriodEnd,
+    ).toBe(true);
+    expect(await ctx.prisma.billingOrder.count({ where: { userId: SEED_USER_ID } })).toBe(1);
+    expect(
+      await ctx.prisma.notification.count({
+        where: { userId: SEED_USER_ID, title: 'Review your updated Premium offer' },
+      }),
+    ).toBe(1);
+    expect(
+      (
+        await ctx.prisma.financeAccount.findUniqueOrThrow({
+          where: { key: `wallet:${SEED_USER_ID}:NGN` },
+        })
+      ).balance.toFixed(2),
+    ).toBe('14000.00');
+  });
+  it('rejects unpaid old Premium offers without taking wallet funds', async () => {
+    const key = randomUUID();
+    const order = await ctx.http
+      .post('/billing/orders')
+      .send({
+        idempotencyKey: key,
+        productId: 'premium-monthly',
+        paymentMethod: 'WALLET',
+        recurringConsent: true,
+      })
+      .expect(201);
+    await ctx.prisma.billingOrder.update({ where: { id: order.body.id }, data: { credits: 8000 } });
+    await ctx.http
+      .post(`/billing/orders/${order.body.id}/confirm`)
+      .send({ passcode: '1234' })
+      .expect(409);
+    await ctx.http
+      .post('/billing/orders')
+      .send({
+        idempotencyKey: key,
+        productId: 'premium-monthly',
+        paymentMethod: 'WALLET',
+        recurringConsent: true,
+      })
+      .expect(409);
+    expect(
+      await ctx.prisma.financeJournal.count({ where: { reference: `billing:${order.body.id}` } }),
+    ).toBe(0);
+    expect(
+      await ctx.prisma.aiCreditGrant.count({ where: { source: 'PLAN', userId: SEED_USER_ID } }),
+    ).toBe(0);
   });
   it('does not accept client amounts, and hides orders from other accounts', async () => {
     await ctx.http

@@ -5,6 +5,7 @@ import { DeliveryAddressInputDto } from '../profiles/delivery-address.dto.js';
 import {
   ArrayMaxSize,
   IsDefined,
+  IsDateString,
   IsArray,
   IsBoolean,
   IsIn,
@@ -116,6 +117,12 @@ export class ChatDecisionResponseDto {
 }
 
 export class ShoppingDiscoveryDto {
+  @ApiPropertyOptional({
+    description: 'Original product discovery time, preserved when results are reused.',
+  })
+  @IsOptional()
+  @IsDateString()
+  discoveredAt?: string;
   @IsUUID('4') id!: string;
   @IsString() @MaxLength(300) title!: string;
   @IsString() @MaxLength(255) merchant!: string;

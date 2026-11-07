@@ -11,7 +11,7 @@ export class FinanceInstallation implements OnModuleInit {
   ) {}
   async onModuleInit() {
     const c = this.config.get('finance');
-    if (!c.enabled) return;
+    if (!c.enabled && !this.config.get('shopping').servicesEnabled) return;
     await this.prisma.financeInstallation.createMany({
       data: [{ id: 'installation', environment: c.environment }],
       skipDuplicates: true,

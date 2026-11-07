@@ -1,6 +1,7 @@
 import { HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type AiCreditGrant } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
+import { WELCOME_CREDITS } from './billing.catalog.js';
 
 export class CreditsRequiredException extends HttpException {
   constructor() {
@@ -27,7 +28,7 @@ export class AiCreditsService {
   async initialize(tx: Prisma.TransactionClient, userId: string) {
     const account = await tx.aiCreditAccount.upsert({
       where: { userId },
-      create: { userId },
+      create: { userId, welcomeRemaining: WELCOME_CREDITS },
       update: {},
     });
     if (!account.ledgerInitialized) {

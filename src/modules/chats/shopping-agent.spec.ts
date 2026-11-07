@@ -15,21 +15,42 @@ function setup() {
     get: (key: string) =>
       key === 'nodeEnv'
         ? 'test'
-        : { aiEnabled: true, openaiKey: 'test-only', model: 'configured-model' },
+        : {
+            aiEnabled: true,
+            openaiKey: 'test-only',
+            model: 'configured-model',
+            braveEnabled: true,
+            braveKey: 'test-only',
+            merchantHosts: ['shop.example'],
+            servicesEnabled: true,
+          },
   };
+  const goods = [
+    {
+      id: 'result-one',
+      title: 'Headphones',
+      merchant: 'shop.example',
+      url: 'https://shop.example/product',
+      description: 'Merchant result',
+      discoveredAt: '2026-11-06T09:00:00.000Z',
+      priceVerified: false,
+      availabilityVerified: false,
+      checkout: 'OFFICIAL_LINK',
+    },
+  ];
   const search = {
-    search: vi.fn(async () => [
-      {
-        id: 'result-one',
-        title: 'Headphones',
-        merchant: 'shop.example',
-        url: 'https://shop.example/product',
-        description: 'Merchant result',
-        priceVerified: false,
-        availabilityVerified: false,
-        checkout: 'OFFICIAL_LINK',
+    search: vi.fn(
+      async (
+        _userId: string,
+        _chatId: string,
+        _query: string,
+        options: { onProviderRequest?: () => void },
+      ) => {
+        options.onProviderRequest?.();
+        return { results: goods, source: 'provider' };
       },
-    ]),
+    ),
+    recent: vi.fn(async () => goods),
   };
   const services = { catalog: vi.fn(() => []), plans: vi.fn(), quote: vi.fn(), order: vi.fn() };
   return {
@@ -54,7 +75,9 @@ describe('bounded shopping agent', () => {
       'fetch',
       vi
         .fn()
-        .mockResolvedValueOnce(response([call('find_goods', { query: 'headphones' })]))
+        .mockResolvedValueOnce(
+          response([call('find_goods', { query: 'headphones', refresh: false })]),
+        )
         .mockResolvedValueOnce(
           response([
             call('finish_reply', {
@@ -74,6 +97,138 @@ describe('bounded shopping agent', () => {
     });
     expect(result.items).toEqual([]);
     expect(result.chargeable).toBe(true);
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string)).toMatchObject({
+      reasoning: { effort: 'none' },
+      store: false,
+      max_output_tokens: 1800,
+    });
+  });
+  it('still replies when search and service purchases are not configured', async () => {
+    const search = { search: vi.fn() };
+    const services = { catalog: vi.fn() };
+    const agent = new ShoppingAgent(
+      {
+        get: (key: string) =>
+          key === 'nodeEnv'
+            ? 'test'
+            : {
+                aiEnabled: true,
+                openaiKey: 'test',
+                model: 'gpt-6-luna',
+                braveEnabled: false,
+                servicesEnabled: false,
+              },
+      } as never,
+      search as never,
+      services as never,
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        response([
+          call('finish_reply', {
+            disposition: 'SHOPPING',
+            text: 'Live product search is not configured. What kind of laptop do you need?',
+            resultIds: [],
+            quoteIds: [],
+          }),
+        ]),
+      ),
+    );
+    expect((await agent.reply(input as never)).text).toContain('not configured');
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
+    expect(body.tools.map((t: { name: string }) => t.name)).toEqual(['read_order', 'finish_reply']);
+    expect(search.search).not.toHaveBeenCalled();
+    expect(services.catalog).not.toHaveBeenCalled();
+  });
+  it('compares prior product results without another Brave request and preserves their timestamps', async () => {
+    const { agent, search } = setup();
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(response([call('read_recent_goods', {})]))
+        .mockResolvedValueOnce(
+          response([
+            call('finish_reply', {
+              disposition: 'SHOPPING',
+              text: 'Open the merchant checkout to confirm the price and buy these headphones.',
+              resultIds: ['result-one'],
+              quoteIds: [],
+            }),
+          ]),
+        ),
+    );
+    const result = await agent.reply({
+      ...input,
+      messages: [{ role: 'USER', content: 'How do I buy the headphones you found?' }],
+    } as never);
+    expect(search.recent).toHaveBeenCalledWith('owner', 'chat');
+    expect(search.search).not.toHaveBeenCalled();
+    expect(result.discoveries?.[0]).toMatchObject({
+      id: 'result-one',
+      discoveredAt: '2026-11-06T09:00:00.000Z',
+      checkout: 'OFFICIAL_LINK',
+      priceVerified: false,
+    });
+    expect(result.usage).toMatchObject({ searches: 0, searchExecutions: 0, cacheHits: 0 });
+    expect(result.chargeable).toBe(true);
+    expect(result.items).toEqual([]);
+  });
+  it('distinguishes cached searches from paid requests and still limits search-tool executions to two', async () => {
+    const { agent, search } = setup();
+    search.search.mockImplementation(async () => ({ results: [], source: 'cache' }));
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          response([call('find_goods', { query: 'headphones', refresh: false })]),
+        )
+        .mockResolvedValueOnce(
+          response([
+            call('finish_reply', {
+              disposition: 'SHOPPING',
+              text: 'No matching products were found.',
+              resultIds: [],
+              quoteIds: [],
+            }),
+          ]),
+        )
+        .mockImplementation(async () =>
+          response([call('find_goods', { query: 'headphones', refresh: false })]),
+        ),
+    );
+    expect((await agent.reply(input as never)).usage).toMatchObject({
+      searches: 0,
+      searchExecutions: 1,
+      cacheHits: 1,
+    });
+    search.search.mockClear();
+    await expect(agent.reply(input as never)).rejects.toMatchObject({
+      shoppingUsage: { searches: 0, cacheHits: 2 },
+    });
+    expect(search.search).toHaveBeenCalledTimes(2);
+  });
+  it('passes explicit refresh through and records failed Brave attempts in usage', async () => {
+    const { agent, search } = setup();
+    search.search.mockImplementation(async (_user, _chat, _query, options) => {
+      options.onProviderRequest?.();
+      throw new Error('Brave unavailable');
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response([call('find_goods', { query: 'headphones', refresh: true })])),
+    );
+    await expect(agent.reply(input as never)).rejects.toMatchObject({
+      shoppingUsage: { searches: 1, searchExecutions: 1, cacheHits: 0 },
+    });
+    expect(search.search).toHaveBeenCalledWith(
+      'owner',
+      'chat',
+      'headphones',
+      expect.objectContaining({ refresh: true }),
+    );
   });
   it('does not charge an unrelated response and refuses unknown tool calls', async () => {
     const { agent } = setup();
@@ -112,7 +267,9 @@ describe('bounded shopping agent', () => {
             }),
           ]),
         )
-        .mockImplementation(async () => response([call('find_goods', { query: 'headphones' })])),
+        .mockImplementation(async () =>
+          response([call('find_goods', { query: 'headphones', refresh: false })]),
+        ),
     );
     await expect(agent.reply(input as never)).rejects.toThrow('unknown offer');
     await expect(agent.reply(input as never)).rejects.toThrow('search limit');

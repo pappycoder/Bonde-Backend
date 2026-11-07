@@ -1,15 +1,4 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  Query,
-  UnauthorizedException,
-  Param,
-  ParseUUIDPipe,
-  Post,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -30,11 +19,6 @@ import {
   ServiceOrderViewDto,
   ServiceReminderDto,
 } from './service-purchase.dto.js';
-import { ConfigService } from '@nestjs/config';
-import type { AppConfig } from '../../config/configuration.js';
-import { Public } from '../auth/decorators/public.decorator.js';
-import { secretMatches } from './finance.types.js';
-import { object, string } from './shopping-values.js';
 import { ServicePurchases } from './service-purchases.service.js';
 
 @ApiTags('service-purchases')
@@ -120,28 +104,5 @@ export class ServicePurchasesController {
   @ApiOperation({ summary: 'Cancel a renewal reminder' })
   cancel(@CurrentUser() user: AuthPrincipal, @Param('id', ParseUUIDPipe) id: string) {
     return this.services.cancelReminder(user.userId, id);
-  }
-}
-
-@ApiTags('service-purchases')
-@Controller('finance/services/webhooks')
-export class ServiceWebhooksController {
-  constructor(
-    private readonly services: ServicePurchases,
-    private readonly config: ConfigService<AppConfig, true>,
-  ) {}
-  @Post('vtpass')
-  @Public()
-  @HttpCode(200)
-  @ApiOperation({
-    summary: 'Acknowledge a callback and verify its status through the provider API',
-  })
-  receive(@Query('token') token: string | undefined, @Body() body: unknown) {
-    const expected = this.config.get('shopping', { infer: true }).vtpassWebhookToken;
-    if (!expected || !secretMatches(token, expected)) throw new UnauthorizedException();
-    const data = object(object(body).data);
-    const reference = string(data.requestId || data.request_id);
-    void this.services.requeryReference(reference).catch(() => undefined);
-    return { response: 'success' };
   }
 }

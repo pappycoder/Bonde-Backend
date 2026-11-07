@@ -18,9 +18,8 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { PasscodeService } from '../passcode/passcode.service.js';
 import { LedgerService, type Posting } from './ledger.service.js';
 import { fingerprint, holdKey, systemKey, walletKey } from './finance.types.js';
-import { object, string } from './shopping-values.js';
 import { ServiceQuoteDto } from './service-purchase.dto.js';
-import { isTv, serviceIds, serviceOutcome, VtpassClient } from './vtpass.client.js';
+import { SafeHavenVasClient, isTv, type ServiceOutcome } from './safe-haven-vas.client.js';
 
 type OrderWithQuote = ServiceOrder & { quote: ServiceQuote };
 
@@ -30,7 +29,7 @@ export class ServicePurchases implements OnModuleInit, OnModuleDestroy {
   private running = false;
   constructor(
     private readonly prisma: PrismaService,
-    private readonly provider: VtpassClient,
+    private readonly provider: SafeHavenVasClient,
     private readonly ledger: LedgerService,
     private readonly passcode: PasscodeService,
     private readonly config: ConfigService<AppConfig, true>,
@@ -44,14 +43,18 @@ export class ServicePurchases implements OnModuleInit, OnModuleDestroy {
   }
 
   catalog() {
-    return serviceIds.map((id) => ({
-      id,
-      category: isTv(id) ? 'CABLE_TV' : 'DATA',
-      autoRenew: false,
-    }));
+    return this.provider.catalog();
   }
-  plans(serviceId: string, signal?: AbortSignal) {
-    return this.provider.plans(serviceId, signal);
+  async plans(serviceId: string, signal?: AbortSignal) {
+    return (await this.provider.plans(serviceId, signal)).map(
+      ({ serviceId: id, code, name, amount, currency }) => ({
+        serviceId: id,
+        code,
+        name,
+        amount,
+        currency,
+      }),
+    );
   }
   verify(serviceId: string, beneficiary: string, signal?: AbortSignal) {
     if (!/^\d{6,20}$/.test(beneficiary))
@@ -65,7 +68,7 @@ export class ServicePurchases implements OnModuleInit, OnModuleDestroy {
     const dto = plainToInstance(ServiceQuoteDto, input);
     if (validateSync(dto, { whitelist: true, forbidNonWhitelisted: true }).length)
       throw new BadRequestException('Enter a valid plan, beneficiary, and contact phone number.');
-    const plan = (await this.plans(dto.serviceId, signal)).find(
+    const plan = (await this.provider.plans(dto.serviceId, signal)).find(
       (p) => p.code === dto.variationCode,
     );
     if (!plan) throw new BadRequestException('Choose a current service plan.');
@@ -75,6 +78,10 @@ export class ServicePurchases implements OnModuleInit, OnModuleDestroy {
     const expiresAt = new Date(Date.now() + 300_000);
     const data = {
       userId,
+      provider: this.provider.name,
+      environment: this.provider.environment,
+      providerCategoryId: plan.providerCategoryId,
+      providerPlanCode: plan.providerPlanCode,
       serviceId: dto.serviceId,
       variationCode: dto.variationCode,
       name: plan.name,
@@ -122,11 +129,15 @@ export class ServicePurchases implements OnModuleInit, OnModuleDestroy {
     return quote;
   }
   private async revalidate(q: ServiceQuote) {
+    if (q.provider !== this.provider.name || q.environment !== this.provider.environment)
+      throw new ConflictException('Service provider changed. Request a fresh quote.');
     if (q.expiresAt <= new Date())
       throw new ConflictException('Quote expired. Request a fresh quote.');
-    const plan = (await this.plans(q.serviceId)).find((p) => p.code === q.variationCode);
+    const plan = (await this.provider.plans(q.serviceId)).find((p) => p.code === q.variationCode);
     if (
       !plan ||
+      q.providerCategoryId !== plan.providerCategoryId ||
+      q.providerPlanCode !== plan.providerPlanCode ||
       !q.amount.equals(plan.amount) ||
       !q.fee.equals(this.config.get('shopping', { infer: true }).serviceFee)
     )
@@ -159,7 +170,7 @@ export class ServicePurchases implements OnModuleInit, OnModuleDestroy {
     return { proof, expiresAt };
   }
   async execute(userId: string, quoteId: string, proof: string, requestKey: string) {
-    this.provider.assertEnabled();
+    this.provider.assertPurchasesEnabled();
     const prior = await this.prisma.serviceOrder.findUnique({
       where: { userId_requestKey: { userId, requestKey } },
       include: { quote: true },
@@ -201,24 +212,14 @@ export class ServicePurchases implements OnModuleInit, OnModuleDestroy {
       const wallet = await tx.wallet.findFirst({ where: { account: { userId }, isActive: true } });
       if (!wallet) throw new NotFoundException('Wallet not found');
       const id = randomUUID();
-      const stamp = new Intl.DateTimeFormat('sv-SE', {
-        timeZone: 'Africa/Lagos',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      })
-        .format(new Date())
-        .replace(/\D/g, '');
       const order = await tx.serviceOrder.create({
         data: {
           id,
           userId,
           quoteId,
           requestKey,
-          providerReference: `${stamp}${id.replaceAll('-', '')}`,
+          providerReference: id.replaceAll('-', ''),
+          provider: this.provider.name,
           environment: this.provider.environment,
         },
       });
@@ -250,7 +251,12 @@ export class ServicePurchases implements OnModuleInit, OnModuleDestroy {
           amount: total,
           currency: 'NGN',
           description: quote.name,
-          metadata: { live: true, serviceProvider: 'VTPASS', serviceId: quote.serviceId, quoteId },
+          metadata: {
+            live: this.provider.environment === 'production',
+            serviceProvider: this.provider.name,
+            serviceId: quote.serviceId,
+            quoteId,
+          },
         },
       });
       await tx.auditLog.create({
@@ -348,39 +354,50 @@ export class ServicePurchases implements OnModuleInit, OnModuleDestroy {
   }
 
   async run() {
-    if (this.running || !this.config.get('shopping', { infer: true }).vtpassEnabled) return;
+    if (this.running) return;
     this.running = true;
     try {
+      await this.sendReminders();
+      if (!this.config.get('shopping', { infer: true }).servicesEnabled) return;
       this.provider.assertEnabled();
       // Once claimed for submission, recovery only queries the original reference.
       await this.prisma.serviceOrder.updateMany({
-        where: { status: 'PROCESSING', leaseUntil: { lte: new Date() } },
+        where: {
+          provider: this.provider.name,
+          environment: this.provider.environment,
+          status: 'PROCESSING',
+          leaseUntil: { lte: new Date() },
+        },
         data: { status: 'PENDING', leaseUntil: null },
       });
       const queued = await this.prisma.serviceOrder.findMany({
-        where: { status: 'QUEUED', environment: this.provider.environment },
+        where: {
+          provider: this.provider.name,
+          status: 'QUEUED',
+          environment: this.provider.environment,
+        },
         include: { quote: true },
         take: 5,
         orderBy: { createdAt: 'asc' },
       });
       for (const order of queued) await this.process(order);
       const pending = await this.prisma.serviceOrder.findMany({
-        where: { status: 'PENDING', environment: this.provider.environment },
+        where: {
+          provider: this.provider.name,
+          status: 'PENDING',
+          environment: this.provider.environment,
+        },
         include: { quote: true },
         take: 20,
         orderBy: { updatedAt: 'asc' },
       });
       for (const order of pending) {
         try {
-          await this.settle(
-            order,
-            await this.provider.call('/requery', { request_id: order.providerReference }),
-          );
+          await this.settle(order, await this.provider.requery(order.providerReference));
         } catch {
           /* Keep the hold until the provider gives a definitive status. */
         }
       }
-      await this.sendReminders();
     } finally {
       this.running = false;
     }
@@ -390,7 +407,7 @@ export class ServicePurchases implements OnModuleInit, OnModuleDestroy {
     await this.prisma.supplierBalanceSnapshot.create({
       data: {
         id: randomUUID(),
-        provider: 'VTPASS',
+        provider: this.provider.name,
         environment: this.provider.environment,
         balance,
       },
@@ -402,21 +419,22 @@ export class ServicePurchases implements OnModuleInit, OnModuleDestroy {
     if (!/^[a-zA-Z0-9]{12,100}$/.test(reference)) return;
     const order = await this.prisma.serviceOrder.findFirst({
       where: {
+        provider: this.provider.name,
         providerReference: reference,
         environment: this.provider.environment,
         status: { in: ['PROCESSING', 'PENDING'] },
       },
       include: { quote: true },
     });
-    if (order)
-      await this.settle(order, await this.provider.call('/requery', { request_id: reference }));
+    if (order) await this.settle(order, await this.provider.requery(reference));
   }
 
   private async process(order: OrderWithQuote) {
     // Read-only preflight failures are safe to retry: no payment has been submitted.
     let plan;
     try {
-      plan = (await this.plans(order.quote.serviceId)).find(
+      this.provider.assertPurchasesEnabled();
+      plan = (await this.provider.plans(order.quote.serviceId)).find(
         (p) => p.code === order.quote.variationCode,
       );
     } catch {
@@ -432,33 +450,23 @@ export class ServicePurchases implements OnModuleInit, OnModuleDestroy {
     });
     if (!claim.count) return;
     try {
-      const today = new Intl.DateTimeFormat('sv-SE', {
-        timeZone: 'Africa/Lagos',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      })
-        .format(new Date())
-        .replace(/\D/g, '');
+      this.provider.assertPurchasesEnabled();
       if (
         !plan ||
-        !order.quote.amount.equals(plan.amount) ||
-        !order.providerReference.startsWith(today)
+        order.quote.expiresAt <= new Date() ||
+        order.provider !== this.provider.name ||
+        order.quote.provider !== order.provider ||
+        order.quote.environment !== order.environment ||
+        plan.providerCategoryId !== order.quote.providerCategoryId ||
+        plan.providerPlanCode !== order.quote.providerPlanCode ||
+        !order.quote.amount.equals(plan.amount)
       ) {
-        // This QUEUED order has never reached the purchase API, so release is safe.
-        await this.settle(order, { code: '016' });
+        // Claimed locally but never submitted: this hold can safely be released.
+        await this.settle(order, { status: 'FAILED', reference: order.providerReference }, true);
         return;
       }
-      const response = await this.provider.call('/pay', {
-        request_id: order.providerReference,
-        serviceID: order.quote.serviceId,
-        billersCode: order.quote.beneficiary,
-        variation_code: order.quote.variationCode,
-        amount: order.quote.amount.toFixed(2),
-        phone: order.quote.phone,
-        ...(isTv(order.quote.serviceId) ? { subscription_type: 'change', quantity: 1 } : {}),
-      });
-      await this.settle(order, response);
+      await this.provider.purchase(order.providerReference, order.quote);
+      await this.settle(order, await this.provider.requery(order.providerReference));
     } catch {
       await this.prisma.serviceOrder.updateMany({
         where: { id: order.id, status: 'PROCESSING' },
@@ -466,20 +474,19 @@ export class ServicePurchases implements OnModuleInit, OnModuleDestroy {
       });
     }
   }
-  private async settle(order: OrderWithQuote, response: Record<string, unknown>) {
-    let outcome = serviceOutcome(response);
-    if (outcome === 'SUCCEEDED') {
-      const reference = string(response.requestId || response.request_id);
-      const amount = String(response.amount ?? '');
-      const beneficiary = string(object(object(response.content).transactions).unique_element);
-      if (
-        reference !== order.providerReference ||
-        !/^\d+(\.\d{1,2})?$/.test(amount) ||
-        !order.quote.amount.equals(amount) ||
-        (beneficiary && beneficiary !== order.quote.beneficiary)
-      )
-        outcome = 'PENDING';
-    }
+  private async settle(order: OrderWithQuote, response: ServiceOutcome, neverSubmitted = false) {
+    let outcome = response.status;
+    if (response.reference !== order.providerReference) outcome = 'PENDING';
+    if (
+      outcome !== 'PENDING' &&
+      !neverSubmitted &&
+      (!response.amount ||
+        !order.quote.amount.equals(response.amount) ||
+        response.beneficiary !== order.quote.beneficiary ||
+        response.categoryId !== order.quote.providerCategoryId ||
+        !response.transactionId)
+    )
+      outcome = 'PENDING';
     if (outcome === 'PENDING') {
       await this.prisma.serviceOrder.updateMany({
         where: { id: order.id, status: { in: ['PROCESSING', 'PENDING'] } },
@@ -511,7 +518,7 @@ export class ServicePurchases implements OnModuleInit, OnModuleDestroy {
         });
       else {
         lines.push({
-          key: systemKey(`vtpass-${order.environment}-settlement`, 'NGN'),
+          key: systemKey(`safe-haven-${order.environment}-settlement`, 'NGN'),
           currency: 'NGN',
           kind: 'SERVICE_SETTLEMENT',
           amount: order.quote.amount,
@@ -532,8 +539,7 @@ export class ServicePurchases implements OnModuleInit, OnModuleDestroy {
           : 'Failed service purchase funds released',
         lines,
       );
-      const providerTransactionId =
-        string(object(object(response.content).transactions).transactionId) || null;
+      const providerTransactionId = response.transactionId || null;
       await tx.serviceOrder.update({
         where: { id: order.id },
         data: {

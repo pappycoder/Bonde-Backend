@@ -1,0 +1,229 @@
+{
+  "services": [
+    [
+      {
+        "_id": "61e985180e69308aa37a7a94",
+        "name": "Mobile Recharge",
+        "identifier": "AIRTIME",
+        "description": "Airtime Recharge",
+        "createdAt": "2022-01-20T15:51:52.311Z",
+        "updatedAt": "2022-01-20T15:51:52.311Z",
+        "__v": 0
+      },
+      {
+        "_id": "61e9854bbce8e444a497663e",
+        "name": "DATA PURCHASE",
+        "identifier": "DATA",
+        "description": "Data bundle subscription",
+        "createdAt": "2022-01-20T15:52:43.385Z",
+        "updatedAt": "2022-01-20T15:52:43.385Z",
+        "__v": 0
+      },
+      {
+        "_id": "61e9857bbce8e444a4976641",
+        "name": "CABLE TV",
+        "identifier": "CABLETV",
+        "description": "Cable tv subscription",
+        "createdAt": "2022-01-20T15:53:31.994Z",
+        "updatedAt": "2022-01-20T15:53:31.994Z",
+        "__v": 0
+      },
+      {
+        "_id": "61e985a3bce8e444a4976643",
+        "name": "UTILITY BILLS",
+        "identifier": "UTILITY",
+        "description": "Power and Disco bills",
+        "createdAt": "2022-01-20T15:54:11.083Z",
+        "updatedAt": "2022-01-20T15:54:11.083Z",
+        "__v": 0
+      }
+    ]
+  ],
+  "categories": [
+    [
+      {
+        "providerCommission": null,
+        "_id": "61e989f20e69308aa37a7a9f",
+        "name": "MTN",
+        "identifier": "MTN",
+        "service": "61e9854bbce8e444a497663e",
+        "vendor": "68075467e1c44b9bf8d23749",
+        "isFixedAmount": true,
+        "description": "Mtn Data Bundle",
+        "logoUrl": "https://res.cloudinary.com/sudo-africa/image/upload/v1646209736/SafeHavenVAS/New-mtn-logo_u1dy66.jpg",
+        "createdAt": "2022-01-20T16:12:34.059Z",
+        "updatedAt": "2025-04-29T14:10:01.061Z",
+        "__v": 0
+      },
+      {
+        "providerCommission": null,
+        "_id": "61e98a4dbce8e444a4976651",
+        "name": "AIRTEL",
+        "identifier": "AIRTEL",
+        "service": "61e9854bbce8e444a497663e",
+        "vendor": "68075467e1c44b9bf8d23749",
+        "isFixedAmount": true,
+        "description": "Airtel Data Bundle",
+        "logoUrl": "https://res.cloudinary.com/sudo-africa/image/upload/v1646208565/SafeHavenVAS/Airtel-Logo-Vector_1_hwmiic.png",
+        "createdAt": "2022-01-20T16:14:05.341Z",
+        "updatedAt": "2025-04-22T08:58:16.891Z",
+        "__v": 0
+      },
+      {
+        "providerCommission": null,
+        "_id": "61e98a67bce8e444a4976654",
+        "name": "ETISALAT",
+        "identifier": "ETISALAT",
+        "service": "61e9854bbce8e444a497663e",
+        "vendor": "68075426ca511c95f50264e4",
+        "isFixedAmount": true,
+        "description": "Etisalat Data Bundle",
+        "logoUrl": "https://res.cloudinary.com/sudo-africa/image/upload/v1646208565/SafeHavenVAS/download_1_y1c4lr.png",
+        "createdAt": "2022-01-20T16:14:31.228Z",
+        "updatedAt": "2025-04-22T08:58:16.891Z",
+        "__v": 0
+      },
+      {
+        "providerCommission": null,
+        "_id": "61e98a31bce8e444a497664e",
+        "name": "GLO",
+        "identifier": "GLO",
+        "service": "61e9854bbce8e444a497663e",
+        "vendor": "68075426ca511c95f50264e4",
+        "isFixedAmount": true,
+        "description": "Glo Data Bundle",
+        "logoUrl": "https://res.cloudinary.com/sudo-africa/image/upload/v1646208567/SafeHavenVAS/kindpng_4648442_1_ibibke.png",
+        "createdAt": "2022-01-20T16:13:37.408Z",
+        "updatedAt": "2025-04-22T08:58:16.891Z",
+        "__v": 0
+      },
+      {
+        "providerCommission": null,
+        "_id": "6502e9a236208a4de6d1b2ac",
+        "__v": 0,
+        "createdAt": "2022-01-20T16:12:34.059Z",
+        "description": "Mtn Data Bundle",
+        "identifier": "MTN-DATA",
+        "isFixedAmount": true,
+        "logoUrl": "https://res.cloudinary.com/sudo-africa/image/upload/v1646209736/SafeHavenVAS/New-mtn-logo_u1dy66.jpg",
+        "name": "MTN-COOPERATE-DATA",
+        "service": "61e9854bbce8e444a497663e",
+        "updatedAt": "2025-04-22T08:58:16.891Z",
+        "vendor": "68075426ca511c95f50264e4"
+      }
+    ],
+    [
+      {
+        "providerCommission": null,
+        "_id": "61e98b3562d9b6a917f9302a",
+        "name": "DSTV BILL",
+        "identifier": "DSTV",
+        "service": "61e9857bbce8e444a4976641",
+        "vendor": "68ab156745ab33895381ec86",
+        "isFixedAmount": true,
+        "description": "DSTV Bundle",
+        "logoUrl": "https://res.cloudinary.com/sudo-africa/image/upload/v1646208565/SafeHavenVAS/57-579840_dstv-logo_1_jsxrmc.png",
+        "createdAt": "2022-01-20T16:17:57.938Z",
+        "updatedAt": "2025-04-22T08:58:16.891Z",
+        "__v": 0
+      },
+      {
+        "providerCommission": null,
+        "_id": "61e98b6462d9b6a917f9302d",
+        "name": "GOTV",
+        "identifier": "GOTV",
+        "service": "61e9857bbce8e444a4976641",
+        "vendor": "68ab156745ab33895381ec86",
+        "isFixedAmount": true,
+        "description": "GOTV Package",
+        "logoUrl": "https://res.cloudinary.com/sudo-africa/image/upload/v1646208565/SafeHavenVAS/gotv_1_tbbz8u.png",
+        "createdAt": "2022-01-20T16:18:44.195Z",
+        "updatedAt": "2025-07-21T12:43:42.593Z",
+        "__v": 0
+      },
+      {
+        "providerCommission": null,
+        "_id": "61e98b8a90dbbfc905f48f07",
+        "name": "STARTIMES",
+        "identifier": "STARTIMES",
+        "service": "61e9857bbce8e444a4976641",
+        "vendor": "68ab156745ab33895381ec86",
+        "isFixedAmount": true,
+        "description": "STARTIMES Package",
+        "logoUrl": "https://res.cloudinary.com/sudo-africa/image/upload/v1646208568/SafeHavenVAS/startimes_logo_1_eqhjpf.png",
+        "createdAt": "2022-01-20T16:19:22.033Z",
+        "updatedAt": "2025-04-22T08:58:16.891Z",
+        "__v": 0
+      }
+    ]
+  ],
+  "verify": [
+    {
+      "name": "John Doe"
+    }
+  ],
+  "transaction": [
+    {
+      "_id": "64a53eed042f713106e0e09b",
+      "clientId": "61e5a83ac6f0ec001ee90fac",
+      "debitAccountNumber": "0110763495",
+      "serviceCategoryId": {
+        "_id": "61e98c4390dbbfc905f48f0d",
+        "name": "AEDC",
+        "identifier": "ABUJA",
+        "service": "61e985a3bce8e444a4976643",
+        "vendor": "zealvend",
+        "isFixedAmount": false,
+        "description": "Abuja Electricity Distribution Company",
+        "logoUrl": "https://res.cloudinary.com/sudo-africa/image/upload/v1646208565/SafeHavenVAS/aedc_logo_1_u4foxr.png",
+        "createdAt": "2022-01-20T16:22:27.741Z",
+        "updatedAt": "2022-03-02T09:05:57.439Z",
+        "__v": 0
+      },
+      "serviceId": {
+        "_id": "61e985a3bce8e444a4976643",
+        "name": "UTILITY BILLS",
+        "identifier": "UTILITY",
+        "description": "Power and Disco bills",
+        "createdAt": "2022-01-20T15:54:11.083Z",
+        "updatedAt": "2022-01-20T15:54:11.083Z",
+        "__v": 0
+      },
+      "productName": "ABUJA",
+      "reference": "894b53f9db3245768d9a2746d8047b38",
+      "internalReference": "894b53f9db3245768d9a2746d8047b38",
+      "debitPaymentReference": "999240230705095907400374302338",
+      "reversalPaymentReference": "999240230705095907725986812055",
+      "transactionId": "xxxxxxxxxxxxxxx",
+      "transactionStatus": "successful",
+      "receiverNumber": "45036536519",
+      "vasType": "UTILITY",
+      "channel": "WEB",
+      "paymentStatus": "DEBITED",
+      "vendor": "zealvend",
+      "transactionFee": 0,
+      "debitedAmount": 9870,
+      "transactionAmount": 10000,
+      "utilityToken": "ssfs-erfedde-srfdf",
+      "createdAt": "2023-03-05T09:59:09.503Z",
+      "updatedAt": "2023-03-05T09:59:09.503Z",
+      "__v": 0
+    }
+  ],
+  "products": [
+    {
+      "name": "Gotv Supa+",
+      "bundleCode": "gb1",
+      "amount": 13900,
+      "duration": "1 month",
+      "isAmountFixed": true
+    },
+    {
+      "name": "Gotv Supa",
+      "bundleCode": "gb2",
+      "amount": 9600,
+      "duration": "1 month",
+      "isAmountFixed": true
+    }
+  ]
+}

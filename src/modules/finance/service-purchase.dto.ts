@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsDateString, IsIn, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
-import { serviceIds } from './vtpass.client.js';
+import { serviceIds } from './safe-haven-vas.client.js';
 export class ServiceVerifyDto {
   @IsIn(serviceIds) serviceId!: string;
   @Matches(/^\d{6,20}$/) beneficiary!: string;

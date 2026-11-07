@@ -27,6 +27,7 @@ async function request(
   headers: Record<string, string>,
   method: string,
   body?: unknown,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   let response: Response;
   try {
@@ -34,7 +35,9 @@ async function request(
       method,
       headers: { 'Content-Type': 'application/json', ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(8000),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(8000)])
+        : AbortSignal.timeout(8000),
       redirect: 'error',
     });
   } catch {
@@ -108,7 +111,7 @@ export class SafeHavenClient {
       expires: Date.now() + Math.max(0, Number(data.expires_in ?? 300)) * 1000,
     };
   }
-  async call(path: string, method = 'GET', body?: unknown): Promise<unknown> {
+  async call(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<unknown> {
     const token = await this.credentials();
     return request(
       this.config.get('finance').safeHavenBaseUrl,
@@ -116,6 +119,7 @@ export class SafeHavenClient {
       { Authorization: `Bearer ${token.access}`, ClientID: token.client },
       method,
       body,
+      signal,
     );
   }
   banks() {

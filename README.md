@@ -109,7 +109,10 @@ after its status is `CANCELLED`. Both require zero remaining balance. Card
 deletion retains transactions and approvals; transaction card references become
 null, and the deletion is recorded in the audit log.
 
-See [`.env.example`](./.env.example) for the full reference. Key variables:
+Use [`.env.example`](./.env.example) for the minimal setup and
+[advanced settings](docs/environment-advanced.md) for optional overrides and production
+finance controls. [AI shopping](docs/ai-shopping.md) covers OpenAI, Brave, Safe Haven
+and the explicit `pnpm smoke:shopping --phone=<test-number>` command. Key variables:
 
 | Variable | Required | Description |
 | --- | :---: | --- |

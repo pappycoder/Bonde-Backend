@@ -1,9 +1,6 @@
 import { ServicePurchases } from './service-purchases.service.js';
-import {
-  ServicePurchasesController,
-  ServiceWebhooksController,
-} from './service-purchases.controller.js';
-import { VtpassClient } from './vtpass.client.js';
+import { ServicePurchasesController } from './service-purchases.controller.js';
+import { SafeHavenVasClient } from './safe-haven-vas.client.js';
 import { FinancePolicy } from './finance-policy.service.js';
 import { FinanceRetirement } from './finance-retirement.service.js';
 import { FinanceMerchants } from './finance-merchants.service.js';
@@ -31,14 +28,13 @@ import { SafeHavenClient, SudoClient } from './providers.js';
   imports: [PasscodeModule, AuditLogModule],
   controllers: [
     ServicePurchasesController,
-    ServiceWebhooksController,
     FinanceController,
     FinanceWebhooksController,
     AdminFinanceController,
   ],
   providers: [
     ServicePurchases,
-    VtpassClient,
+    SafeHavenVasClient,
     FinancePolicy,
     FinanceRetirement,
     FinanceMerchants,

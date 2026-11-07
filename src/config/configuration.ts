@@ -15,13 +15,7 @@ export interface AppConfig {
     braveEnabled: boolean;
     braveKey: string;
     merchantHosts: string[];
-    vtpassEnabled: boolean;
-    vtpassEnvironment: 'sandbox' | 'production';
-    vtpassLiveApproved: boolean;
-    vtpassKey: string;
-    vtpassSecret: string;
-    vtpassPublic: string;
-    vtpassWebhookToken: string;
+    servicesEnabled: boolean;
     serviceFee: string;
   };
   finance: FinanceConfig;
@@ -105,20 +99,15 @@ export default (): AppConfig => ({
     aiEnabled: process.env.AI_SHOPPING_ENABLED === 'true',
     pricingApproved: process.env.AI_PRICING_APPROVED === 'true',
     openaiKey: process.env.OPENAI_API_KEY ?? '',
-    model: process.env.OPENAI_SHOPPING_MODEL ?? '',
-    braveEnabled: process.env.SHOPPING_SEARCH_ENABLED === 'true',
+    model: process.env.OPENAI_SHOPPING_MODEL || 'gpt-6-luna',
+    braveEnabled:
+      !!process.env.BRAVE_SEARCH_API_KEY?.trim() && !!process.env.SHOPPING_MERCHANT_HOSTS?.trim(),
     braveKey: process.env.BRAVE_SEARCH_API_KEY ?? '',
     merchantHosts: (process.env.SHOPPING_MERCHANT_HOSTS ?? '')
       .split(',')
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean),
-    vtpassEnabled: process.env.VTPASS_ENABLED === 'true',
-    vtpassEnvironment: process.env.VTPASS_ENVIRONMENT === 'production' ? 'production' : 'sandbox',
-    vtpassLiveApproved: process.env.VTPASS_LIVE_APPROVED === 'true',
-    vtpassKey: process.env.VTPASS_API_KEY ?? '',
-    vtpassSecret: process.env.VTPASS_SECRET_KEY ?? '',
-    vtpassPublic: process.env.VTPASS_PUBLIC_KEY ?? '',
-    vtpassWebhookToken: process.env.VTPASS_WEBHOOK_TOKEN ?? '',
+    servicesEnabled: process.env.SERVICE_PURCHASES_ENABLED === 'true',
     serviceFee: process.env.SERVICE_PURCHASE_FEE ?? '0.00',
   },
   finance: {

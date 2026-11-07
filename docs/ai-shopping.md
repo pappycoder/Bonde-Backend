@@ -12,20 +12,123 @@ credit entitlement is discarded. Existing credit balances are backfilled under
 an owner row lock on first use; their `ledgerInitialized` marker prevents a second
 welcome grant. Run `pnpm prisma:generate` when building.
 
-AI is disabled by default. Set `AI_SHOPPING_ENABLED=true`, `OPENAI_API_KEY`, and an
-explicit Responses/function-calling capable `OPENAI_SHOPPING_MODEL`. Enable search
-separately with `SHOPPING_SEARCH_ENABLED=true`, `BRAVE_SEARCH_API_KEY`, and a
-comma-separated `SHOPPING_MERCHANT_HOSTS` allowlist of official merchant domains.
-Empty allowlists deliberately return no merchant links. No merchant ordering API
-is configured in this release; goods use external official checkout. The backend
-never fabricates a product price or represents a search snippet as stock evidence.
+AI is disabled by default. For real AI replies set `AI_SHOPPING_ENABLED=true`
+and `OPENAI_API_KEY`. The model defaults to `gpt-6-luna` with reasoning `none`;
+`OPENAI_SHOPPING_MODEL` is an optional override. No OpenAI SDK dependency is needed.
 
-In production, `AI_PRICING_APPROVED=true` is also required. Do not set it until
-measured model/search costs and the commercial catalog have been reviewed. The
-existing Premium allowance (8,000 credits for NGN6,000) and 50-credit pack (also
-NGN6,000) have intentionally not been changed. One successful assistant reply costs
-one credit. Model/token/search counters are saved on the turn for cost review.
-Provider invoice costs are not silently inferred from an assumed model price.
+Brave is the separate web search engine for current product links. It is not
+needed for model replies or data/TV plans. For live product discovery set
+`BRAVE_SEARCH_API_KEY` and `SHOPPING_MERCHANT_HOSTS` (comma-separated official
+hostnames, not URLs). Search activates automatically when both are present.
+The retired `SHOPPING_SEARCH_ENABLED` flag has no effect. Without configuration,
+the AI explains the limitation and can still clarify requests or use other tools.
+Search links are filtered against the allowlist; snippets never verify prices or
+stock. Goods use official external checkout; there is no merchant ordering API.
+
+In production, `AI_PRICING_APPROVED=true` remains required after reviewing measured
+model/search costs and the commercial catalog. One successful chargeable assistant reply costs one credit, even if
+it uses several model calls. Usage counters record actual calls and tokens.
+
+See [advanced environment settings](environment-advanced.md) for overrides and
+production controls. `.env.example` contains only the starter setup.
+
+## Product search reuse and checkout
+
+Before enabling live product discovery, confirm permission to retain API data for
+both the cache and saved results. [Brave's current FAQ](https://api-dashboard.search.brave.com/documentation/resources/help-feedback)
+says storage requires contacting their team. The allowance cost example below
+assumes no savings from retaining or caching Brave data.
+
+Identical searches reuse Redis-cached results for **30 minutes**. Keys include the
+user, chat, normalized query and current merchant allowlist; raw queries are not
+stored in cache keys. Successful empty results are also cached. Provider errors
+are never cached. Concurrent identical requests within one backend process share
+one provider load. Redis outages follow the existing fail-open behaviour and may
+cause additional Brave calls; coalescing still works within the process.
+
+`find_goods` has a required `refresh` boolean. Normal searches use `false`; an
+explicit user request to update results uses `true`, bypasses the cache, and
+replaces it on success. A failed refresh leaves any still-valid prior cached
+results available, without caching the error. Two search-tool executions per reply
+remain the maximum, whether those executions hit Redis or Brave.
+
+For comparisons and checkout questions, the assistant uses `read_recent_goods`
+to retrieve at most ten stored results owned by the current user and chat without
+Brave. These can be historical, so original discovery times are preserved through
+the optional `discoveredAt` response field. IDs are reused instead of creating new
+evidence on cache hits. Every reused URL is rechecked against the current merchant
+allowlist. Changing requirements or finding no relevant prior results can trigger
+a normal search; requests for fresh information can trigger an explicit refresh.
+
+Usage distinguishes `searches` (actual attempted Brave requests, including failures),
+`searchExecutions` (invocations of `find_goods`), `cacheHits` (Redis hits), and
+`coalescedSearches` (requests served by another in-flight load). Only the turn that
+starts a provider request increments `searches`; a waiting turn increments
+`coalescedSearches` instead.
+AI-credit pricing is unchanged: a successful shopping comparison still uses one
+reply credit even when no new Brave request is needed.
+
+Physical goods retain `OFFICIAL_LINK` checkout: the mobile **Open official checkout**
+button opens the merchant website. The buyer confirms final price, stock, delivery
+and payment there. Search/cache tools never place orders or debit a wallet. Data/TV
+purchases continue through Safe Haven's separate quote approval and passcode flow.
+
+## Explicit live smoke test
+
+```bash
+pnpm smoke:shopping --phone=08012345678 --service=mtn-data
+```
+
+Start Redis first (`docker compose up -d redis`). Use a Nigerian test number and
+your own sandbox credentials. `--service` is optional;
+the first available data network is used by default. This opt-in command makes paid
+OpenAI and Brave calls, then reads real Safe Haven sandbox plans and prepares quotes.
+It checks that repeating the exact product search hits real Redis without another
+Brave request, retaining the same IDs and timestamps. It exercises the actual
+agent, search and quote services with memory-only evidence
+and quote persistence; it does not connect to the application database or charge
+Bonde credits. Normal unit/e2e tests never call live providers.
+
+The script rejects production Safe Haven configuration, blocks purchase/provider
+money endpoints, and starts no workers. It reports per-check success/failure,
+latency, model calls, token counts and search counts, without printing credentials
+or phone numbers. Missing configuration fails before any provider call. A zero-result
+search or unavailable sandbox plan is reported as a failed check, not fabricated.
+This provider smoke test complements the DB-backed credit/hold/ownership e2e suites.
+
+## AI credit allowances
+
+New AI-credit accounts receive **10 one-time welcome credits**, with no monthly
+reset. Premium costs **NGN6,000/month** and includes **100 credits per paid billing
+period**, replacing the former 8,000-credit offer. A credit is one chargeable
+assistant reply, not one model token. Top-up packs retain their existing quantities
+and prices: 10/NGN5,000, 50/NGN6,000, 60/NGN6,500 and 70/NGN7,000.
+
+Previously issued welcome, purchased and unexpired Premium credits are preserved.
+The migration changes only the database default for new credit accounts; runtime
+creation explicitly uses the same allowance. No account balance or grant is cut.
+The billing catalog exposes `free.welcomeCredits`, and the summary exposes
+`welcomeAllowance` so clients do not hardcode the offer. Actual balances remain
+in `credits.welcome`, `credits.plan` and `credits.purchased`.
+
+Unpaid orders on old terms must be cancelled and recreated; confirmation and
+idempotent retries cannot charge for a stale offer. Successful purchases and their
+receipts retain their original terms. A paid mandate on old Premium terms does not
+authorize charging for fewer credits. On renewal due, the old mandate is paused
+without a debit or replacement grant, with an audit and in-app notice. The summary
+reports `renewalRequiresReview`; users review the current offer and explicitly
+subscribe again after their existing period ends. Matching current mandates still
+renew idempotently as before. Deploy the updated backend and mobile offer copy
+together, and retire older billing writers before changing the catalog.
+
+These are conservative starting allowances, not a profit guarantee. At an
+illustrative NGN1,500/USD, 10,000 input plus 1,000 output tokens across a reply and
+two fresh Brave requests cost about NGN17.25 at the referenced standard rates.
+One hundred such replies cost about NGN1,725, leaving NGN4,275 of the subscription
+price for hosting, payment/card fees, support, taxes and other costs. Longer
+contexts and provider rates can change this estimate. No free-provider subsidy or
+Brave caching savings are assumed. Measure actual usage and all operating costs
+before approving production pricing.
 
 ## Credit and turn contract
 
@@ -54,43 +157,55 @@ responses do not. The final reserved reply finishes even if its plan period ends
 new requests must reserve other valid credits. Viewing history, receipts, approved
 purchases, direct catalog APIs, reminders, and buying credits remain available.
 
-## VTpass sandbox and money lifecycle
+## Safe Haven sandbox and money lifecycle
 
-Set `VTPASS_ENABLED=true`, `VTPASS_ENVIRONMENT=sandbox`, and the sandbox API,
-public, and secret keys. GET requests use the public key; POST uses the secret key.
-Supported service IDs are dstv, gotv, startimes, mtn-data, glo-data, airtel-data,
-and etisalat-data; actual fixed-price plans are always fetched from VTpass.
-Cable accounts are verified by the provider. Data beneficiaries are validated as
-Nigerian phone numbers, not falsely described as provider-verified identities.
+Use the existing Safe Haven OAuth credentials (`SAFE_HAVEN_CLIENT_ID`,
+`SAFE_HAVEN_ISSUER`, `SAFE_HAVEN_PRIVATE_KEY`). Set `SERVICE_PURCHASES_ENABLED=true`
+and keep `FINANCE_ENVIRONMENT=sandbox` for plans, verification and quotes. Defaults
+use `https://api.sandbox.safehavenmfb.com`. No VTpass credentials are needed.
 
-The mobile quote review shows beneficiary, current plan price, fee, total, and
-expiry before requesting a passcode. `/api/finance/services/proof` binds proof to
-an owner-scoped immutable quote fingerprint; `/orders` consumes that proof once,
-reserves wallet funds, and creates an idempotent order/transaction. Quotes are
-valid for five minutes; proof for at most two. Changed price/account details
-require a new quote/proof. Supplier prefunded balance is checked and stored in a
-separate snapshot before reserving customer money. It is never added to customer
-wallet balances. Gross supplier settlement has its own ledger account, separate
-from customer funds and service fees.
+Services/categories are discovered from `/vas/services` and their category endpoints.
+Only available DSTV, GOTV, STARTIMES, MTN, GLO, AIRTEL and ETISALAT/9mobile categories
+are mapped to Bonde's existing service IDs. Fixed-price products provide the native
+bundle codes and prices. Unsupported, missing and variable-price products are not
+replaced with samples. Cable accounts use `/vas/verify`; data numbers receive only
+format validation, never a claim of provider-verified identity.
 
-A worker sends a claimed order only once using its persisted Lagos-formatted
-request reference. Network failures and ambiguous/duplicate responses remain
-PENDING. Restart recovery only requeries PROCESSING/PENDING references; it never
-reposts them. Only matching delivered references/amounts settle successfully.
-Definitive declines return the hold. Unknown outcomes keep it reserved and appear
-in the operations reconciliation queue. No admin endpoint can manually mark an
-order delivered or release an uncertain hold.
+Quotes persist provider/environment/category/bundle identity in their immutable
+fingerprint. The existing five-minute quote and two-minute passcode-proof windows,
+owner checks, one-time proof consumption and wallet holds remain. Changed native
+identifiers, prices or verified beneficiaries require a fresh quote.
 
-Configure the VTpass callback URL as
-`/api/finance/services/webhooks/vtpass?token=<VTPASS_WEBHOOK_TOKEN>` over HTTPS.
-Callbacks are acknowledged immediately and trigger authenticated provider requery;
-the callback's claimed status is never authoritative. The token must be configured
-or callbacks are rejected. Polling works independently of callbacks.
+Purchase submission additionally requires `FINANCE_TREASURY_ACCOUNT_NUMBER`.
+The adapter checks its NGN supplier liquidity before reserving customer funds;
+treasury liquidity is never credited to customer wallets. A worker submits once
+with its persisted `externalReference`, then queries `/vas/transaction/{reference}`.
+Restart recovery only requeries, never reposts an uncertain order. Authenticated
+lookup evidence must match reference, amount, beneficiary and category to settle.
+Unknown outcomes retain holds; failed vends still debited by the supplier await a
+confirmed reversal before returning customer funds. Polling needs no additional
+callback credential. The retired VTpass callback route is no longer registered.
 
-Production additionally requires `VTPASS_ENVIRONMENT=production` and
-`VTPASS_LIVE_APPROVED=true`; only enable after provider provisioning, sandbox
-acceptance, fee checks, and treasury-prefund reconciliation. No production keys
-or paid provider requests are used by the repository tests.
+Production requires the production environment/base URL plus existing
+`FINANCE_ENABLED`, `FINANCE_FEES_VERIFIED`, `FINANCE_TREASURY_VERIFIED` and
+`FINANCE_JOB_TOKEN` controls. This change does not enable any production purchases.
+Validate provider fees and treasury debit/reversal behaviour before setting them.
+
+### Guarded VTpass cutover
+
+Pause every service writer and keep the old release/credentials available.
+Resolve every nonterminal VTpass order using the old worker and authenticated
+requery. Do not manually release uncertain holds. The new migration takes table
+locks and refuses to proceed while any nonterminal old order exists.
+
+After it passes, deploy all new writers together. Existing quotes/orders are tagged
+`VTPASS`; historical order environments, receipts and ledger entries are preserved.
+Unused old quotes expire and cannot be executed with Safe Haven. Old receipts can
+still be viewed; renewal requires choosing a current provider plan if its old code
+is unavailable. New orders are explicitly tagged `SAFE_HAVEN`, and workers only
+process their own provider/environment. Remove VTpass variables and dashboard
+callback configuration only after successful cutover. Never roll an old writer back
+onto a database containing new Safe Haven orders.
 
 ## Jobs, reminders, and operations
 
@@ -126,8 +241,12 @@ does not claim to cancel an underlying third-party subscription.
 - Flutter chat tests cover credit blocking/recovery and rendering compatibility.
 
 Provider references:
+https://developers.openai.com/api/docs/models/gpt-6-luna
 https://developers.openai.com/api/docs/guides/function-calling
 https://api-dashboard.search.brave.com/app/documentation/web-search
-https://vtpass.com/documentation/authentication/
-https://vtpass.com/documentation/response-codes/
-https://vtpass.com/documentation/get-vtpass-wallet-balance/
+https://safehavenmfb.readme.io/reference/vas-transactions
+https://safehavenmfb.readme.io/reference/get-services
+https://safehavenmfb.readme.io/reference/get-category-products
+https://safehavenmfb.readme.io/reference/buy-a-data-bundle
+https://safehavenmfb.readme.io/reference/purchase-a-cable-tv-subscription
+https://safehavenmfb.readme.io/reference/get-vas-transaction

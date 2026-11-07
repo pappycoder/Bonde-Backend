@@ -58,7 +58,7 @@ export class ShoppingJobsController {
       orders,
       oldestPending: oldest,
       supplierBalance: await this.prisma.supplierBalanceSnapshot.findFirst({
-        where: { provider: 'VTPASS' },
+        where: { provider: 'SAFE_HAVEN' },
         orderBy: { observedAt: 'desc' },
       }),
     };

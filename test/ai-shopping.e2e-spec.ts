@@ -48,6 +48,35 @@ describe('AI credit admission and settlement (e2e)', () => {
     text: 'Here are your shopping options.',
     items: [],
   });
+  it('grants only ten welcome replies, persists the smaller database default, and blocks the eleventh', async () => {
+    const account = await ctx.prisma.aiCreditAccount.create({ data: { userId: SEED_USER_ID } });
+    expect(account.welcomeRemaining).toBe(10);
+    expect(await ctx.app.get(BillingService).summary(SEED_USER_ID)).toMatchObject({
+      welcomeAllowance: 10,
+      credits: { welcome: 10 },
+    });
+    for (let n = 0; n < 10; n++) {
+      const submitted = await turns.submit(SEED_USER_ID, SEED_CHAT_ID, `Find item ${n}`);
+      const running = await turns.begin(SEED_USER_ID, SEED_CHAT_ID, submitted.message.id);
+      await turns.complete(running, content, true);
+    }
+    await expect(turns.submit(SEED_USER_ID, SEED_CHAT_ID, 'One more item')).rejects.toMatchObject({
+      status: 402,
+    });
+    expect(
+      await ctx.prisma.aiCreditGrant.count({ where: { userId: SEED_USER_ID, source: 'WELCOME' } }),
+    ).toBe(1);
+    expect(
+      await ctx.prisma.aiCreditEntry.count({ where: { userId: SEED_USER_ID, kind: 'CONSUME' } }),
+    ).toBe(10);
+  });
+  it('keeps previously issued welcome balances despite the smaller current offer', async () => {
+    await balance(100);
+    expect(await ctx.app.get(BillingService).summary(SEED_USER_ID)).toMatchObject({
+      welcomeAllowance: 10,
+      credits: { welcome: 100, total: 100 },
+    });
+  });
   it('admits only one turn against the final credit across simultaneous requests', async () => {
     await balance();
     const result = await Promise.allSettled([

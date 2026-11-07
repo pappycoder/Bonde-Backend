@@ -1030,7 +1030,7 @@ model Message {
 model AiCreditAccount {
   ledgerInitialized  Boolean   @default(false) @map("ledger_initialized")
   userId             String    @id @map("user_id") @db.Uuid
-  welcomeRemaining   Int       @default(100) @map("welcome_remaining")
+  welcomeRemaining   Int       @default(10) @map("welcome_remaining")
   planRemaining      Int       @default(0) @map("plan_remaining")
   planGranted        Int       @default(0) @map("plan_granted")
   planUsed           Int       @default(0) @map("plan_used")
@@ -1331,27 +1331,32 @@ model ShoppingResult {
 }
 
 model ServiceQuote {
-  id              String         @id @db.Uuid
-  userId          String         @map("user_id") @db.Uuid
-  serviceId       String         @map("service_id")
-  variationCode   String         @map("variation_code")
-  name            String
-  beneficiary     String
-  beneficiaryName String?        @map("beneficiary_name")
-  phone           String
-  amount          Decimal        @db.Decimal(15, 2)
-  fee             Decimal        @db.Decimal(15, 2)
-  expiresAt       DateTime       @map("expires_at")
-  fingerprint     String
-  createdAt       DateTime       @default(now()) @map("created_at")
-  user            Profile        @relation(fields: [userId], references: [id], onDelete: Restrict)
-  orders          ServiceOrder[]
+  provider           String
+  environment        String
+  providerCategoryId String?        @map("provider_category_id")
+  providerPlanCode   String?        @map("provider_plan_code")
+  id                 String         @id @db.Uuid
+  userId             String         @map("user_id") @db.Uuid
+  serviceId          String         @map("service_id")
+  variationCode      String         @map("variation_code")
+  name               String
+  beneficiary        String
+  beneficiaryName    String?        @map("beneficiary_name")
+  phone              String
+  amount             Decimal        @db.Decimal(15, 2)
+  fee                Decimal        @db.Decimal(15, 2)
+  expiresAt          DateTime       @map("expires_at")
+  fingerprint        String
+  createdAt          DateTime       @default(now()) @map("created_at")
+  user               Profile        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  orders             ServiceOrder[]
 
   @@index([userId, createdAt])
   @@map("service_quotes")
 }
 
 model ServiceOrder {
+  provider              String
   id                    String            @id @db.Uuid
   userId                String            @map("user_id") @db.Uuid
   quoteId               String            @unique @map("quote_id") @db.Uuid
