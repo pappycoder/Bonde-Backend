@@ -7,13 +7,13 @@ import Joi from 'joi';
  * malformed, so misconfiguration never silently reaches a request handler.
  */
 export const envValidationSchema = Joi.object({
-  AI_SHOPPING_ENABLED: Joi.boolean().default(false),
-  AI_PRICING_APPROVED: Joi.boolean().default(false),
+  AI_SHOPPING_ENABLED: Joi.boolean().default(true),
+  AI_PRICING_APPROVED: Joi.boolean().default(true),
   OPENAI_API_KEY: Joi.string().allow('').default(''),
   OPENAI_SHOPPING_MODEL: Joi.string().empty('').default('gpt-6-luna'),
   BRAVE_SEARCH_API_KEY: Joi.string().allow('').default(''),
   SHOPPING_MERCHANT_HOSTS: Joi.string().allow('').default(''),
-  SERVICE_PURCHASES_ENABLED: Joi.boolean().default(false),
+  SERVICE_PURCHASES_ENABLED: Joi.boolean().default(true),
   SERVICE_PURCHASE_FEE: Joi.string()
     .pattern(/^\d{1,10}(\.\d{1,2})?$/)
     .default('0.00'),
@@ -76,7 +76,7 @@ export const envValidationSchema = Joi.object({
     .allow('')
     .description('Comma-separated list of allowed origins. Empty blocks all CORS.'),
 
-  PUBLIC_URL: Joi.string().uri().default('http://localhost:3001'),
+  PUBLIC_URL: Joi.string().uri().default('https://www.usebonde.com'),
 
   SUPABASE_URL: Joi.string().uri().required(),
   SUPABASE_ANON_KEY: Joi.string().required(),
@@ -121,7 +121,7 @@ export const envValidationSchema = Joi.object({
   // empty — empty PATH/PROJECT_ID simply means "rely on the inline JSON".
   FIREBASE_SERVICE_ACCOUNT_JSON: Joi.string().optional().allow(''),
   FIREBASE_SERVICE_ACCOUNT_PATH: Joi.string().optional().allow(''),
-  FIREBASE_PROJECT_ID: Joi.string().optional().allow(''),
+  FIREBASE_PROJECT_ID: Joi.string().optional().default('bonde-notif'),
 
   CARD_ENCRYPTION_KEY: Joi.string().hex().length(64).required(),
 
@@ -129,7 +129,7 @@ export const envValidationSchema = Joi.object({
   MFA_ENCRYPTION_KEY: Joi.string().hex().length(64).optional(),
 
   /// Base URL of the admin console; invite emails link to <base>/accept-invite.
-  ADMIN_APP_URL: Joi.string().uri().default('http://localhost:3000'),
+  ADMIN_APP_URL: Joi.string().uri().default('https://admin.usebonde.com'),
 
   /// Inbox that receives public website waitlist + contact notifications.
   CONTACT_INBOX_EMAIL: Joi.string().email().default('usebonde@gmail.com'),
