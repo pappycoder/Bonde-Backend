@@ -117,6 +117,21 @@ export class ChatDecisionResponseDto {
 }
 
 export class ShoppingDiscoveryDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(8)
+  @IsString({ each: true })
+  @MaxLength(4000, { each: true })
+  @Matches(/^https:\/\//, { each: true })
+  imageUrls?: string[];
+  @IsOptional() @IsIn(['READ', 'BROWSER_REQUIRED']) detailsStatus?: 'READ' | 'BROWSER_REQUIRED';
+  @IsOptional() @IsString() @MaxLength(4000) @Matches(/^https:\/\//) imageUrl?: string;
+  @IsOptional() @IsString() @Matches(/^\d{1,13}(\.\d{1,2})?$/) amount?: string;
+  @IsOptional() @IsString() @Matches(/^[A-Z]{3}$/) currency?: string;
+  @IsOptional() @IsString() @MaxLength(100) availability?: string;
+  @IsOptional() @IsString() @MaxLength(200) priceNote?: string;
+  @IsOptional() @IsObject() specifications?: Record<string, string>;
+
   @ApiPropertyOptional({
     description: 'Original product discovery time, preserved when results are reused.',
   })
@@ -127,7 +142,7 @@ export class ShoppingDiscoveryDto {
   @IsString() @MaxLength(300) title!: string;
   @IsString() @MaxLength(255) merchant!: string;
   @IsString() @MaxLength(4000) @Matches(/^https:\/\//) url!: string;
-  @IsString() @MaxLength(1000) description!: string;
+  @IsString() @MaxLength(8000) description!: string;
   @IsBoolean() priceVerified!: boolean;
   @IsBoolean() availabilityVerified!: boolean;
   @IsIn(['OFFICIAL_LINK']) checkout!: string;

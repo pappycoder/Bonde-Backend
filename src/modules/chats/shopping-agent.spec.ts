@@ -69,6 +69,52 @@ function response(output: unknown[]) {
 }
 afterEach(() => vi.unstubAllGlobals());
 describe('bounded shopping agent', () => {
+  it('compares the full merchant pool and returns the model-ranked best five with full details', async () => {
+    const { agent, search } = setup();
+    const goods = Array.from({ length: 8 }, (_, index) => ({
+      id: `candidate-${index}`,
+      title: `Headphones ${index}`,
+      merchant: `merchant-${index % 4}.example`,
+      url: `https://merchant-${index % 4}.example/product/${index}`,
+      description: 'Full details. '.repeat(100),
+      discoveredAt: '2026-11-06T09:00:00.000Z',
+      priceVerified: false,
+      availabilityVerified: false,
+      checkout: 'OFFICIAL_LINK',
+    }));
+    search.search.mockResolvedValueOnce({ results: goods, source: 'provider' });
+    const ranked = ['candidate-7', 'candidate-1', 'candidate-4', 'candidate-0', 'candidate-5'];
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          response([call('find_goods', { query: 'headphones', refresh: false })]),
+        )
+        .mockResolvedValueOnce(
+          response([
+            call('finish_reply', {
+              disposition: 'SHOPPING',
+              text: 'These five best fit your budget and specifications.',
+              resultIds: ranked,
+              quoteIds: [],
+            }),
+          ]),
+        ),
+    );
+    const result = await agent.reply(input as never);
+    expect(result.discoveries?.map((row) => row.id)).toEqual(ranked);
+    expect(result.discoveries?.[0].description).toBe(goods[7].description);
+    const request = JSON.parse(vi.mocked(fetch).mock.calls[1][1]!.body as string);
+    const toolOutput = request.input.find(
+      (row: { type: string }) => row.type === 'function_call_output',
+    );
+    expect(JSON.parse(toolOutput.output)).toHaveLength(8);
+    expect(
+      request.tools.find((row: { name: string }) => row.name === 'finish_reply').parameters
+        .properties.resultIds.maxItems,
+    ).toBe(5);
+  });
   it('returns server-sourced merchant links without fabricated prices or purchase execution', async () => {
     const { agent, search } = setup();
     vi.stubGlobal(

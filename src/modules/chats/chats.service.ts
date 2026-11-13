@@ -43,7 +43,9 @@ export class ChatsService {
       ...qWhere(options.q, ['title']),
     } as Prisma.ChatWhereInput;
 
-    const [items, total] = await this.prisma.$transaction([
+    // Pagination reads do not require an atomic transaction. Avoid waiting for
+    // a transaction slot on the pooled database just to display history.
+    const [items, total] = await Promise.all([
       this.prisma.chat.findMany({
         where,
         orderBy: { updatedAt: 'desc' },
@@ -88,7 +90,9 @@ export class ChatsService {
       ...qWhere(options.q, ['content']),
     } as Prisma.MessageWhereInput;
 
-    const [items, total] = await this.prisma.$transaction([
+    // Pagination reads do not require an atomic transaction. Avoid waiting for
+    // a transaction slot on the pooled database just to display history.
+    const [items, total] = await Promise.all([
       this.prisma.message.findMany({
         where,
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],

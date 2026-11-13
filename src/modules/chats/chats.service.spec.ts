@@ -45,7 +45,7 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
       }),
     } as never,
   );
-  return { service, chat, message };
+  return { service, chat, message, prisma };
 }
 
 const CHAT = {
@@ -64,6 +64,19 @@ const MESSAGE = {
 };
 
 describe('ChatsService.list', () => {
+  it('loads history without acquiring a transaction slot', async () => {
+    const { service, prisma, chat } = makeService();
+    prisma.$transaction.mockRejectedValue(
+      new Error('Unable to start a transaction in the given time.'),
+    );
+    const result = await service.list(USER_ID, { page: 2, pageSize: 10, q: 'Travel' });
+    expect(result).toMatchObject({ items: [CHAT], total: 1, page: 2, pageSize: 10 });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(chat.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({ userId: USER_ID }),
+    });
+    expect(chat.findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 10, take: 10 }));
+  });
   it('returns a paged envelope scoped to the user', async () => {
     const { service, chat } = makeService();
     const result = await service.list(USER_ID, { page: 1, pageSize: 20 });
@@ -119,6 +132,20 @@ describe('ChatsService.remove', () => {
 });
 
 describe('ChatsService messages', () => {
+  it('loads messages without acquiring a transaction slot and preserves filters', async () => {
+    const { service, prisma, message } = makeService();
+    prisma.$transaction.mockRejectedValue(
+      new Error('Unable to start a transaction in the given time.'),
+    );
+    await expect(
+      service.listMessages(USER_ID, CHAT_ID, { page: 2, pageSize: 5 }),
+    ).resolves.toMatchObject({ items: [MESSAGE], total: 1, page: 2, pageSize: 5 });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(message.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { chatId: CHAT_ID }, skip: 5, take: 5 }),
+    );
+    expect(message.count).toHaveBeenCalledWith({ where: { chatId: CHAT_ID } });
+  });
   it('lists messages chronologically within a chat the user owns', async () => {
     const { service, chat, message } = makeService();
     chat.findFirst.mockResolvedValue(null);
