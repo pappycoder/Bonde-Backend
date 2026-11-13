@@ -7,13 +7,14 @@ import Joi from 'joi';
  * malformed, so misconfiguration never silently reaches a request handler.
  */
 export const envValidationSchema = Joi.object({
-  AI_SHOPPING_ENABLED: Joi.boolean().default(true),
-  AI_PRICING_APPROVED: Joi.boolean().default(true),
+  AI_USAGE_MONITORING_ENABLED: Joi.boolean().default(false),
+  AI_SHOPPING_ENABLED: Joi.boolean().default(false),
+  AI_PRICING_APPROVED: Joi.boolean().default(false),
   OPENAI_API_KEY: Joi.string().allow('').default(''),
   OPENAI_SHOPPING_MODEL: Joi.string().empty('').default('gpt-6-luna'),
   BRAVE_SEARCH_API_KEY: Joi.string().allow('').default(''),
   SHOPPING_MERCHANT_HOSTS: Joi.string().allow('').default(''),
-  SERVICE_PURCHASES_ENABLED: Joi.boolean().default(true),
+  SERVICE_PURCHASES_ENABLED: Joi.boolean().default(false),
   SERVICE_PURCHASE_FEE: Joi.string()
     .pattern(/^\d{1,10}(\.\d{1,2})?$/)
     .default('0.00'),

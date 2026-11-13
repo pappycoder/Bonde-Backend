@@ -6,6 +6,15 @@ export default defineConfig({
   test: {
     globals: true,
     root: './',
+    // Regular integration tests must not inherit paid providers or a remote
+    // cache from a developer's .env. Provider-specific suites inject fakes;
+    // real OpenAI/Brave calls belong only to the explicit smoke command.
+    env: {
+      AI_SHOPPING_ENABLED: 'false',
+      OPENAI_API_KEY: '',
+      BRAVE_SEARCH_API_KEY: '',
+      REDIS_URL: 'redis://127.0.0.1:6379',
+    },
     include: ['**/*.e2e-spec.ts'],
     globalSetup: ['./test/global-setup.ts'],
     fileParallelism: false,

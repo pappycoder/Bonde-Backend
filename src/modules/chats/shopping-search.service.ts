@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   BadRequestException,
   Injectable,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -13,6 +14,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { object, string } from '../finance/shopping-values.js';
 import type { ShoppingDiscoveryDto } from './chat-replies.dto.js';
 import { shoppingDeadline } from './shopping-deadline.js';
+import { AiUsageService } from '../ai-monitoring/ai-usage.service.js';
 
 export const SHOPPING_SEARCH_TTL_MS = 30 * 60_000;
 interface CachedSearch {
@@ -51,6 +53,7 @@ export class ShoppingSearch {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<AppConfig, true>,
     private readonly cache: CacheService,
+    @Optional() private readonly meter?: AiUsageService,
   ) {}
   private hosts() {
     return [
@@ -179,11 +182,14 @@ export class ShoppingSearch {
     );
     url.searchParams.set('count', '10');
     onProviderRequest?.();
-    const response = await fetch(url, {
+    const request: RequestInit = {
       headers: { 'X-Subscription-Token': key, Accept: 'application/json' },
       // One cancelled waiter must not cancel another waiter's shared provider load.
       signal: AbortSignal.timeout(15_000),
-    });
+    };
+    const response = this.meter
+      ? await this.meter.fetch('BRAVE', { userId, chatId, model: 'brave-search' }, url, request)
+      : await fetch(url, request);
     if (!response.ok) throw new BadGatewayException('Product search is temporarily unavailable.');
     const rows = object(object(await response.json()).web).results;
     if (!Array.isArray(rows))

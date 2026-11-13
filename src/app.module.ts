@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AiMonitoringModule } from './modules/ai-monitoring/ai-monitoring.module.js';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -47,6 +48,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
 
 @Module({
   imports: [
+    AiMonitoringModule,
     ConfigModule.forRoot({
       isGlobal: true,
       load: [configuration],

@@ -7,6 +7,7 @@ import type { FinanceConfig } from '../modules/finance/finance.config.js';
  * feature modules never touch raw `process.env` directly.
  */
 export interface AppConfig {
+  aiMonitoring: { enabled: boolean };
   shopping: {
     aiEnabled: boolean;
     pricingApproved: boolean;
@@ -95,6 +96,7 @@ export interface AppConfig {
 }
 
 export default (): AppConfig => ({
+  aiMonitoring: { enabled: process.env.AI_USAGE_MONITORING_ENABLED === 'true' },
   shopping: {
     aiEnabled: process.env.AI_SHOPPING_ENABLED === 'true',
     pricingApproved: process.env.AI_PRICING_APPROVED === 'true',

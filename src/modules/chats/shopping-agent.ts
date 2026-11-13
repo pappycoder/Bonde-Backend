@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   HttpException,
   Injectable,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -16,6 +17,7 @@ import type {
   ShoppingDiscoveryDto,
 } from './chat-replies.dto.js';
 import { ShoppingSearch } from './shopping-search.service.js';
+import { AiUsageService } from '../ai-monitoring/ai-usage.service.js';
 
 const text = { type: 'string' };
 function tool(name: string, description: string, properties: Record<string, unknown>) {
@@ -83,6 +85,7 @@ export class ShoppingAgent extends ChatAgent {
     private readonly config: ConfigService<AppConfig, true>,
     private readonly search: ShoppingSearch,
     private readonly services: ServicePurchases,
+    @Optional() private readonly meter?: AiUsageService,
   ) {
     super();
   }
@@ -138,7 +141,7 @@ export class ShoppingAgent extends ChatAgent {
           throw new BadGatewayException(
             'This request contains too much search context. Please narrow it down.',
           );
-        const response = await fetch('https://api.openai.com/v1/responses', {
+        const request: RequestInit = {
           method: 'POST',
           headers: { Authorization: `Bearer ${c.openaiKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -153,7 +156,15 @@ export class ShoppingAgent extends ChatAgent {
             store: false,
           }),
           signal,
-        });
+        };
+        const response = this.meter
+          ? await this.meter.fetch(
+              'OPENAI',
+              { userId: input.userId, chatId: input.chatId, model: c.model },
+              'https://api.openai.com/v1/responses',
+              request,
+            )
+          : await fetch('https://api.openai.com/v1/responses', request);
         if (!response.ok)
           throw new BadGatewayException('The assistant is temporarily unavailable. Please retry.');
         const result = object(await response.json());

@@ -1,5 +1,8 @@
 # AI shopping and service purchases
 
+For provider token usage, per-user credit balances, funding estimates and admin
+email alerts, see [Admin AI monitoring](ai-monitoring.md).
+
 ## Enablement
 
 Use a coordinated cutover: pause billing/chat writes, retire old backend instances,
@@ -74,6 +77,17 @@ and payment there. Search/cache tools never place orders or debit a wallet. Data
 purchases continue through Safe Haven's separate quote approval and passcode flow.
 
 ## Explicit live smoke test
+
+To test only OpenAI clarification, live Brave product discovery and Redis reuse:
+
+```bash
+pnpm smoke:shopping --products-only
+```
+
+This mode needs the OpenAI key, Brave key, merchant hostnames and Redis. It disables
+service tools and does not require Safe Haven credentials or a phone number.
+
+To also test Safe Haven sandbox plans and quotes:
 
 ```bash
 pnpm smoke:shopping --phone=08012345678 --service=mtn-data

@@ -9,6 +9,7 @@ import { ServicePurchases } from '../finance/service-purchases.service.js';
 import { secretMatches } from '../finance/finance.types.js';
 import { ChatTurnsService } from './chat-turns.service.js';
 import { ChatWorker } from './chat-worker.service.js';
+import { AiMonitoringService } from '../ai-monitoring/ai-monitoring.service.js';
 
 @ApiTags('shopping-operations')
 @Controller('shopping')
@@ -19,6 +20,7 @@ export class ShoppingJobsController {
     private readonly turns: ChatTurnsService,
     private readonly services: ServicePurchases,
     private readonly prisma: PrismaService,
+    private readonly monitoring: AiMonitoringService,
   ) {}
   @Post('jobs')
   @Public()
@@ -31,6 +33,7 @@ export class ShoppingJobsController {
     await this.turns.reap();
     await this.worker.run();
     await this.services.run();
+    await this.monitoring.run();
     return { processed: true };
   }
   @Get('operations')

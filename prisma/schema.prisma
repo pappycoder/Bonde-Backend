@@ -181,21 +181,22 @@ enum KycStatus {
 /// auth fields (password hash, etc.) live in `auth.users`. `email` mirrors
 /// `auth.users.email` so app-side lookups never touch those tables.
 model Profile {
-  id                       String    @id @db.Uuid
-  fullName                 String    @map("full_name") @db.VarChar(255)
-  email                    String    @unique @db.VarChar(254)
-  phone                    String?   @unique @db.VarChar(20)
-  phoneVerified            Boolean   @default(false) @map("phone_verified")
-  emailVerified            Boolean   @default(false) @map("email_verified")
-  avatarUrl                String?   @map("avatar_url")
-  onboardingCompletedAt    DateTime? @map("onboarding_completed_at")
+  aiUsageEvents            AiUsageEvent[]
+  id                       String         @id @db.Uuid
+  fullName                 String         @map("full_name") @db.VarChar(255)
+  email                    String         @unique @db.VarChar(254)
+  phone                    String?        @unique @db.VarChar(20)
+  phoneVerified            Boolean        @default(false) @map("phone_verified")
+  emailVerified            Boolean        @default(false) @map("email_verified")
+  avatarUrl                String?        @map("avatar_url")
+  onboardingCompletedAt    DateTime?      @map("onboarding_completed_at")
   /// Trusted subscription entitlement; never writable through self-service profile updates.
-  cardPlan                 String    @default("FREE") @map("card_plan") @db.VarChar(16)
-  cardPlanExpiresAt        DateTime? @map("card_plan_expires_at")
-  preferences              Json      @default("{}")
-  billingCancelAtPeriodEnd Boolean   @default(false) @map("billing_cancel_at_period_end")
-  createdAt                DateTime  @default(now()) @map("created_at")
-  updatedAt                DateTime  @updatedAt @map("updated_at")
+  cardPlan                 String         @default("FREE") @map("card_plan") @db.VarChar(16)
+  cardPlanExpiresAt        DateTime?      @map("card_plan_expires_at")
+  preferences              Json           @default("{}")
+  billingCancelAtPeriodEnd Boolean        @default(false) @map("billing_cancel_at_period_end")
+  createdAt                DateTime       @default(now()) @map("created_at")
+  updatedAt                DateTime       @updatedAt @map("updated_at")
 
   deliveryAddresses DeliveryAddress[]
   kyc               KycVerification?
@@ -244,6 +245,99 @@ model Profile {
   broadcastsSent Broadcast[]    @relation("BroadcastSender")
 
   @@map("profiles")
+}
+
+/// Append-only observations of actual outbound provider requests. Never stores prompts or keys.
+model AiUsageEvent {
+  id                String       @id @db.Uuid
+  userId            String       @map("user_id") @db.Uuid
+  chatId            String       @map("chat_id") @db.Uuid
+  provider          String       @db.VarChar(16)
+  model             String       @db.VarChar(100)
+  status            String       @db.VarChar(16)
+  httpStatus        Int?         @map("http_status")
+  inputTokens       Int?         @map("input_tokens")
+  cachedInputTokens Int?         @map("cached_input_tokens")
+  outputTokens      Int?         @map("output_tokens")
+  reasoningTokens   Int?         @map("reasoning_tokens")
+  durationMs        Int          @map("duration_ms")
+  costUsd           Decimal?     @map("cost_usd") @db.Decimal(20, 10)
+  rateId            String?      @map("rate_id") @db.Uuid
+  occurredAt        DateTime     @default(now()) @map("occurred_at")
+  user              Profile      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  rate              AiUsageRate? @relation(fields: [rateId], references: [id], onDelete: Restrict)
+
+  @@index([provider, occurredAt])
+  @@index([userId, occurredAt])
+  @@map("ai_usage_events")
+}
+
+/// Effective-dated pricing versions. Existing event estimates never change when rates change.
+model AiUsageRate {
+  id                    String         @id @db.Uuid
+  provider              String         @db.VarChar(16)
+  model                 String         @db.VarChar(100)
+  inputPerMillion       Decimal        @map("input_per_million") @db.Decimal(20, 8)
+  cachedInputPerMillion Decimal        @map("cached_input_per_million") @db.Decimal(20, 8)
+  outputPerMillion      Decimal        @map("output_per_million") @db.Decimal(20, 8)
+  searchPerThousand     Decimal        @map("search_per_thousand") @db.Decimal(20, 8)
+  createdAt             DateTime       @default(now()) @map("created_at")
+  createdBy             String         @map("created_by") @db.Uuid
+  events                AiUsageEvent[]
+
+  @@index([provider, model, createdAt])
+  @@map("ai_usage_rates")
+}
+
+/// An admin-maintained USD funding estimate; never claims to be a provider-reported balance.
+model AiProviderAccount {
+  id               String    @id @db.Uuid
+  provider         String    @unique @db.VarChar(16)
+  baselineAt       DateTime? @map("baseline_at")
+  thresholdBaseUsd Decimal?  @map("threshold_base_usd") @db.Decimal(20, 10)
+  cycleId          String    @map("cycle_id") @db.Uuid
+  warningPercent   Int       @default(20) @map("warning_percent")
+  criticalPercent  Int       @default(10) @map("critical_percent")
+  emailRecipients  String[]  @default([]) @map("email_recipients")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@map("ai_provider_accounts")
+}
+
+/// First entry records the available balance now; later entries record top-ups, not payments.
+model AiProviderFunding {
+  id        String   @id @db.Uuid
+  provider  String   @db.VarChar(16)
+  reference String   @unique @db.Uuid
+  amountUsd Decimal  @map("amount_usd") @db.Decimal(20, 8)
+  kind      String   @db.VarChar(16)
+  note      String   @db.VarChar(255)
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String   @map("created_by") @db.Uuid
+
+  @@index([provider, createdAt])
+  @@map("ai_provider_funding")
+}
+
+/// Durable dashboard alerts and a retryable email outbox, deduplicated per funding cycle/severity.
+model AiUsageAlert {
+  id            String    @id @db.Uuid
+  provider      String    @db.VarChar(16)
+  cycleId       String    @map("cycle_id") @db.Uuid
+  severity      String    @db.VarChar(16)
+  remainingUsd  Decimal   @map("remaining_usd") @db.Decimal(20, 10)
+  recipients    String[]  @default([])
+  sentTo        String[]  @default([]) @map("sent_to")
+  emailAttempts Int       @default(0) @map("email_attempts")
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at")
+  leaseUntil    DateTime? @map("lease_until")
+  emailComplete Boolean   @default(false) @map("email_complete")
+  resolvedAt    DateTime? @map("resolved_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@unique([provider, cycleId, severity])
+  @@index([emailComplete, nextAttemptAt])
+  @@map("ai_usage_alerts")
 }
 
 /// One delivery address per row; profiles may save many. The `isDefault` row is

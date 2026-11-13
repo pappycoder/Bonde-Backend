@@ -20,13 +20,12 @@ const args = Object.fromEntries(
   }),
 );
 const settings = configuration();
+const productsOnly = Object.hasOwn(args, 'products-only');
 const missing = [
   'OPENAI_API_KEY',
   'BRAVE_SEARCH_API_KEY',
   'SHOPPING_MERCHANT_HOSTS',
-  'SAFE_HAVEN_CLIENT_ID',
-  'SAFE_HAVEN_ISSUER',
-  'SAFE_HAVEN_PRIVATE_KEY',
+  ...(!productsOnly ? ['SAFE_HAVEN_CLIENT_ID', 'SAFE_HAVEN_ISSUER', 'SAFE_HAVEN_PRIVATE_KEY'] : []),
 ].filter((key) => !process.env[key]?.trim());
 if (missing.length) {
   console.error(
@@ -35,22 +34,23 @@ if (missing.length) {
   process.exit(1);
 }
 if (
-  settings.finance.environment !== 'sandbox' ||
-  settings.finance.safeHavenBaseUrl !== 'https://api.sandbox.safehavenmfb.com'
+  !productsOnly &&
+  (settings.finance.environment !== 'sandbox' ||
+    settings.finance.safeHavenBaseUrl !== 'https://api.sandbox.safehavenmfb.com')
 ) {
   console.error(
     'This smoke test requires Safe Haven sandbox configuration. No provider calls were made.',
   );
   process.exit(1);
 }
-if (!/^(?:0[789]\d{9}|234[789]\d{9})$/.test(args.phone ?? '')) {
+if (!productsOnly && !/^(?:0[789]\d{9}|234[789]\d{9})$/.test(args.phone ?? '')) {
   console.error(
     'Pass --phone=<Nigerian test number> for a sandbox data quote. No provider calls were made.',
   );
   process.exit(1);
 }
 settings.shopping.aiEnabled = true;
-settings.shopping.servicesEnabled = true;
+settings.shopping.servicesEnabled = !productsOnly;
 settings.finance.enabled = false;
 settings.nodeEnv = 'development';
 const config = new ConfigService(settings);
@@ -203,36 +203,37 @@ try {
       );
     return { cacheHit: true, braveRequests: providerRequests, results: repeated.results.length };
   });
-  await check('Safe Haven sandbox plans and AI quote', async () => {
-    const catalog = await services.catalog();
-    const serviceId = args.service || catalog.find((r) => r.id.endsWith('-data'))?.id;
-    if (!serviceId?.endsWith('-data'))
-      throw new Error('Choose an available data service using --service=mtn-data.');
-    const plans = await services.plans(serviceId);
-    if (!plans.length)
-      throw new Error('Safe Haven returned no purchasable plans for the selected service.');
-    const plan = plans[0];
-    const quote = await services.quote(input.userId, {
-      serviceId,
-      variationCode: plan.code,
-      beneficiary: args.phone,
-      phone: args.phone,
+  if (!productsOnly)
+    await check('Safe Haven sandbox plans and AI quote', async () => {
+      const catalog = await services.catalog();
+      const serviceId = args.service || catalog.find((r) => r.id.endsWith('-data'))?.id;
+      if (!serviceId?.endsWith('-data'))
+        throw new Error('Choose an available data service using --service=mtn-data.');
+      const plans = await services.plans(serviceId);
+      if (!plans.length)
+        throw new Error('Safe Haven returned no purchasable plans for the selected service.');
+      const plan = plans[0];
+      const quote = await services.quote(input.userId, {
+        serviceId,
+        variationCode: plan.code,
+        beneficiary: args.phone,
+        phone: args.phone,
+      });
+      if (quote.amount !== plan.amount)
+        throw new Error('Quote does not match current provider pricing.');
+      const result = await reply(
+        `Prepare a quote only for ${serviceId}, plan code ${plan.code}, beneficiary ${args.phone}, contact phone ${args.phone}. Do not purchase.`,
+      );
+      if (!result.serviceQuotes.length) throw new Error('The AI did not return a sandbox quote.');
+      return {
+        serviceId,
+        planCount: plans.length,
+        quoteCount: result.serviceQuotes.length,
+        usage: result.usage,
+        persistence: 'memory-only',
+        purchaseSubmitted: false,
+      };
     });
-    if (quote.amount !== plan.amount)
-      throw new Error('Quote does not match current provider pricing.');
-    const result = await reply(
-      `Prepare a quote only for ${serviceId}, plan code ${plan.code}, beneficiary ${args.phone}, contact phone ${args.phone}. Do not purchase.`,
-    );
-    if (!result.serviceQuotes.length) throw new Error('The AI did not return a sandbox quote.');
-    return {
-      serviceId,
-      planCount: plans.length,
-      quoteCount: result.serviceQuotes.length,
-      usage: result.usage,
-      persistence: 'memory-only',
-      purchaseSubmitted: false,
-    };
-  });
   process.exitCode = failures ? 1 : 0;
 } finally {
   await redis.quit().catch(() => redis.disconnect());

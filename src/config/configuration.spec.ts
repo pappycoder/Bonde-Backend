@@ -46,6 +46,8 @@ describe('simple shopping configuration', () => {
     });
     expect(result.error).toBeUndefined();
     expect(result.value).toMatchObject({
+      AI_SHOPPING_ENABLED: false,
+      AI_PRICING_APPROVED: false,
       OPENAI_SHOPPING_MODEL: 'gpt-6-luna',
       SERVICE_PURCHASES_ENABLED: false,
       FINANCE_ENABLED: false,
