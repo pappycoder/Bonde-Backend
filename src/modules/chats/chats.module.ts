@@ -13,11 +13,19 @@ import { ChatPaymentService } from './chat-payment.service.js';
 import { ChatRepliesService } from './chat-replies.service.js';
 import { ChatsController } from './chats.controller.js';
 import { ChatsService } from './chats.service.js';
+import { SubscriptionReminders } from './subscription-reminders.service.js';
+import { SubscriptionRemindersController } from './subscription-reminders.controller.js';
 
 @Module({
   imports: [AuditLogModule, ProfilesModule, AiCreditsModule],
-  controllers: [ChatsController, ChatTurnsController, ShoppingJobsController],
+  controllers: [
+    ChatsController,
+    ChatTurnsController,
+    ShoppingJobsController,
+    SubscriptionRemindersController,
+  ],
   providers: [
+    SubscriptionReminders,
     ChatWorker,
     ShoppingAgent,
     ShoppingSearch,

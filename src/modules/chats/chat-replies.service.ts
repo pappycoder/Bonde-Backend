@@ -100,6 +100,7 @@ export class ChatRepliesService {
         items: reply.items,
         discoveries: reply.discoveries ?? [],
         serviceQuotes: reply.serviceQuotes ?? [],
+        subscriptions: reply.subscriptions ?? [],
       });
       return await this.turns.complete(turn, content, chargeable, usage);
     } catch (error) {

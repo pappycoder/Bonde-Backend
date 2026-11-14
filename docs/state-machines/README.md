@@ -14,14 +14,14 @@ This map describes the current Backend, Mobile, Admin and Web implementation. It
 
 ## Domain maps
 
-| Map                                               | Scope                                                                                                                                                              |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [Chat and shopping](chat.md)                      | C01–C10: message delivery, screen readiness, durable turns, agent/search execution, proposals, checkout, browser and service purchase UI                           |
-| [Identity and access](identity.md)                | A01–A15: session hydration, routing, registration, recovery, OTP/tickets/MFA, passcodes, invitations, account activation and Admin authentication                  |
-| [Finance and billing](finance.md)                 | F01–F19: identity provisioning, operations, events, authorization grants and holds, retirement, merchants, service orders, credits, subscriptions and financial UI |
-| [Infrastructure and supporting UI](supporting.md) | S01–S18: push, cache, storage, preferences, processing overlays, AI accounting/alerts, resource requests, support, notifications and public forms                  |
+| Map                                               | Scope                                                                                                                                                                     |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Chat and shopping](chat.md)                      | C01–C12: message delivery, screen readiness, durable turns, agent/search execution, proposals, checkout, browser, service purchases and subscription assistance/reminders |
+| [Identity and access](identity.md)                | A01–A15: session hydration, routing, registration, recovery, OTP/tickets/MFA, passcodes, invitations, account activation and Admin authentication                         |
+| [Finance and billing](finance.md)                 | F01–F19: identity provisioning, operations, events, authorization grants and holds, retirement, merchants, service orders, credits, subscriptions and financial UI        |
+| [Infrastructure and supporting UI](supporting.md) | S01–S18: push, cache, storage, preferences, processing overlays, AI accounting/alerts, resource requests, support, notifications and public forms                         |
 
-These 62 entries are workflow families, not a count of every flag or screen. Shared request and form machines are mapped once with their concrete implementations. Generated Dart models, static configuration choices and simple visibility/selection toggles are not separate business workflows.
+These 64 entries are workflow families, not a count of every flag or screen. Shared request and form machines are mapped once with their concrete implementations. Generated Dart models, static configuration choices and simple visibility/selection toggles are not separate business workflows.
 
 ## Relationships between domains
 
@@ -43,6 +43,8 @@ flowchart TD
     Operation --> Card[Card availability and retirement F06 F07]
     Card --> Authorization
     Agent --> ServiceUI[Service purchase UI C10]
+    Agent --> Subscription[Subscription assistance C11]
+    Subscription --> Reminder[User selected reminder C12]
     ServiceUI --> Service[Quote proof and order F09 F10]
     Billing[Billing and entitlement F13 F14] --> Credit
     Billing --> Card

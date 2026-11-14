@@ -178,3 +178,42 @@ Browser navigation history and the Flutter route stack are separate state dimens
 | Successful → reminder requested/set        | Eligible order and user action       | Persist reminder; reflect `_reminded`                |
 
 `_busy`, `_refreshing`, `_order`, timer and request key supplement the named server order status. F09–F11 own proof, execution and reminder authority.
+
+## C11 Netflix and Spotify checkout assistance
+
+**Mixed; per AI tool result and chat card.** [Catalogue](../../src/modules/chats/subscription-catalog.ts), [agent](../../src/modules/chats/shopping-agent.ts), [card UI](../../../Bonde-Mobile/lib/features/chats/presentation/widgets/chat_subscription_card.dart).
+
+```mermaid
+stateDiagram-v2
+    [*] --> Clarifying
+    Clarifying --> AssistanceReady: user supplies billing country and new or existing account
+    AssistanceReady --> MerchantBrowser: open official checkout or account
+    MerchantBrowser --> AssistanceReady: return to chat
+    AssistanceReady --> ReminderSelection: select reminder action
+    ReminderSelection --> AssistanceReady: cancel
+    ReminderSelection --> ReminderConfirmation: select future date and time
+    ReminderConfirmation --> SavingReminder: explicit confirmation
+    SavingReminder --> AssistanceReady: saved or retryable error
+```
+
+Only tool-issued IDs can enter the final reply. Prices are `CHECK_AT_CHECKOUT`;
+activation is `UNVERIFIED`. This machine has no activated or paid transition.
+Mobile rejects unexpected destinations and activation claims. Assistance links
+and reminders do not request a passcode because they do not spend money.
+
+## C12 Subscription reminder persistence and delivery
+
+**Mixed; per owned source message/card.** [Service](../../src/modules/chats/subscription-reminders.service.ts), [controller](../../src/modules/chats/subscription-reminders.controller.ts), [management UI](../../../Bonde-Mobile/lib/features/chats/presentation/subscription_reminders_screen.dart).
+
+| Transition                             | Guard                                                               | Effect                                                       |
+| -------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Missing → `SCHEDULED`                  | Owned assistant card; future deadline within one year; active limit | Persist reminder and audit under user lock                   |
+| Scheduled/sent/cancelled → `SCHEDULED` | User explicitly schedules again                                     | Upsert source identity with selected deadline                |
+| `SCHEDULED → CANCELLED`                | Owned active reminder                                               | Guarded cancellation and audit                               |
+| `SCHEDULED → SENT`                     | Due row still matches scanned date/version                          | Conditional claim and in-app notification in one transaction |
+| Any → deleted                          | Source message/chat or profile deleted                              | Cascade removes pending work                                 |
+
+Concurrent workers cannot both claim the same version. Stale scans cannot send
+after cancellation/rescheduling. Transaction failure rolls back state and
+notification together. This is a one-time reminder, not a recurring payment
+schedule or activation record.

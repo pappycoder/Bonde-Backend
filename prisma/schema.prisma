@@ -226,16 +226,17 @@ model Profile {
   transactionApprovals TransactionApproval[]
   thresholds           TransactionThreshold[]
 
-  chats            Chat[]
-  creditGrants     AiCreditGrant[]
-  creditEntries    AiCreditEntry[]
-  chatTurns        AiChatTurn[]
-  shoppingResults  ShoppingResult[]
-  serviceQuotes    ServiceQuote[]
-  serviceOrders    ServiceOrder[]
-  serviceReminders ServiceReminder[]
-  aiCredits        AiCreditAccount?
-  billingOrders    BillingOrder[]
+  chats                 Chat[]
+  creditGrants          AiCreditGrant[]
+  creditEntries         AiCreditEntry[]
+  chatTurns             AiChatTurn[]
+  shoppingResults       ShoppingResult[]
+  serviceQuotes         ServiceQuote[]
+  serviceOrders         ServiceOrder[]
+  serviceReminders      ServiceReminder[]
+  subscriptionReminders SubscriptionReminder[]
+  aiCredits             AiCreditAccount?
+  billingOrders         BillingOrder[]
 
   supportTickets  SupportTicket[] @relation("SupportTicketOwner")
   assignedTickets SupportTicket[] @relation("SupportTicketAssignee")
@@ -1110,7 +1111,8 @@ model Message {
   content   String
   createdAt DateTime    @default(now()) @map("created_at")
 
-  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  chat                  Chat                   @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  subscriptionReminders SubscriptionReminder[]
 
   @@index([chatId, createdAt])
   @@map("messages")
@@ -1486,6 +1488,25 @@ model ServiceReminder {
   @@unique([orderId, dueAt])
   @@index([status, dueAt])
   @@map("service_reminders")
+}
+
+model SubscriptionReminder {
+  id             String   @id @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  messageId      String   @map("message_id") @db.Uuid
+  subscriptionId String   @map("subscription_id") @db.Uuid
+  serviceId      String   @map("service_id")
+  countryCode    String   @map("country_code") @db.VarChar(2)
+  dueAt          DateTime @map("due_at")
+  status         String   @default("SCHEDULED")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  user           Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message        Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, messageId, subscriptionId])
+  @@index([status, dueAt])
+  @@map("subscription_reminders")
 }
 
 /// Provider-reported prefunded balance, never a customer wallet liability.

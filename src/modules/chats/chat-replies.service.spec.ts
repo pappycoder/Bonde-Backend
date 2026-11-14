@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import { ChatRepliesService } from './chat-replies.service.js';
 import { UnconfiguredChatAgent } from './chat-agent.js';
+import { prepareSubscriptionCheckout } from './subscription-catalog.js';
 const USER = '11111111-1111-4111-8111-111111111111',
   CHAT = '22222222-2222-4222-8222-222222222222',
   USER_MESSAGE = '33333333-3333-4333-8333-333333333333',
@@ -99,6 +100,20 @@ function setup({ approvalId = APPROVAL, amount = '349.00' } = {}) {
   };
 }
 describe('chat assistant replies', () => {
+  it('persists subscription assistance for historical chat rendering', async () => {
+    const { service, prisma, agent } = setup();
+    const card = prepareSubscriptionCheckout('netflix', 'NG', 'RENEW');
+    prisma.message.findMany.mockResolvedValueOnce([
+      { id: USER_MESSAGE, role: 'USER', content: 'Help with Netflix' },
+    ] as never);
+    agent.reply.mockResolvedValueOnce({
+      text: 'Review your account',
+      items: [],
+      subscriptions: [card],
+    } as never);
+    const result = await service.respond(USER, CHAT, USER_MESSAGE);
+    expect(JSON.parse(result.content).subscriptions).toEqual([card]);
+  });
   it('unconfigured AI reports 503 without inventing results', async () => {
     await expect(new UnconfiguredChatAgent().reply()).rejects.toBeInstanceOf(
       ServiceUnavailableException,

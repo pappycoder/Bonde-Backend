@@ -37,6 +37,9 @@ production controls. `.env.example` contains only the starter setup.
 
 ## Nigerian merchant coverage
 
+See [subscription assistance](#netflix-and-spotify-checkout-assistance) for Netflix
+and Spotify, which use separate checkout cards rather than goods listings.
+
 The validated page-reader merchants are `jumia.com.ng`, `konga.com`, `slot.ng`,
 `pointekonline.com` and `kara.com.ng`. Set the comma-separated
 `SHOPPING_MERCHANT_HOSTS` allowlist as shown in `.env.example`; adding a merchant
@@ -280,6 +283,52 @@ are delivered once through the in-app notification feed and link to the owned
 purchase. Opening renewal requests a fresh quote and always requires fresh
 approval/passcode. Scheduling or sending a reminder never authorizes payment and
 does not claim to cancel an underlying third-party subscription.
+
+## Netflix and Spotify checkout assistance
+
+`prepare_subscription_checkout` supports `netflix` and `spotify`, independently of
+goods-search and cable/data provider flags. It requires a user-confirmed account
+billing country (ISO two-letter code) and `NEW` or `RENEW` intent. The agent asks
+for missing details rather than borrowing the delivery country.
+
+The tool returns server-issued IDs. `finish_reply` selects at most two through
+`subscriptionIds`; the reply envelope persists them as `subscriptions`. These
+cards are separate from goods and executable service quotes. They carry
+`CHECK_AT_CHECKOUT` pricing and `UNVERIFIED` activation, with no numeric amount or
+payment authorization. The merchant displays current plans, eligibility,
+currency, price and renewal terms during checkout. No Netflix/Spotify reseller
+account or gift-card supplier integration is used.
+
+New Netflix accounts open `https://www.netflix.com/signup`; existing users open
+`https://www.netflix.com/YourAccount`. Spotify uses
+`https://www.spotify.com/premium/` or `https://www.spotify.com/account/`.
+Mobile derives these destinations from the service and intent and rejects forged
+URLs or activation claims. Navigation stays in the app merchant browser, with
+back and Return to Agent controls. Users sign in on the merchant page; credentials
+never belong in the AI conversation. Embedded login and card acceptance remain
+merchant-controlled and require device verification. Opening checkout or
+observing a debit is not activation proof.
+
+Set renewal reminder asks for a local date/time and explicit confirmation.
+Mobile submits UTC to authenticated `POST /api/subscription-reminders` with
+`messageId`, `subscriptionId`, and `dueAt`. The backend verifies the owned
+assistant message and stored card. Clients cannot substitute a destination or
+service. Dates must be in the future within 366 days. Scheduling again replaces
+that card's reminder; each user can have 50 active reminders.
+`GET /api/subscription-reminders` lists active reminders and
+`DELETE /api/subscription-reminders/:id` cancels one. Management is available
+through the calendar action in Subscriptions and purchases without spending AI
+credits. Cancelling a reminder does not cancel the merchant subscription.
+
+Apply migration `20261114000000_subscription_assistance` before deploying this
+backend. It creates `subscription_reminders`; deleting the source chat/message
+also removes its reminders. The runner checks due rows every 30 seconds and also
+runs through the authenticated shopping job endpoint. A guarded
+`SCHEDULED → SENT` update and in-app notification creation share a transaction,
+preventing duplicate delivery across workers. Date/version guards exclude
+cancelled or rescheduled work. Notifications link to the source chat. No provider
+charge, recurring debit, automatic renewal, cancellation or activation
+verification is performed.
 
 ## Verification
 

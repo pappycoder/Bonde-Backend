@@ -9,6 +9,7 @@ import {
   IsArray,
   IsBoolean,
   IsIn,
+  IsISO31661Alpha2,
   IsObject,
   IsOptional,
   IsString,
@@ -73,6 +74,13 @@ export class ChatProductDto {
 
 /** Provider-neutral response contract; only trusted backend integrations write it. */
 export class AssistantReplyDto {
+  @ApiPropertyOptional({ type: () => [ChatSubscriptionDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(2)
+  @ValidateNested({ each: true })
+  @Type(() => ChatSubscriptionDto)
+  subscriptions?: ChatSubscriptionDto[];
   @ApiPropertyOptional({ type: () => [ShoppingDiscoveryDto] })
   @IsOptional()
   @IsArray()
@@ -101,6 +109,29 @@ export class RespondToMessageDto {
   @ApiProperty({ format: 'uuid' })
   @IsUUID('4')
   messageId: string;
+}
+
+export class ChatSubscriptionDto {
+  @IsUUID('4') id!: string;
+  @IsIn(['netflix', 'spotify']) serviceId!: 'netflix' | 'spotify';
+  @IsString() @MaxLength(100) name!: string;
+  @IsISO31661Alpha2() countryCode!: string;
+  @IsIn(['NEW', 'RENEW']) intent!: 'NEW' | 'RENEW';
+  @IsIn([
+    'https://www.netflix.com/signup',
+    'https://www.netflix.com/YourAccount',
+    'https://www.spotify.com/premium/',
+    'https://www.spotify.com/account/',
+  ])
+  checkoutUrl!: string;
+  @IsIn([
+    'https://help.netflix.com/en/node/116380',
+    'https://support.spotify.com/article/payment-methods/',
+  ])
+  sourceUrl!: string;
+  @IsIn(['CHECK_AT_CHECKOUT']) priceStatus!: string;
+  @IsIn(['UNVERIFIED']) activationStatus!: string;
+  @IsString() @MaxLength(1000) billingNote!: string;
 }
 export class ChatItemDecisionDto {
   @ApiProperty({ enum: ['APPROVED', 'DECLINED'] })

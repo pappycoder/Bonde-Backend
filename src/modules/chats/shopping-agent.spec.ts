@@ -69,6 +69,67 @@ function response(output: unknown[]) {
 }
 afterEach(() => vi.unstubAllGlobals());
 describe('bounded shopping agent', () => {
+  it('returns only server-issued subscription assistance through the dedicated tool', async () => {
+    const { agent, search, services } = setup();
+    let step = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, request) => {
+        const body = JSON.parse(request.body);
+        if (step++ === 0)
+          return response([
+            call('prepare_subscription_checkout', {
+              serviceId: 'spotify',
+              countryCode: 'NG',
+              intent: 'NEW',
+            }),
+          ]);
+        const result = JSON.parse(
+          body.input.findLast((entry: { type: string }) => entry.type === 'function_call_output')
+            .output,
+        );
+        return response([
+          call('finish_reply', {
+            disposition: 'SHOPPING',
+            text: 'Choose a plan at Spotify; activation is not verified.',
+            resultIds: [],
+            quoteIds: [],
+            subscriptionIds: [result.id],
+          }),
+        ]);
+      }),
+    );
+    const result = await agent.reply(input as never);
+    expect(result.subscriptions).toHaveLength(1);
+    expect(result.subscriptions![0]).toMatchObject({
+      serviceId: 'spotify',
+      checkoutUrl: 'https://www.spotify.com/premium/',
+      activationStatus: 'UNVERIFIED',
+      countryCode: 'NG',
+    });
+    expect(result.items).toEqual([]);
+    expect(result.serviceQuotes).toEqual([]);
+    expect(search.search).not.toHaveBeenCalled();
+    expect(services.quote).not.toHaveBeenCalled();
+  });
+  it('rejects invented subscription IDs in a final reply', async () => {
+    const { agent } = setup();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        response([
+          call('finish_reply', {
+            disposition: 'SHOPPING',
+            text: 'Netflix',
+            resultIds: [],
+            quoteIds: [],
+            subscriptionIds: ['invented'],
+          }),
+        ]),
+      ),
+    );
+    await expect(agent.reply(input as never)).rejects.toThrow('unknown offer');
+  });
   it('compares the full merchant pool and returns the model-ranked best five with full details', async () => {
     const { agent, search } = setup();
     const goods = Array.from({ length: 8 }, (_, index) => ({
@@ -183,7 +244,11 @@ describe('bounded shopping agent', () => {
     );
     expect((await agent.reply(input as never)).text).toContain('not configured');
     const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
-    expect(body.tools.map((t: { name: string }) => t.name)).toEqual(['read_order', 'finish_reply']);
+    expect(body.tools.map((t: { name: string }) => t.name)).toEqual([
+      'prepare_subscription_checkout',
+      'read_order',
+      'finish_reply',
+    ]);
     expect(search.search).not.toHaveBeenCalled();
     expect(services.catalog).not.toHaveBeenCalled();
   });

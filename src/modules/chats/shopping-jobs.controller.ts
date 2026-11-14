@@ -10,6 +10,7 @@ import { secretMatches } from '../finance/finance.types.js';
 import { ChatTurnsService } from './chat-turns.service.js';
 import { ChatWorker } from './chat-worker.service.js';
 import { AiMonitoringService } from '../ai-monitoring/ai-monitoring.service.js';
+import { SubscriptionReminders } from './subscription-reminders.service.js';
 
 @ApiTags('shopping-operations')
 @Controller('shopping')
@@ -21,6 +22,7 @@ export class ShoppingJobsController {
     private readonly services: ServicePurchases,
     private readonly prisma: PrismaService,
     private readonly monitoring: AiMonitoringService,
+    private readonly subscriptionReminders: SubscriptionReminders,
   ) {}
   @Post('jobs')
   @Public()
@@ -34,6 +36,7 @@ export class ShoppingJobsController {
     await this.worker.run();
     await this.services.run();
     await this.monitoring.run();
+    await this.subscriptionReminders.run();
     return { processed: true };
   }
   @Get('operations')
