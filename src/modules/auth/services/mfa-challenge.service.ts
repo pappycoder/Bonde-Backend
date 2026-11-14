@@ -44,9 +44,8 @@ export class MfaChallengeService {
    * caller.
    */
   async consume(challengeId: string): Promise<ParkedLogin> {
-    const raw = await this.redis.get(this.key(challengeId));
+    const raw = await this.redis.getdel(this.key(challengeId));
     if (!raw) throw new UnauthorizedException('Sign-in expired. Please start again.');
-    await this.redis.del(this.key(challengeId));
     try {
       const parked = JSON.parse(raw) as ParkedLogin;
       if (!parked?.userId || !parked.session) throw new Error('malformed challenge');

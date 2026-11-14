@@ -24,6 +24,10 @@ Built with **NestJS 12**, **TypeScript (strict)**, backed by **Supabase** for au
 
 ## Project structure
 
+The [existing state machine map](docs/state-machines/README.md) documents chat,
+identity, finance, billing and supporting UI workflows across Backend, Mobile,
+Admin and Web, including their guards, recovery paths and state ownership.
+
 ```
 src/
   common/    shared infrastructure (redis, cache, throttling, errors, filters, http, swagger)

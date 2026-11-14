@@ -17,7 +17,11 @@ const SESSION = {
 function makeService() {
   const store = new Map<string, string>();
   const redis = {
-    get: vi.fn(async (key: string) => store.get(key) ?? null),
+    getdel: vi.fn(async (key: string) => {
+      const raw = store.get(key) ?? null;
+      store.delete(key);
+      return raw;
+    }),
     set: vi.fn(async (key: string, value: string, ...args: (string | number)[]) => {
       store.set(key, value);
       void args;
@@ -75,7 +79,17 @@ describe('MfaChallengeService', () => {
 
     await service.consume(challengeId);
 
-    expect(redis.del).toHaveBeenCalledWith(`auth:mfa:${challengeId}`);
+    expect(redis.getdel).toHaveBeenCalledWith(`auth:mfa:${challengeId}`);
     expect(store.size).toBe(0);
+  });
+
+  it('allows only one concurrent consumer to obtain the parked session', async () => {
+    const { service } = makeService();
+    const id = await service.create({ userId: USER_ID, session: SESSION });
+    const outcomes = await Promise.allSettled([service.consume(id), service.consume(id)]);
+
+    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
+    const rejected = outcomes.find((outcome) => outcome.status === 'rejected');
+    expect(rejected?.reason).toBeInstanceOf(UnauthorizedException);
   });
 });

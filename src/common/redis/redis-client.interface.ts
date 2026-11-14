@@ -16,6 +16,8 @@ export interface RedisClient extends EventEmitter {
   quit(): Promise<string>;
   ping(): Promise<string>;
   get(key: string): Promise<string | null>;
+  /** Atomically retrieves and removes a single-use value. */
+  getdel(key: string): Promise<string | null>;
   set(key: string, value: string, ...args: (string | number)[]): Promise<string | null>;
   del(...keys: string[]): Promise<number>;
   incr(key: string): Promise<number>;
