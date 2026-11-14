@@ -26,7 +26,7 @@ hostnames, not URLs). Search activates automatically when both are present.
 The retired `SHOPPING_SEARCH_ENABLED` flag has no effect. Without configuration,
 the AI explains the limitation and can still clarify requests or use other tools.
 Search links are filtered against the allowlist; snippets never verify prices or
-stock. Goods use official external checkout; there is no merchant ordering API.
+stock. Goods use official merchant checkout in the app browser; there is no merchant ordering API.
 
 In production, `AI_PRICING_APPROVED=true` remains required after reviewing measured
 model/search costs and the commercial catalog. One successful chargeable assistant reply costs one credit, even if
@@ -35,6 +35,42 @@ it uses several model calls. Usage counters record actual calls and tokens.
 See [advanced environment settings](environment-advanced.md) for overrides and
 production controls. `.env.example` contains only the starter setup.
 
+## Nigerian merchant coverage
+
+The validated page-reader merchants are `jumia.com.ng`, `konga.com`, `slot.ng`,
+`pointekonline.com` and `kara.com.ng`. Set the comma-separated
+`SHOPPING_MERCHANT_HOSTS` allowlist as shown in `.env.example`; adding a merchant
+is an explicit operator choice, not an automatic runtime default.
+
+SLOT (`/products/...`) and Pointek (`/product/...`) use the normal product-link
+reader. Kara uses flat product URLs; its additional discovery path accepts only
+links from catalog `<article>` cards containing a product image, heading and
+naira price. Editorial/category pages with price estimates are never offers.
+Every discovered URL is still checked against the configured allowlist and must
+lead to a complete item page.
+
+A qualifying item needs its name, description, image, specifications, exact price
+and currency, plus explicit in-stock or limited-stock evidence. Conflicting
+prices, incomplete data and unavailable products are excluded. The assistant
+compares the combined candidates and returns the best five qualifying matches;
+it never pads the list to reach five. Item links open that specific product in
+the in-app merchant browser, with final shipping and payment confirmed there.
+
+Each configured merchant causes a separate Brave request (up to 20 search hits).
+Page reads share the existing 30-second budget and a maximum of 40 attempts per
+merchant, with three reads active at once. A failed merchant search is isolated:
+other stores can still supply results. If the remaining stores supply no usable
+items, the request reports a temporary search failure instead of claiming that
+nothing exists. If all merchant searches fail, the provider failure is preserved.
+Diagnostics log only the merchant hostname, stage, failure category and optional
+HTTP status; no user query, URL parameters, provider error body or credentials.
+Provider usage metering still counts every attempted Brave call.
+
+SLOT, Pointek and Kara use public item-page metadata in this integration and need
+no merchant API credentials. Existing Brave, model and hosting costs still apply.
+Amazon and eBay are intentionally excluded from this phase and require separate
+account/API onboarding before integration.
+
 ## Product search reuse and checkout
 
 Before enabling live product discovery, confirm permission to retain API data for
@@ -42,10 +78,12 @@ both the cache and saved results. [Brave's current FAQ](https://api-dashboard.se
 says storage requires contacting their team. The allowance cost example below
 assumes no savings from retaining or caching Brave data.
 
-Identical searches reuse Redis-cached results for **30 minutes**. Keys include the
+Complete searches with at least five results reuse Redis-cached results for
+**30 minutes**. Partial merchant failures and result sets below five use a
+**one-minute** cache, allowing quick recovery or a broader subsequent search. Keys include the
 user, chat, normalized query and current merchant allowlist; raw queries are not
-stored in cache keys. Successful empty results are also cached. Provider errors
-are never cached. Concurrent identical requests within one backend process share
+stored in cache keys. Successful empty results are cached for one minute. Errors that prevent a useful
+search response are never cached. Concurrent identical requests within one backend process share
 one provider load. Redis outages follow the existing fail-open behaviour and may
 cause additional Brave calls; coalescing still works within the process.
 
@@ -71,8 +109,8 @@ starts a provider request increments `searches`; a waiting turn increments
 AI-credit pricing is unchanged: a successful shopping comparison still uses one
 reply credit even when no new Brave request is needed.
 
-Physical goods retain `OFFICIAL_LINK` checkout: the mobile **Open official checkout**
-button opens the merchant website. The buyer confirms final price, stock, delivery
+Physical goods retain `OFFICIAL_LINK` checkout: the mobile **View item in merchant browser**
+button opens the individual product page inside the app. The buyer confirms final price, stock, delivery
 and payment there. Search/cache tools never place orders or debit a wallet. Data/TV
 purchases continue through Safe Haven's separate quote approval and passcode flow.
 

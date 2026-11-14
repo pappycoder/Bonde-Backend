@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   BadRequestException,
   Injectable,
+  Logger,
   Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -83,11 +84,36 @@ export function productLinks(html: string, base: string, hosts: string[]): strin
     }
     if (links.size >= 20) break;
   }
-  return [...links];
+  // Kara uses flat product slugs, shared with editorial/category URLs.
+  // Only discover these from actual catalog cards, never arbitrary links.
+  const baseHost = new URL(base).hostname;
+  if (baseHost === 'kara.com.ng' || baseHost.endsWith('.kara.com.ng')) {
+    for (const article of html.matchAll(/<article\b[^>]*>[\s\S]*?<\/article\s*>/gi)) {
+      const card = article[0];
+      if (!/<h3\b/i.test(card) || !/<img\b/i.test(card) || !/(?:₦|&#(?:8358|x20a6);)/i.test(card))
+        continue;
+      const href = card.match(/href\s*=\s*["']([^"']+)["']/i)?.[1];
+      if (!href) continue;
+      try {
+        const source = officialShoppingUrl(new URL(href.replace(/&amp;/g, '&'), base).href, hosts);
+        if (
+          source &&
+          new URL(source).hostname === baseHost &&
+          /^\/[^/]+\/?$/.test(new URL(source).pathname)
+        )
+          links.add(source);
+      } catch {
+        /* Ignore malformed card links. */
+      }
+      if (links.size >= 20) break;
+    }
+  }
+  return [...links].slice(0, 20);
 }
 
 @Injectable()
 export class ShoppingSearch {
+  private readonly logger = new Logger(ShoppingSearch.name);
   private readonly inflight = new Map<string, Promise<ShoppingDiscoveryDto[]>>();
   constructor(
     private readonly prisma: PrismaService,
@@ -185,7 +211,7 @@ export class ShoppingSearch {
     const hash = createHash('sha256')
       .update(JSON.stringify({ userId, chatId, query: normalized, hosts }))
       .digest('hex');
-    const key = `shopping:v8:${hash}`;
+    const key = `shopping:v9:${hash}`;
     const wait = (work: Promise<ShoppingDiscoveryDto[]>) =>
       options.signal ? shoppingDeadline(work, options.signal) : work;
     const active = this.inflight.get(key);
@@ -204,6 +230,7 @@ export class ShoppingSearch {
       if (cached !== undefined) return { results: cached, source: 'cache' };
     }
     options.signal?.throwIfAborted();
+    let partialFailure = false;
     const work = this.fetchResults(
       userId,
       chatId,
@@ -211,12 +238,15 @@ export class ShoppingSearch {
       hosts,
       c.braveKey,
       options.onProviderRequest,
+      () => {
+        partialFailure = true;
+      },
     )
       .then(async (results) => {
         await this.cache.set(
           key,
           { ids: results.map((r) => r.id) },
-          results.length >= 5 ? SHOPPING_SEARCH_TTL_MS : 60_000,
+          !partialFailure && results.length >= 5 ? SHOPPING_SEARCH_TTL_MS : 60_000,
         );
         return results;
       })
@@ -258,6 +288,13 @@ export class ShoppingSearch {
           continue;
         }
         if (!response.ok || !response.headers.get('content-type')?.includes('text/html')) {
+          if (!response.ok)
+            this.logger.warn({
+              merchant: new URL(current).hostname,
+              stage: 'product-page',
+              reason: 'HTTP_ERROR',
+              status: response.status,
+            });
           await response.body?.cancel();
           return null;
         }
@@ -284,7 +321,12 @@ export class ShoppingSearch {
         };
       }
     } catch {
-      /* Merchant challenges or outages require an in-app browser handoff. */
+      if (!budget?.aborted)
+        this.logger.warn({
+          merchant: new URL(source).hostname,
+          stage: 'product-page',
+          reason: 'READ_FAILED',
+        });
     }
     return null;
   }
@@ -295,10 +337,11 @@ export class ShoppingSearch {
     hosts: string[],
     key: string,
     onProviderRequest?: () => void,
+    onMerchantFailure?: () => void,
   ): Promise<ShoppingDiscoveryDto[]> {
     // Search each merchant so one site's category pages cannot crowd out
     // another merchant's individual products. Interleave their ranked results.
-    const batches = await Promise.all(
+    const outcomes = await Promise.allSettled(
       hosts.map(async (host) => {
         const url = new URL('https://api.search.brave.com/res/v1/web/search');
         url.searchParams.set('q', `${query} Nigeria site:${host}`);
@@ -318,6 +361,21 @@ export class ShoppingSearch {
           throw new BadGatewayException('Product search returned invalid results.');
         return rows.slice(0, 20);
       }),
+    );
+    const failed = outcomes.filter((outcome) => outcome.status === 'rejected');
+    outcomes.forEach((outcome, index) => {
+      if (outcome.status === 'rejected') {
+        onMerchantFailure?.();
+        this.logger.warn({
+          merchant: hosts[index],
+          stage: 'search',
+          reason: 'PROVIDER_REQUEST_FAILED',
+        });
+      }
+    });
+    if (failed.length === outcomes.length) throw failed[0].reason;
+    const batches = outcomes.map((outcome) =>
+      outcome.status === 'fulfilled' ? outcome.value : [],
     );
     const results: ShoppingDiscoveryDto[] = [];
     const budget = AbortSignal.timeout(30_000);
@@ -396,6 +454,8 @@ export class ShoppingSearch {
       );
       results.push({ ...this.view(result, hosts)!, ...details, detailsStatus });
     }
+    if (!results.length && failed.length)
+      throw new BadGatewayException('Some merchants could not be searched. Please retry.');
     return results;
   }
 }

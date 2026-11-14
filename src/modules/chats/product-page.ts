@@ -73,14 +73,21 @@ function decode(value: string): string {
     ndash: '–',
     mdash: '—',
   };
-  return value.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, entity: string) => {
-    if (!entity.startsWith('#')) return entities[entity.toLowerCase()] ?? match;
-    const number =
-      entity[1].toLowerCase() === 'x'
-        ? parseInt(entity.slice(2), 16)
-        : parseInt(entity.slice(1), 10);
-    return number > 0 && number <= 0x10ffff ? String.fromCodePoint(number) : match;
-  });
+  let decoded = value;
+  // Some storefronts encode their already-escaped catalog text again in JSON-LD.
+  for (let pass = 0; pass < 3; pass++) {
+    const next = decoded.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, entity: string) => {
+      if (!entity.startsWith('#')) return entities[entity.toLowerCase()] ?? match;
+      const number =
+        entity[1].toLowerCase() === 'x'
+          ? parseInt(entity.slice(2), 16)
+          : parseInt(entity.slice(1), 10);
+      return number > 0 && number <= 0x10ffff ? String.fromCodePoint(number) : match;
+    });
+    if (next === decoded) break;
+    decoded = next;
+  }
+  return decoded;
 }
 function plain(value: unknown): string {
   return decode(string(value))

@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { Logger } from '@nestjs/common';
 import type { ShoppingResult } from '@prisma/client';
 import { CacheService } from '../../common/cache/cache.service.js';
-import { SHOPPING_SEARCH_TTL_MS, ShoppingSearch } from './shopping-search.service.js';
+import { SHOPPING_SEARCH_TTL_MS, ShoppingSearch, productLinks } from './shopping-search.service.js';
 
 function setup() {
   const entries = new Map<string, { value: string; expires: number }>();
@@ -79,11 +81,120 @@ beforeEach(() => {
   );
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
 describe('cached product discovery', () => {
+  it('discovers Kara flat product links only from catalog product cards', () => {
+    const html = `<a href="/samsung-galaxy-s24-ultra">Editorial category</a>
+      <article><a href="/hp-laptop-ai-15-fd2050wm"><img src="/photo.jpg"><h3>HP laptop</h3></a><p>₦874,500</p></article>
+      <article><a href="https://evil.example/laptop"><img src="/photo.jpg"><h3>Other site</h3></a><p>₦1</p></article>
+      <article><a href="/blog"><h3>Article without product image/price</h3></a></article>`;
+    expect(productLinks(html, 'https://kara.com.ng/computers', ['kara.com.ng'])).toEqual([
+      'https://kara.com.ng/hp-laptop-ai-15-fd2050wm',
+    ]);
+    expect(productLinks(html, 'https://shop.example/category', ['shop.example'])).toEqual([]);
+  });
+  it('searches all five merchants and follows their individual product URLs', async () => {
+    const { service, config } = setup();
+    config.merchantHosts = [
+      'jumia.com.ng',
+      'konga.com',
+      'slot.ng',
+      'pointekonline.com',
+      'kara.com.ng',
+    ];
+    const samples = [
+      {
+        host: 'slot.ng',
+        url: 'https://slot.ng/products/pre-owned-apple-iphone-13-pro-256gb',
+        fixture: 'slot',
+      },
+      {
+        host: 'pointekonline.com',
+        url: 'https://www.pointekonline.com/product/apple-airpods-pro-3/',
+        fixture: 'pointek',
+      },
+      { host: 'kara.com.ng', url: 'https://kara.com.ng/hp-laptop-ai-15-fd2050wm', fixture: 'kara' },
+    ];
+    const requested: string[] = [];
+    vi.stubGlobal('fetch', async (value: string | URL) => {
+      const url = new URL(value);
+      if (url.hostname === 'api.search.brave.com') {
+        const host = url.searchParams.get('q')!.split('site:')[1];
+        requested.push(host);
+        return response([
+          {
+            title: 'Product',
+            url:
+              samples.find((row) => row.host === host)?.url ?? `https://${host}/product/headphones`,
+          },
+        ]);
+      }
+      const sample = samples.find((row) => row.url === url.href);
+      return new Response(
+        sample
+          ? readFileSync(
+              new URL(`./fixtures/merchants/${sample.fixture}.html`, import.meta.url),
+              'utf8',
+            )
+          : productHtml,
+        { headers: { 'Content-Type': 'text/html' } },
+      );
+    });
+    const batch = await service.search('owner', 'chat', 'headphones');
+    expect(requested.sort()).toEqual([...config.merchantHosts].sort());
+    expect(batch.results).toHaveLength(5);
+    for (const sample of samples) expect(batch.results.map((row) => row.url)).toContain(sample.url);
+  });
+  it('continues when one merchant search fails and logs only sanitized diagnostics', async () => {
+    const { service, config, redis } = setup();
+    config.merchantHosts = ['down.example', 'shop.example'];
+    const warning = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    const attempts = vi.fn();
+    vi.stubGlobal('fetch', async (value: string | URL) => {
+      const url = new URL(value);
+      if (url.hostname === 'api.search.brave.com') {
+        if (url.searchParams.get('q')!.includes('site:down.example'))
+          throw new Error('token=private-test-value');
+        return response(
+          Array.from({ length: 5 }, (_, index) => ({
+            title: 'Headphones',
+            url: `https://shop.example/product/${index}`,
+          })),
+        );
+      }
+      return new Response(productHtml, { headers: { 'Content-Type': 'text/html' } });
+    });
+    const result = await service.search('owner', 'chat', 'headphones', {
+      onProviderRequest: attempts,
+    });
+    expect(result.results).toHaveLength(5);
+    expect(attempts).toHaveBeenCalledTimes(2);
+    expect(warning).toHaveBeenCalledWith({
+      merchant: 'down.example',
+      stage: 'search',
+      reason: 'PROVIDER_REQUEST_FAILED',
+    });
+    expect(JSON.stringify(warning.mock.calls)).not.toContain('private-test-value');
+    expect(redis.set.mock.calls.at(-1)![3]).toBe(60_000);
+  });
+  it('does not report an empty success when failed merchant searches leave no results', async () => {
+    const { service, config, redis } = setup();
+    config.merchantHosts = ['down.example', 'shop.example'];
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    vi.stubGlobal('fetch', async (value: string | URL) =>
+      new URL(value).searchParams.get('q')!.includes('site:down.example')
+        ? new Response('down', { status: 503 })
+        : response([]),
+    );
+    await expect(service.search('owner', 'chat', 'headphones')).rejects.toThrow(
+      'Some merchants could not be searched',
+    );
+    expect(redis.set).not.toHaveBeenCalled();
+  });
   it('continues beyond the first three incomplete items to find five complete products', async () => {
     const { service, prisma } = setup();
     const visited: string[] = [];
@@ -338,7 +449,7 @@ describe('cached product discovery', () => {
     expect(
       [...entries.keys()]
         .filter((k) => !k.startsWith('cache:shopping:page:'))
-        .every((k) => /^cache:shopping:v8:[a-f0-9]{64}$/.test(k)),
+        .every((k) => /^cache:shopping:v9:[a-f0-9]{64}$/.test(k)),
     ).toBe(true);
   });
   it('coalesces concurrent searches and refreshes into one provider request', async () => {
@@ -387,7 +498,7 @@ describe('cached product discovery', () => {
     const { service, entries, config, rows } = setup();
     const a = await service.search('owner', 'chat', 'headphones');
     const b = await service.search('other', 'other-chat', 'laptops');
-    const firstKey = [...entries.keys()].find((key) => key.startsWith('cache:shopping:v8:'))!;
+    const firstKey = [...entries.keys()].find((key) => key.startsWith('cache:shopping:v9:'))!;
     entries.set(firstKey, {
       value: JSON.stringify({ ids: [b.results[0].id] }),
       expires: Date.now() + SHOPPING_SEARCH_TTL_MS,
