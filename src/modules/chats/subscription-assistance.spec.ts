@@ -7,7 +7,27 @@ import { prepareSubscriptionCheckout } from './subscription-catalog.js';
 import { SubscriptionReminders } from './subscription-reminders.service.js';
 
 describe('subscription checkout assistance', () => {
-  for (const service of ['netflix', 'spotify']) {
+  const destinations = {
+    netflix: ['https://www.netflix.com/signup', 'https://www.netflix.com/YourAccount'],
+    spotify: ['https://www.spotify.com/premium/', 'https://www.spotify.com/account/'],
+    'youtube-premium': [
+      'https://www.youtube.com/premium',
+      'https://www.youtube.com/paid_memberships',
+    ],
+    'apple-music': ['https://music.apple.com/', 'https://music.apple.com/'],
+    'prime-video': ['https://www.primevideo.com/', 'https://www.primevideo.com/settings'],
+    'google-one': ['https://one.google.com/about/plans', 'https://one.google.com/settings'],
+    'microsoft-365': [
+      'https://www.microsoft.com/microsoft-365',
+      'https://account.microsoft.com/services',
+    ],
+    'canva-pro': ['https://www.canva.com/pricing/', 'https://www.canva.com/'],
+    'adobe-creative-cloud': [
+      'https://www.adobe.com/creativecloud/plans.html',
+      'https://account.adobe.com/plans',
+    ],
+  };
+  for (const [service, urls] of Object.entries(destinations)) {
     for (const intent of ['NEW', 'RENEW']) {
       it(`provides official ${service} ${intent} assistance without a price or payment claim`, async () => {
         const card = prepareSubscriptionCheckout(service, 'ng', intent);
@@ -18,7 +38,8 @@ describe('subscription checkout assistance', () => {
         });
         expect(await validate(dto, { whitelist: true, forbidNonWhitelisted: true })).toEqual([]);
         expect(card.countryCode).toBe('NG');
-        expect(new URL(card.checkoutUrl).hostname).toBe(`www.${service}.com`);
+        expect(card.checkoutUrl).toBe(urls[intent === 'NEW' ? 0 : 1]);
+        expect(card.serviceId).toBe(service);
         expect(card).toMatchObject({
           activationStatus: 'UNVERIFIED',
           priceStatus: 'CHECK_AT_CHECKOUT',
@@ -42,8 +63,8 @@ describe('subscription checkout assistance', () => {
   });
 });
 
-function setup() {
-  const card = prepareSubscriptionCheckout('netflix', 'NG', 'NEW');
+function setup(serviceId = 'netflix') {
+  const card = prepareSubscriptionCheckout(serviceId, 'NG', 'NEW');
   const dueAt = new Date(Date.now() + 86_400_000);
   const reminder = {
     id: 'reminder',
@@ -78,6 +99,28 @@ function setup() {
 }
 
 describe('subscription reminder guards and delivery', () => {
+  it.each([
+    ['youtube-premium', 'YouTube Premium'],
+    ['apple-music', 'Apple Music'],
+    ['prime-video', 'Prime Video'],
+    ['google-one', 'Google One'],
+    ['microsoft-365', 'Microsoft 365'],
+    ['canva-pro', 'Canva Pro'],
+    ['adobe-creative-cloud', 'Adobe Creative Cloud'],
+  ])(
+    'schedules and labels %s reminders without mislabelling them as Spotify',
+    async (serviceId, name) => {
+      const { service, db, card, dueAt } = setup(serviceId);
+      await service.schedule('owner', 'message', card.id, dueAt);
+      expect(db.subscriptionReminder.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ create: expect.objectContaining({ serviceId }) }),
+      );
+      await service.run();
+      expect(db.notification.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ title: `${name} reminder` }),
+      });
+    },
+  );
   it('requires an owned assistant message containing the requested server card', async () => {
     const { service, db, card, dueAt } = setup();
     await service.schedule('owner', 'message', card.id, dueAt);

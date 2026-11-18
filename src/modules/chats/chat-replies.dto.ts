@@ -3,6 +3,12 @@ import { Type } from 'class-transformer';
 import { PaymentPreviewDto } from './payment-preview.dto.js';
 import { DeliveryAddressInputDto } from '../profiles/delivery-address.dto.js';
 import {
+  subscriptionServiceIds,
+  subscriptionCheckoutUrls,
+  subscriptionSourceUrls,
+  type SubscriptionServiceId,
+} from './subscription-catalog.js';
+import {
   ArrayMaxSize,
   IsDefined,
   IsDateString,
@@ -113,21 +119,13 @@ export class RespondToMessageDto {
 
 export class ChatSubscriptionDto {
   @IsUUID('4') id!: string;
-  @IsIn(['netflix', 'spotify']) serviceId!: 'netflix' | 'spotify';
+  @IsIn(subscriptionServiceIds) serviceId!: SubscriptionServiceId;
   @IsString() @MaxLength(100) name!: string;
   @IsISO31661Alpha2() countryCode!: string;
   @IsIn(['NEW', 'RENEW']) intent!: 'NEW' | 'RENEW';
-  @IsIn([
-    'https://www.netflix.com/signup',
-    'https://www.netflix.com/YourAccount',
-    'https://www.spotify.com/premium/',
-    'https://www.spotify.com/account/',
-  ])
+  @IsIn(subscriptionCheckoutUrls)
   checkoutUrl!: string;
-  @IsIn([
-    'https://help.netflix.com/en/node/116380',
-    'https://support.spotify.com/article/payment-methods/',
-  ])
+  @IsIn(subscriptionSourceUrls)
   sourceUrl!: string;
   @IsIn(['CHECK_AT_CHECKOUT']) priceStatus!: string;
   @IsIn(['UNVERIFIED']) activationStatus!: string;

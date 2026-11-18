@@ -179,7 +179,7 @@ Browser navigation history and the Flutter route stack are separate state dimens
 
 `_busy`, `_refreshing`, `_order`, timer and request key supplement the named server order status. F09–F11 own proof, execution and reminder authority.
 
-## C11 Netflix and Spotify checkout assistance
+## C11 Subscription checkout assistance
 
 **Mixed; per AI tool result and chat card.** [Catalogue](../../src/modules/chats/subscription-catalog.ts), [agent](../../src/modules/chats/shopping-agent.ts), [card UI](../../../Bonde-Mobile/lib/features/chats/presentation/widgets/chat_subscription_card.dart).
 
@@ -200,6 +200,12 @@ Only tool-issued IDs can enter the final reply. Prices are `CHECK_AT_CHECKOUT`;
 activation is `UNVERIFIED`. This machine has no activated or paid transition.
 Mobile rejects unexpected destinations and activation claims. Assistance links
 and reminders do not request a passcode because they do not spend money.
+
+Supported services are Netflix, Spotify Premium, YouTube Premium, Apple Music,
+Prime Video, Google One, Microsoft 365, Canva Pro and Adobe Creative Cloud.
+Provider-specific handoff guidance explains embedded sign-in and original billing
+provider limitations. Those gates remain outside Bonde's state authority; the
+browser does not automatically launch an external app when a provider requires it.
 
 ## C12 Subscription reminder persistence and delivery
 

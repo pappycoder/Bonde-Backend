@@ -69,49 +69,61 @@ function response(output: unknown[]) {
 }
 afterEach(() => vi.unstubAllGlobals());
 describe('bounded shopping agent', () => {
-  it('returns only server-issued subscription assistance through the dedicated tool', async () => {
-    const { agent, search, services } = setup();
-    let step = 0;
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (_url, request) => {
-        const body = JSON.parse(request.body);
-        if (step++ === 0)
+  it.each([
+    ['spotify', 'https://www.spotify.com/premium/'],
+    ['youtube-premium', 'https://www.youtube.com/premium'],
+    ['apple-music', 'https://music.apple.com/'],
+    ['prime-video', 'https://www.primevideo.com/'],
+    ['google-one', 'https://one.google.com/about/plans'],
+    ['microsoft-365', 'https://www.microsoft.com/microsoft-365'],
+    ['canva-pro', 'https://www.canva.com/pricing/'],
+    ['adobe-creative-cloud', 'https://www.adobe.com/creativecloud/plans.html'],
+  ])(
+    'returns only server-issued %s assistance through the dedicated tool',
+    async (serviceId, checkoutUrl) => {
+      const { agent, search, services } = setup();
+      let step = 0;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url, request) => {
+          const body = JSON.parse(request.body);
+          if (step++ === 0)
+            return response([
+              call('prepare_subscription_checkout', {
+                serviceId,
+                countryCode: 'NG',
+                intent: 'NEW',
+              }),
+            ]);
+          const result = JSON.parse(
+            body.input.findLast((entry: { type: string }) => entry.type === 'function_call_output')
+              .output,
+          );
           return response([
-            call('prepare_subscription_checkout', {
-              serviceId: 'spotify',
-              countryCode: 'NG',
-              intent: 'NEW',
+            call('finish_reply', {
+              disposition: 'SHOPPING',
+              text: 'Choose a plan at Spotify; activation is not verified.',
+              resultIds: [],
+              quoteIds: [],
+              subscriptionIds: [result.id],
             }),
           ]);
-        const result = JSON.parse(
-          body.input.findLast((entry: { type: string }) => entry.type === 'function_call_output')
-            .output,
-        );
-        return response([
-          call('finish_reply', {
-            disposition: 'SHOPPING',
-            text: 'Choose a plan at Spotify; activation is not verified.',
-            resultIds: [],
-            quoteIds: [],
-            subscriptionIds: [result.id],
-          }),
-        ]);
-      }),
-    );
-    const result = await agent.reply(input as never);
-    expect(result.subscriptions).toHaveLength(1);
-    expect(result.subscriptions![0]).toMatchObject({
-      serviceId: 'spotify',
-      checkoutUrl: 'https://www.spotify.com/premium/',
-      activationStatus: 'UNVERIFIED',
-      countryCode: 'NG',
-    });
-    expect(result.items).toEqual([]);
-    expect(result.serviceQuotes).toEqual([]);
-    expect(search.search).not.toHaveBeenCalled();
-    expect(services.quote).not.toHaveBeenCalled();
-  });
+        }),
+      );
+      const result = await agent.reply(input as never);
+      expect(result.subscriptions).toHaveLength(1);
+      expect(result.subscriptions![0]).toMatchObject({
+        serviceId,
+        checkoutUrl,
+        activationStatus: 'UNVERIFIED',
+        countryCode: 'NG',
+      });
+      expect(result.items).toEqual([]);
+      expect(result.serviceQuotes).toEqual([]);
+      expect(search.search).not.toHaveBeenCalled();
+      expect(services.quote).not.toHaveBeenCalled();
+    },
+  );
   it('rejects invented subscription IDs in a final reply', async () => {
     const { agent } = setup();
     vi.stubGlobal(

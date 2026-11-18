@@ -28,8 +28,8 @@ describe('subscription assistance reminders (e2e)', () => {
     await seedBaseFixtures(ctx.prisma);
     ctx.setPrincipal();
   });
-  async function source() {
-    const card = prepareSubscriptionCheckout('netflix', 'NG', 'RENEW');
+  async function source(serviceId = 'netflix') {
+    const card = prepareSubscriptionCheckout(serviceId, 'NG', 'RENEW');
     const message = await ctx.prisma.message.create({
       data: {
         id: randomUUID(),
@@ -49,6 +49,34 @@ describe('subscription assistance reminders (e2e)', () => {
       dueAt: new Date(Date.now() + 86_400_000).toISOString(),
     };
   }
+  it.each([
+    ['youtube-premium', 'YouTube Premium'],
+    ['apple-music', 'Apple Music'],
+    ['prime-video', 'Prime Video'],
+    ['google-one', 'Google One'],
+    ['microsoft-365', 'Microsoft 365'],
+    ['canva-pro', 'Canva Pro'],
+    ['adobe-creative-cloud', 'Adobe Creative Cloud'],
+  ])('persists and delivers %s with the expanded database constraint', async (serviceId, name) => {
+    const payload = await source(serviceId);
+    const reminder = await reminders.schedule(
+      SEED_USER_ID,
+      payload.messageId,
+      payload.subscriptionId,
+      new Date(payload.dueAt),
+    );
+    expect(reminder.serviceId).toBe(serviceId);
+    await ctx.prisma.subscriptionReminder.update({
+      where: { id: reminder.id },
+      data: { dueAt: new Date(Date.now() - 1000) },
+    });
+    await reminders.run();
+    expect(
+      await ctx.prisma.notification.count({
+        where: { userId: SEED_USER_ID, title: `${name} reminder` },
+      }),
+    ).toBe(1);
+  });
   it('creates, replaces, lists and cancels an owned reminder without AI credits or a payment', async () => {
     const payload = await source();
     const created = await ctx.http.post('/subscription-reminders').send(payload).expect(201);

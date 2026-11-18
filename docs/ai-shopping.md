@@ -37,8 +37,9 @@ production controls. `.env.example` contains only the starter setup.
 
 ## Nigerian merchant coverage
 
-See [subscription assistance](#netflix-and-spotify-checkout-assistance) for Netflix
-and Spotify, which use separate checkout cards rather than goods listings.
+See [subscription assistance](#subscription-checkout-assistance) for streaming,
+music, storage and productivity services, which use separate checkout cards
+rather than goods listings.
 
 The validated page-reader merchants are `jumia.com.ng`, `konga.com`, `slot.ng`,
 `pointekonline.com` and `kara.com.ng`. Set the comma-separated
@@ -284,9 +285,9 @@ purchase. Opening renewal requests a fresh quote and always requires fresh
 approval/passcode. Scheduling or sending a reminder never authorizes payment and
 does not claim to cancel an underlying third-party subscription.
 
-## Netflix and Spotify checkout assistance
+## Subscription checkout assistance
 
-`prepare_subscription_checkout` supports `netflix` and `spotify`, independently of
+`prepare_subscription_checkout` supports the following catalogue, independently of
 goods-search and cable/data provider flags. It requires a user-confirmed account
 billing country (ISO two-letter code) and `NEW` or `RENEW` intent. The agent asks
 for missing details rather than borrowing the delivery country.
@@ -296,12 +297,31 @@ The tool returns server-issued IDs. `finish_reply` selects at most two through
 cards are separate from goods and executable service quotes. They carry
 `CHECK_AT_CHECKOUT` pricing and `UNVERIFIED` activation, with no numeric amount or
 payment authorization. The merchant displays current plans, eligibility,
-currency, price and renewal terms during checkout. No Netflix/Spotify reseller
+currency, price and renewal terms during checkout. No subscription reseller
 account or gift-card supplier integration is used.
 
-New Netflix accounts open `https://www.netflix.com/signup`; existing users open
-`https://www.netflix.com/YourAccount`. Spotify uses
-`https://www.spotify.com/premium/` or `https://www.spotify.com/account/`.
+| Service ID             | Display name         | New account or plan selection                    | Existing account                              |
+| ---------------------- | -------------------- | ------------------------------------------------ | --------------------------------------------- |
+| `netflix`              | Netflix              | `https://www.netflix.com/signup`                 | `https://www.netflix.com/YourAccount`         |
+| `spotify`              | Spotify Premium      | `https://www.spotify.com/premium/`               | `https://www.spotify.com/account/`            |
+| `youtube-premium`      | YouTube Premium      | `https://www.youtube.com/premium`                | `https://www.youtube.com/paid_memberships`    |
+| `apple-music`          | Apple Music          | `https://music.apple.com/`                       | Same site, Account → Settings → Subscriptions |
+| `prime-video`          | Prime Video          | `https://www.primevideo.com/`                    | `https://www.primevideo.com/settings`         |
+| `google-one`           | Google One           | `https://one.google.com/about/plans`             | `https://one.google.com/settings`             |
+| `microsoft-365`        | Microsoft 365        | `https://www.microsoft.com/microsoft-365`        | `https://account.microsoft.com/services`      |
+| `canva-pro`            | Canva Pro            | `https://www.canva.com/pricing/`                 | `https://www.canva.com/`, Settings → Billing  |
+| `adobe-creative-cloud` | Adobe Creative Cloud | `https://www.adobe.com/creativecloud/plans.html` | `https://account.adobe.com/plans`             |
+
+The backend catalogue supplies the AI tool enum and reply URL validators.
+Mobile maintains an exact destination/name catalogue for safe rendering and
+correct reminder labels. Adding a provider requires updating both catalogues,
+the database constraint, and the route/reminder regression tests. Cards also
+display provider-specific guidance. Google authentication can reject embedded
+browsers; original App Store/Google Play or team/organization billing may require
+the original billing provider or an administrator. These are assistance routes,
+not proof that every provider supports completion in a WebView. Do not bypass
+provider authentication restrictions or launch another app automatically.
+
 Mobile derives these destinations from the service and intent and rejects forged
 URLs or activation claims. Navigation stays in the app merchant browser, with
 back and Return to Agent controls. Users sign in on the merchant page; credentials
@@ -329,6 +349,15 @@ preventing duplicate delivery across workers. Date/version guards exclude
 cancelled or rescheduled work. Notifications link to the source chat. No provider
 charge, recurring debit, automatic renewal, cancellation or activation
 verification is performed.
+
+Migration `20261118000000_subscription_catalog_expansion` widens the reminder
+service constraint for the seven new providers while retaining existing Netflix
+and Spotify rows. Apply it before enabling the updated backend and mobile app.
+No new provider credentials or environment variables are required for assisted
+checkout. Normal AI usage still follows the existing credit policy.
+Deploy the updated mobile catalogue together with this backend expansion. Older
+two-service mobile builds reject cards for the new service IDs; the updated
+client continues to render existing Netflix/Spotify messages and reminders.
 
 ## Verification
 
