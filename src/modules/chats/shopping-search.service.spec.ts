@@ -3,7 +3,12 @@ import { readFileSync } from 'node:fs';
 import { Logger } from '@nestjs/common';
 import type { ShoppingResult } from '@prisma/client';
 import { CacheService } from '../../common/cache/cache.service.js';
-import { SHOPPING_SEARCH_TTL_MS, ShoppingSearch, productLinks } from './shopping-search.service.js';
+import {
+  SHOPPING_SEARCH_TTL_MS,
+  ShoppingSearch,
+  officialShoppingUrl,
+  productLinks,
+} from './shopping-search.service.js';
 
 function setup() {
   const entries = new Map<string, { value: string; expires: number }>();
@@ -87,6 +92,153 @@ afterEach(() => {
 });
 
 describe('cached product discovery', () => {
+  const supermartUrl = 'https://www.supermart.ng/products/rice-5-kg-local';
+  const supermartHtml = readFileSync(
+    new URL('./fixtures/merchants/supermart.html', import.meta.url),
+    'utf8',
+  );
+  it('normalizes Supermart collection item URLs without losing variant selection or allowing other hosts', () => {
+    const url = 'https://www.supermart.ng/collections/rice/products/rice-5-kg-local/?variant=123';
+    expect(officialShoppingUrl(url, ['supermart.ng'])).toBe(`${supermartUrl}?variant=123`);
+    expect(officialShoppingUrl(url, ['shop.example'])).toBeNull();
+    expect(
+      officialShoppingUrl(url.replace('www.supermart.ng', 'supermart.ng.evil.example'), [
+        'supermart.ng',
+      ]),
+    ).toBeNull();
+    expect(
+      officialShoppingUrl('https://shop.example/collections/rice/products/item', ['shop.example']),
+    ).toBe('https://shop.example/collections/rice/products/item');
+    expect(
+      productLinks(
+        `<a href="/collections/rice/products/rice-5-kg-local">Rice</a>`,
+        'https://www.supermart.ng/collections/rice',
+        ['supermart.ng'],
+      ),
+    ).toEqual([supermartUrl]);
+  });
+  it('deduplicates collection and canonical links and only offers explicitly stocked Supermart items', async () => {
+    const { service, config } = setup();
+    config.merchantHosts = ['supermart.ng'];
+    const pages: string[] = [];
+    // The captured live item was sold out. This simulates the merchant restocking it.
+    let stocked = false;
+    vi.stubGlobal('fetch', async (value: string | URL) => {
+      const url = String(value);
+      if (url.startsWith('https://api.search.brave.com/'))
+        return response([
+          { url: supermartUrl.replace('/products/', '/collections/rice/products/') },
+          { url: supermartUrl },
+        ]);
+      pages.push(url);
+      return new Response(
+        stocked
+          ? supermartHtml.replaceAll('OutOfStock', 'InStock').replaceAll('out of stock', 'in stock')
+          : supermartHtml,
+        { headers: { 'Content-Type': 'text/html' } },
+      );
+    });
+    expect((await service.search('owner', 'chat', 'rice')).results).toEqual([]);
+    expect(pages).toEqual([supermartUrl]);
+    stocked = true;
+    const result = await service.search('owner', 'chat', 'rice', { refresh: true });
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]).toMatchObject({
+      url: supermartUrl,
+      amount: '2800.00',
+      currency: 'NGN',
+      checkout: 'OFFICIAL_LINK',
+    });
+  });
+  it('stops on a merchant rate limit, shares its cooldown and resumes after Retry-After', async () => {
+    const { service, config, entries, redis } = setup();
+    config.merchantHosts = ['supermart.ng'];
+    const pages: string[] = [];
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    vi.stubGlobal('fetch', async (value: string | URL) => {
+      const url = String(value);
+      if (url.startsWith('https://api.search.brave.com/'))
+        return response([
+          { url: supermartUrl },
+          { url: 'https://www.supermart.ng/products/other-rice' },
+        ]);
+      pages.push(url);
+      return new Response('', { status: 429, headers: { 'Retry-After': '120' } });
+    });
+    const attempts = vi.fn();
+    const search = () =>
+      service.search('owner', 'chat', 'rice', { refresh: true, onProviderRequest: attempts });
+    await expect(search()).rejects.toThrow('Some merchants could not be searched');
+    expect(pages).toEqual([supermartUrl]);
+    expect(redis.set).toHaveBeenCalledWith(
+      'cache:shopping:merchant-backoff:supermart.ng',
+      JSON.stringify(Date.now() + 120_000),
+      'PX',
+      120_000,
+    );
+    await expect(search()).rejects.toThrow('temporarily rate limited');
+    expect(attempts).toHaveBeenCalledTimes(1);
+    const other = new ShoppingSearch(
+      {} as never,
+      { get: () => config } as never,
+      new CacheService(redis as never),
+    );
+    await expect(other.search('other-owner', 'chat', 'rice')).rejects.toThrow(
+      'temporarily rate limited',
+    );
+    // Local cooldown also survives a Redis cache miss.
+    entries.clear();
+    await expect(search()).rejects.toThrow('temporarily rate limited');
+    expect(pages).toHaveLength(1);
+    vi.setSystemTime(Date.now() + 120_001);
+    await expect(search()).rejects.toThrow('Some merchants could not be searched');
+    expect(pages).toHaveLength(2);
+    expect(attempts).toHaveBeenCalledTimes(2);
+  });
+  it.each([
+    ['missing', null, 60_000],
+    ['malformed', 'later', 60_000],
+    ['HTTP date', 'Fri, 06 Nov 2026 09:02:00 GMT', 120_000],
+    ['bounded', '999999999', 24 * 60 * 60_000],
+  ])('handles a %s Retry-After header without retrying immediately', async (_name, header, ttl) => {
+    const { service, config, redis } = setup();
+    config.merchantHosts = ['supermart.ng'];
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    vi.stubGlobal('fetch', async (value: string | URL) => {
+      if (String(value).startsWith('https://api.search.brave.com/'))
+        return response([{ url: supermartUrl }]);
+      return new Response('', { status: 429, headers: header ? { 'Retry-After': header } : {} });
+    });
+    await expect(service.search('owner', 'chat', 'rice')).rejects.toThrow(
+      'Some merchants could not be searched',
+    );
+    expect(redis.set).toHaveBeenCalledWith(
+      'cache:shopping:merchant-backoff:supermart.ng',
+      JSON.stringify(Date.now() + Number(ttl)),
+      'PX',
+      ttl,
+    );
+  });
+  it('keeps other merchants usable after a product-page rate limit and uses the partial-result cache TTL', async () => {
+    const { service, config, redis } = setup();
+    config.merchantHosts = ['supermart.ng', 'shop.example'];
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    vi.stubGlobal('fetch', async (value: string | URL) => {
+      const url = new URL(value);
+      if (url.hostname === 'api.search.brave.com')
+        return url.searchParams.get('q')!.includes('site:supermart.ng')
+          ? response([{ url: supermartUrl }])
+          : response(
+              Array.from({ length: 5 }, (_, i) => ({ url: `https://shop.example/product/${i}` })),
+            );
+      if (url.hostname === 'www.supermart.ng') return new Response('', { status: 429 });
+      return new Response(productHtml, { headers: { 'Content-Type': 'text/html' } });
+    });
+    const result = await service.search('owner', 'chat', 'rice');
+    expect(result.results).toHaveLength(5);
+    expect(result.results.every((row) => row.merchant === 'shop.example')).toBe(true);
+    expect(redis.set.mock.calls.at(-1)![3]).toBe(60_000);
+  });
   it('discovers Kara flat product links only from catalog product cards', () => {
     const html = `<a href="/samsung-galaxy-s24-ultra">Editorial category</a>
       <article><a href="/hp-laptop-ai-15-fd2050wm"><img src="/photo.jpg"><h3>HP laptop</h3></a><p>₦874,500</p></article>
@@ -470,6 +622,7 @@ describe('cached product discovery', () => {
       refresh: true,
       onProviderRequest: requests,
     });
+    await vi.waitFor(() => expect(searchFetch).toHaveBeenCalledOnce());
     deliver(response());
     const [a, b] = await Promise.all([first, second]);
     expect(a.source).toBe('provider');
@@ -549,6 +702,7 @@ describe('cached product discovery', () => {
     });
     const rejected = expect(first).rejects.toThrow('timed out');
     const second = service.search('owner', 'chat', 'headphones');
+    await vi.waitFor(() => expect(searchFetch).toHaveBeenCalledOnce());
     abort.abort();
     deliver(response());
     await rejected;

@@ -75,6 +75,37 @@ no merchant API credentials. Existing Brave, model and hosting costs still apply
 Amazon and eBay are intentionally excluded from this phase and require separate
 account/API onboarding before integration.
 
+### Additional merchant compatibility (2026-11-18)
+
+Supermart support is prepared but **not enabled** in the example or runtime
+allowlist. Its `/collections/<collection>/products/<item>` links normalize to
+`/products/<item>` before discovery, deduplication and reading, preserving query
+parameters such as selected variants. Captured public metadata provides price,
+currency, images and specifications; the captured rice item was explicitly sold
+out and remains excluded. Stock is never inferred from a visible listing.
+
+Supermart page reads run one at a time per search. An HTTP 429 stops that
+merchant's remaining reads for the search, without retrying. Subsequent searches
+skip the merchant during its cooldown, including its paid Brave request. The
+cooldown uses `Retry-After` seconds or an HTTP date (up to 24 hours), defaulting
+to 60 seconds when absent or invalid. Redis shares it across instances, with a
+local fallback when cache access fails. Other merchants continue; partial results
+use the one-minute cache TTL. If no usable items remain, rate limiting surfaces
+as a temporary failure rather than an empty successful search.
+
+Live validation still received HTTP 429 with `Retry-After: 60` on a canonical
+product URL. Do not enable `supermart.ng` until permitted, reliable server-side
+access, live in-stock discovery and device checkout have been verified. Fixture
+tests simulate restocking separately; they are not evidence of live availability.
+
+Jiji and Chowdeck remain outside the goods allowlist. Three sampled Jiji listings
+were readable but lacked price, currency, specifications and explicit stock in
+the existing parser's output. Jiji needs a distinct seller-contact listing flow;
+it must not be presented as an in-stock retail offer or ordinary card checkout.
+Chowdeck's public ordering page requires a delivery location and did not expose
+qualifying item metadata. It needs a separate location-aware ordering integration
+and verified item handoff. Neither platform is enabled by adding a hostname.
+
 ## Product search reuse and checkout
 
 Before enabling live product discovery, confirm permission to retain API data for

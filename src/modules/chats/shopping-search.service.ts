@@ -19,6 +19,18 @@ import { isCompleteProduct, parseProductPage, type ProductPage } from './product
 import { AiUsageService } from '../ai-monitoring/ai-usage.service.js';
 
 export const SHOPPING_SEARCH_TTL_MS = 30 * 60_000;
+const merchantBackoffKey = (host: string) =>
+  `shopping:merchant-backoff:${host.replace(/^www\./, '')}`;
+
+function retryAfterMs(value: string | null): number {
+  const delay =
+    value && /^\d+$/.test(value)
+      ? Number(value) * 1000
+      : value
+        ? Date.parse(value) - Date.now()
+        : NaN;
+  return Number.isFinite(delay) && delay > 0 ? Math.min(delay, 24 * 60 * 60_000) : 60_000;
+}
 interface CachedSearch {
   ids: string[];
 }
@@ -36,13 +48,22 @@ export interface ShoppingSearchBatch {
 export function officialShoppingUrl(value: string, hosts: string[]) {
   try {
     const url = new URL(value);
-    return url.protocol === 'https:' &&
+    const allowed =
+      url.protocol === 'https:' &&
       !url.username &&
       !url.password &&
       !url.port &&
-      hosts.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`))
-      ? url.href
-      : null;
+      hosts.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));
+    if (!allowed) return null;
+    // Supermart links the same item through collections and /products/. Its
+    // structured data identifies only the canonical route. Keep variant queries.
+    if (['supermart.ng', 'www.supermart.ng'].includes(url.hostname)) {
+      url.pathname = url.pathname.replace(
+        /^\/collections\/[^/]+\/products\/([^/]+)\/?$/,
+        '/products/$1',
+      );
+    }
+    return url.href;
   } catch {
     return null;
   }
@@ -115,6 +136,7 @@ export function productLinks(html: string, base: string, hosts: string[]): strin
 export class ShoppingSearch {
   private readonly logger = new Logger(ShoppingSearch.name);
   private readonly inflight = new Map<string, Promise<ShoppingDiscoveryDto[]>>();
+  private readonly merchantBackoff = new Map<string, number>();
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<AppConfig, true>,
@@ -264,6 +286,7 @@ export class ShoppingSearch {
     source: string,
     hosts: string[],
     budget?: AbortSignal,
+    onRateLimit?: () => void,
   ): Promise<{ url: string; details: ProductPage | null; itemUrls: string[] } | null> {
     try {
       let current = source;
@@ -288,6 +311,14 @@ export class ShoppingSearch {
           continue;
         }
         if (!response.ok || !response.headers.get('content-type')?.includes('text/html')) {
+          if (response.status === 429) {
+            const key = merchantBackoffKey(new URL(current).hostname);
+            const ttl = retryAfterMs(response.headers.get('retry-after'));
+            const until = Math.max(this.merchantBackoff.get(key) ?? 0, Date.now() + ttl);
+            this.merchantBackoff.set(key, until);
+            onRateLimit?.();
+            await this.cache.set(key, until, until - Date.now());
+          }
           if (!response.ok)
             this.logger.warn({
               merchant: new URL(current).hostname,
@@ -343,6 +374,17 @@ export class ShoppingSearch {
     // another merchant's individual products. Interleave their ranked results.
     const outcomes = await Promise.allSettled(
       hosts.map(async (host) => {
+        const key = merchantBackoffKey(host);
+        const cachedUntil = await this.cache.get<number>(key);
+        const until = Math.max(
+          this.merchantBackoff.get(key) ?? 0,
+          typeof cachedUntil === 'number' && Number.isFinite(cachedUntil) ? cachedUntil : 0,
+        );
+        if (until > Date.now()) {
+          this.merchantBackoff.set(key, until);
+          throw new BadGatewayException('Merchant product pages are temporarily rate limited.');
+        }
+        this.merchantBackoff.delete(key);
         const url = new URL('https://api.search.brave.com/res/v1/web/search');
         url.searchParams.set('q', `${query} Nigeria site:${host}`);
         url.searchParams.set('count', '20');
@@ -400,6 +442,7 @@ export class ShoppingSearch {
     };
     batches.forEach((batch, index) => batch.forEach((raw) => enqueue(index, object(raw).url)));
     const attempted = hosts.map(() => 0);
+    const rateLimited = new Set<number>();
     const candidates: Array<{ url: string; details: ProductPage; detailsStatus: 'READ' }> = [];
     const seen = new Set<string>();
     const candidateKeys = new Set<string>();
@@ -407,8 +450,10 @@ export class ShoppingSearch {
     // pages and replenish rejected candidates until there is a comparison pool.
     while (!budget.aborted && candidates.length < 10) {
       const next = queues.flatMap((queue, index) => {
-        if (attempted[index] >= 40) return [];
-        return queue.splice(0, 2).map((url) => {
+        if (attempted[index] >= 40 || rateLimited.has(index)) return [];
+        // Supermart enforces strict page limits: read only one item per round.
+        const count = /^(www\.)?supermart\.ng$/.test(hosts[index]) ? 1 : 2;
+        return queue.splice(0, count).map((url) => {
           attempted[index]++;
           return { url, index };
         });
@@ -416,7 +461,12 @@ export class ShoppingSearch {
       if (!next.length) break;
       const pages = await mapPages(next, async (item) => ({
         ...item,
-        page: await this.readPage(item.url, hosts, budget),
+        page: rateLimited.has(item.index)
+          ? null
+          : await this.readPage(item.url, hosts, budget, () => {
+              rateLimited.add(item.index);
+              onMerchantFailure?.();
+            }),
       }));
       for (const { page, index } of pages) {
         if (!page) continue;
@@ -454,7 +504,7 @@ export class ShoppingSearch {
       );
       results.push({ ...this.view(result, hosts)!, ...details, detailsStatus });
     }
-    if (!results.length && failed.length)
+    if (!results.length && (failed.length || rateLimited.size))
       throw new BadGatewayException('Some merchants could not be searched. Please retry.');
     return results;
   }

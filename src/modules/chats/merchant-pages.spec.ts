@@ -61,3 +61,19 @@ it('cleans Pointek catalog entities without exposing HTML escapes in the details
   expect(item.description).not.toContain('&amp;');
   expect(item.specifications.Seller).toContain('Gadgets & Computers');
 });
+
+it('reads captured Supermart price and specifications but excludes the live sold-out item', () => {
+  const html = readFileSync(
+    new URL('./fixtures/merchants/supermart.html', import.meta.url),
+    'utf8',
+  );
+  const item = parseProductPage(html, 'https://www.supermart.ng/products/rice-5-kg-local');
+  expect(item).toMatchObject({
+    title: 'Rice 5 kg (Local)',
+    amount: '2800.00',
+    currency: 'NGN',
+    specifications: { sku: 'spmt1242', brand: 'Generic' },
+  });
+  expect(isUnavailableProduct(item?.availability)).toBe(true);
+  expect(isCompleteProduct(item)).toBe(false);
+});
