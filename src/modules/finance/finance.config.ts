@@ -1,4 +1,7 @@
+import type { CardProgramme } from './card-programmes.js';
+
 export interface FinanceConfig {
+  ngnCardProgrammes?: CardProgramme[];
   enabled: boolean;
   environment: 'sandbox' | 'production';
   ngnEnabled: boolean;

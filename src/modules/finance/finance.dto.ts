@@ -14,6 +14,8 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+import { cardBrands, type CardBrand } from './card-programmes.js';
+
 export const commandKinds = [
   'ISSUE',
   'RETIRE',
@@ -31,6 +33,7 @@ export const commandKinds = [
   'DECLINE',
 ] as const;
 export class FinanceCommandDto {
+  @IsOptional() @IsIn(cardBrands) brand?: CardBrand;
   @IsOptional() @IsIn(['FIRST_TIME', 'LARGE_AMOUNT']) thresholdType?: 'FIRST_TIME' | 'LARGE_AMOUNT';
   @IsOptional() @Matches(/^\d{1,12}(\.\d{1,2})?$/) thresholdValue?: string;
   @IsOptional() @IsBoolean() thresholdActive?: boolean;

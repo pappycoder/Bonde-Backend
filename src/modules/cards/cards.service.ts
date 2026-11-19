@@ -120,6 +120,8 @@ export class CardsService {
       customerReady: customer?.status === 'READY',
       issueFee: capability.currencies.NGN.issueFee,
       currency: 'NGN',
+      defaultBrand: capability.currencies.NGN.defaultBrand,
+      programmes: capability.currencies.NGN.programmes,
     };
   }
   availability(userId: string, id: string) {

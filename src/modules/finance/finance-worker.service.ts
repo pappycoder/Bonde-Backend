@@ -1,3 +1,4 @@
+import { selectCardProgramme, type CardProgramme } from './card-programmes.js';
 import { FinanceRetirement } from './finance-retirement.service.js';
 import { FinancePolicy } from './finance-policy.service.js';
 import { projectAllocationReturn } from './finance-projections.js';
@@ -105,7 +106,12 @@ export class FinanceWorker {
     const customer = await this.prisma.financeCustomer.findUniqueOrThrow({
       where: { userId: op.userId },
     });
-    const sourceId = op.currency === 'NGN' ? c.ngnFundingSourceId : c.usdFundingSourceId;
+    const request = object(op.request);
+    // New operations snapshot the server-selected programme before queuing.
+    const programme = request.issuanceProgramme
+      ? (request.issuanceProgramme as unknown as CardProgramme)
+      : selectCardProgramme(c, op.currency, string(request.brand) || undefined);
+    const sourceId = programme.fundingSourceId;
     let source: Record<string, unknown>;
     try {
       source = object(await this.sudo.call(`/fundingsources/${encodeURIComponent(sourceId)}`));
@@ -126,11 +132,11 @@ export class FinanceWorker {
         type: 'virtual',
         currency: op.currency,
         issuerCountry: op.currency === 'NGN' ? 'NGA' : 'USA',
-        brand: op.currency === 'NGN' ? c.ngnBrand : c.usdBrand,
+        brand: programme.brand,
         status: 'active',
         enable2FA: true,
-        fundingSourceId: op.currency === 'NGN' ? c.ngnFundingSourceId : c.usdFundingSourceId,
-        debitAccountId: op.currency === 'NGN' ? c.ngnSettlementId : c.usdSettlementId,
+        fundingSourceId: programme.fundingSourceId,
+        debitAccountId: programme.settlementId,
         metadata: { bondeOperationId: op.id },
         spendingControls: { channels: { atm: false, pos: false, web: true, mobile: true } },
       }),

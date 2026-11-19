@@ -1,4 +1,5 @@
 import Joi from 'joi';
+import { parseCardProgrammes } from '../modules/finance/card-programmes.js';
 
 /**
  * Joi validation schema for environment variables.
@@ -46,6 +47,17 @@ export const envValidationSchema = Joi.object({
   SUDO_USD_FUNDING_SOURCE_ID: Joi.string().allow('').default(''),
   SUDO_NGN_SETTLEMENT_ID: Joi.string().allow('').default(''),
   SUDO_USD_SETTLEMENT_ID: Joi.string().allow('').default(''),
+  SUDO_NGN_CARD_PROGRAMMES: Joi.string()
+    .allow('')
+    .custom((value, helpers) => {
+      try {
+        parseCardProgrammes(value);
+        return value;
+      } catch {
+        return helpers.error('any.invalid');
+      }
+    })
+    .default(''),
   SUDO_NGN_BRAND: Joi.string().allow('').default('Verve'),
   SUDO_USD_BRAND: Joi.string().allow('').default('MasterCard'),
   SUDO_NGN_ISSUE_FEE: Joi.string().allow('').default('0.00'),

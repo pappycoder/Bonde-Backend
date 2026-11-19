@@ -226,3 +226,40 @@ access; successful local tests do not establish a live provider contract.
 A newly issued unallocated card may receive its initial allocation even if top-ups
 are disabled. Immutable positive card ledger entries distinguish initial funding
 from later top-ups, so returning or spending the allocation cannot reset that rule.
+
+## Multiple NGN card brands
+
+`SUDO_NGN_CARD_PROGRAMMES` is an optional JSON array of approved NGN virtual-card
+programmes. Each entry contains `brand`, `issueFee` (a decimal string),
+`fundingSourceId` and `settlementId`. Supported brand identifiers are `Verve`,
+`AfriGo`, `MasterCard` and `Visa`; availability still depends on Sudo enabling
+that brand, currency and gateway arrangement for Bonde. Do not list a programme
+until Sudo confirms it. IDs and fees below are illustrative placeholders:
+
+```dotenv
+SUDO_NGN_BRAND=Verve
+SUDO_NGN_CARD_PROGRAMMES='[{"brand":"Verve","issueFee":"2.50","fundingSourceId":"VERVE_SOURCE_ID","settlementId":"NGN_SETTLEMENT_ID"},{"brand":"MasterCard","issueFee":"5.00","fundingSourceId":"MASTERCARD_SOURCE_ID","settlementId":"NGN_SETTLEMENT_ID"},{"brand":"Visa","issueFee":"5.00","fundingSourceId":"VISA_SOURCE_ID","settlementId":"NGN_SETTLEMENT_ID"}]'
+```
+
+Choose `SUDO_NGN_BRAND` from the configured entries as the default for clients
+that omit `brand`; otherwise the first entry is the default. Empty programme configuration preserves the existing single
+brand, fee and routing settings. Nonempty configuration replaces that fallback;
+malformed entries, duplicate brands and missing IDs fail startup validation.
+
+Capabilities and card creation access publish `programmes: [{brand, issueFee}]`
+only when NGN finance is available. Provider funding and settlement IDs are not
+included in those choice lists. Mobile shows the configured networks, reviews
+the selected fee and includes `brand` in the quote, passcode proof and issuance
+command. Changing the brand invalidates an existing proof. Removed programmes
+and changed fees require a new review. Rules and lifecycle commands cannot
+change an issued card's brand.
+
+The operation stores a server-selected programme snapshot so queued issuance
+keeps the accepted fee, brand and routing after a configuration change. Gateway
+status, callback URL and `authorizeByDefault=false` are still checked before
+issuance. Historical queued operations without a snapshot retain their legacy
+configuration lookup. Drain those operations before changing legacy routing.
+The additive `20261119120000_card_brands` migration adds nullable `cards.brand`;
+existing cards retain an unknown network rather than a guessed backfill. Deploy
+the migration before the backend. New cards persist the requested brand and
+mobile renders it on the card. USD/FX remain gated regardless of brand selection.

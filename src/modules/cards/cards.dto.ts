@@ -99,6 +99,7 @@ export class CardDto {
 
   @ApiProperty({ example: 'virtual' })
   cardType: string;
+  brand?: string | null;
 
   @ApiProperty({ enum: CardStatus, example: CardStatus.ACTIVE })
   status: CardStatus;

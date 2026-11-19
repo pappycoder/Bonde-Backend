@@ -1,3 +1,4 @@
+import { cardProgrammes } from './card-programmes.js';
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../../config/configuration.js';
@@ -40,7 +41,11 @@ export class FinanceCapabilities {
       c.incomingFeeBearer !== 'unknown' &&
       c.feesVerified &&
       c.treasuryVerified;
-    const ngn = configured && c.ngnEnabled && !!c.ngnFundingSourceId && !!c.ngnSettlementId;
+    const programmes = cardProgrammes(c, 'NGN').filter(
+      (p) => p.brand && p.fundingSourceId && p.settlementId,
+    );
+    const defaultProgramme = programmes.find((p) => p.brand === c.ngnBrand) ?? programmes[0];
+    const ngn = configured && c.ngnEnabled && programmes.length > 0;
     // USD stays gated: a rate endpoint is not an executable, guaranteed two-way FX contract.
     return {
       cardControlsVersion: 2,
@@ -50,7 +55,12 @@ export class FinanceCapabilities {
       configured,
       allocationMode: 'SEPARATE',
       currencies: {
-        NGN: { enabled: ngn, issueFee: c.ngnIssueFee },
+        NGN: {
+          enabled: ngn,
+          issueFee: defaultProgramme?.issueFee ?? c.ngnIssueFee,
+          defaultBrand: defaultProgramme?.brand ?? c.ngnBrand,
+          programmes: ngn ? programmes.map(({ brand, issueFee }) => ({ brand, issueFee })) : [],
+        },
         USD: {
           enabled: false,
           issueFee: c.usdIssueFee,

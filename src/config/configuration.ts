@@ -1,3 +1,4 @@
+import { parseCardProgrammes } from '../modules/finance/card-programmes.js';
 import type { FinanceConfig } from '../modules/finance/finance.config.js';
 /**
  * Typed view over validated environment configuration.
@@ -134,6 +135,7 @@ export default (): AppConfig => ({
     usdFundingSourceId: process.env.SUDO_USD_FUNDING_SOURCE_ID ?? '',
     ngnSettlementId: process.env.SUDO_NGN_SETTLEMENT_ID ?? '',
     usdSettlementId: process.env.SUDO_USD_SETTLEMENT_ID ?? '',
+    ngnCardProgrammes: parseCardProgrammes(process.env.SUDO_NGN_CARD_PROGRAMMES),
     ngnBrand: process.env.SUDO_NGN_BRAND ?? 'Verve',
     usdBrand: process.env.SUDO_USD_BRAND ?? 'MasterCard',
     ngnIssueFee: process.env.SUDO_NGN_ISSUE_FEE ?? '0.00',

@@ -1,3 +1,4 @@
+import { selectCardProgramme } from './card-programmes.js';
 import { FinancePolicy } from './finance-policy.service.js';
 import { FinanceRetirement } from './finance-retirement.service.js';
 import { FinanceMerchants } from './finance-merchants.service.js';
@@ -88,14 +89,14 @@ export class FinanceService {
     const c = this.config.get('finance');
     const fee =
       command.kind === 'ISSUE'
-        ? command.currency === 'NGN'
-          ? c.ngnIssueFee
-          : c.usdIssueFee
+        ? selectCardProgramme(c, command.currency, command.brand).issueFee
         : command.kind === 'WITHDRAW'
           ? c.withdrawalFee
           : '0.00';
     if (!amountOf(command.fee, true).equals(amountOf(fee, true)))
       throw new ConflictException('Fees changed. Review a new quote.');
+    if (command.brand !== undefined && command.kind !== 'ISSUE')
+      throw new BadRequestException('Card brand can only be selected during issuance');
     if (['ALLOCATE', 'RETURN', 'WITHDRAW'].includes(command.kind)) amountOf(command.amount);
     else if (command.kind !== 'ISSUE' && !amountOf(command.amount, true).isZero())
       throw new BadRequestException('This action has no amount');
@@ -259,6 +260,7 @@ export class FinanceService {
             providerId: provider.id,
             issuer: 'sudo',
             currency: command.currency,
+            brand: selectCardProgramme(c, command.currency, command.brand).brand,
             cardNumberEncrypted: null,
             cardNumberLast4: '0000',
             status: 'PAUSED',
@@ -498,7 +500,14 @@ export class FinanceService {
           fee,
           status,
           cardId,
-          request: command as unknown as Prisma.InputJsonValue,
+          request: {
+            ...command,
+            ...(command.kind === 'ISSUE'
+              ? {
+                  issuanceProgramme: selectCardProgramme(c, command.currency, command.brand),
+                }
+              : {}),
+          } as unknown as Prisma.InputJsonValue,
         },
       });
       await tx.auditLog.create({

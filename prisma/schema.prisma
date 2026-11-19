@@ -638,6 +638,7 @@ model Card {
   cardNumberEncrypted String?    @map("card_number_encrypted")
   cardNumberLast4     String     @map("card_number_last4") @db.VarChar(4)
   cardCvvEncrypted    String?    @map("card_cvv_encrypted")
+  brand               String?    @db.VarChar(20)
   cardType            String     @default("virtual") @map("card_type") @db.VarChar(20)
   creationLockType    LockType?  @map("creation_lock_type")
   issuer              String     @default("bonde") @db.VarChar(20)
