@@ -99,6 +99,7 @@ export class FinanceWorker {
         data: { status: 'FAILED', leaseUntil: null },
       });
       await tx.transaction.updateMany({ where: { id: op.id }, data: { status: 'FAIL' } });
+      if (op.kind === 'WITHDRAW') await this.withdrawalNotice(tx, op, 'Withdrawal failed');
     });
   }
   private async issue(op: FinanceOperation) {
@@ -110,7 +111,11 @@ export class FinanceWorker {
     // New operations snapshot the server-selected programme before queuing.
     const programme = request.issuanceProgramme
       ? (request.issuanceProgramme as unknown as CardProgramme)
-      : selectCardProgramme(c, op.currency, string(request.brand) || undefined);
+      : selectCardProgramme(
+          c,
+          op.currency,
+          typeof request.brand === 'string' ? request.brand : undefined,
+        );
     const sourceId = programme.fundingSourceId;
     let source: Record<string, unknown>;
     try {
@@ -218,10 +223,11 @@ export class FinanceWorker {
       throw new ProviderError(true, 400);
     }
     if (resolved.accountName !== command.accountName) throw new ProviderError(true, 400);
+    const treasury = this.treasuryFor(op);
     const transfer = object(
       await this.safe.call('/transfers', 'POST', {
         nameEnquiryReference: string(resolved.sessionId),
-        debitAccountNumber: this.config.get('finance').treasuryAccountNumber,
+        debitAccountNumber: treasury,
         beneficiaryBankCode: command.bankCode,
         beneficiaryAccountNumber: command.accountNumber,
         amount: Number(op.amount),
@@ -239,7 +245,7 @@ export class FinanceWorker {
   async settleWithdrawal(op: FinanceOperation, data: Record<string, unknown>) {
     const command = op.request as unknown as FinanceCommandDto;
     if (
-      data.debitAccountNumber !== this.config.get('finance').treasuryAccountNumber ||
+      data.debitAccountNumber !== this.treasuryFor(op) ||
       data.creditAccountNumber !== command.accountNumber ||
       data.destinationInstitutionCode !== command.bankCode
     )
@@ -254,13 +260,17 @@ export class FinanceWorker {
     const actualFee = new Prisma.Decimal(String(data.fees ?? 0))
       .add(String(data.vat ?? 0))
       .add(String(data.stampDuty ?? 0));
-    if (!actualFee.isFinite() || actualFee.lt(0)) throw new ProviderError(false, 502);
+    if (!actualFee.isFinite() || actualFee.lt(0) || actualFee.decimalPlaces() > 2)
+      throw new ProviderError(false, 502);
     await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM profiles WHERE id=${op.userId}::uuid FOR UPDATE`;
       const current = await tx.financeOperation.findUniqueOrThrow({ where: { id: op.id } });
-      if (current.status === 'SUCCEEDED') return;
-      if (current.status === 'FAILED' || current.status === 'REVERSED')
-        throw new ProviderError(false, 409);
+      if (current.status === 'REVERSED') return;
+      if (current.status === 'SUCCEEDED') {
+        if (data.isReversed === true) await this.reverseWithdrawal(tx, op);
+        return;
+      }
+      if (current.status === 'FAILED') throw new ProviderError(false, 409);
       await this.ledger.post(tx, `payout:${op.id}`, 'Bank payout settled', [
         this.posting(op, holdKey(op.id, op.currency), op.amount.add(op.fee).negated(), 'HOLD'),
         this.posting(
@@ -317,9 +327,58 @@ export class FinanceWorker {
         },
       });
       await tx.transaction.updateMany({ where: { id: op.id }, data: { status: 'SUCCESS' } });
+      if (data.isReversed === true) await this.reverseWithdrawal(tx, op);
+      else await this.withdrawalNotice(tx, op, 'Withdrawal completed');
       const chargedFee = Prisma.Decimal.min(actualFee, op.fee).toFixed(2);
       await tx.$executeRaw`UPDATE transactions SET metadata=jsonb_set(COALESCE(metadata,'{}'::jsonb),'{fee}',to_jsonb(${chargedFee}::text)) WHERE id=${op.id}::uuid`;
     });
+  }
+  private treasuryFor(op: FinanceOperation) {
+    const saved = object(op.request).treasuryAccountNumber;
+    return typeof saved === 'string' && saved
+      ? saved
+      : this.config.get('finance').treasuryAccountNumber;
+  }
+  private async withdrawalNotice(
+    tx: Prisma.TransactionClient,
+    op: FinanceOperation,
+    title: string,
+  ) {
+    await tx.notification.create({
+      data: {
+        id: randomUUID(),
+        userId: op.userId,
+        type: 'TRANSACTION',
+        title,
+        content: `${op.amount.toFixed(2)} ${op.currency}`,
+        metadata: {
+          action: 'finance.operation',
+          operationId: op.id,
+          entityType: 'finance_operation',
+          entityId: op.id,
+          live: true,
+        },
+      },
+    });
+  }
+  private async reverseWithdrawal(tx: Prisma.TransactionClient, op: FinanceOperation) {
+    // Only the confirmed principal is reversed; refunded fees need separate evidence.
+    await this.ledger.post(tx, `payout-reversal:${op.id}`, 'Bank payout reversed', [
+      this.posting(
+        op,
+        systemKey('bank-clearing', op.currency),
+        op.amount.negated(),
+        'CLEARING',
+        false,
+      ),
+      this.posting(op, walletKey(op.userId, op.currency), op.amount, 'WALLET'),
+    ]);
+    await tx.financeOperation.update({
+      where: { id: op.id },
+      data: { status: 'REVERSED', leaseUntil: null },
+    });
+    await tx.transaction.updateMany({ where: { id: op.id }, data: { status: 'FAIL' } });
+    await this.withdrawalNotice(tx, op, 'Withdrawal reversed');
   }
   private async lifecycle(op: FinanceOperation) {
     await this.retirement.lease(op.cardId!, op.id);
@@ -348,16 +407,28 @@ export class FinanceWorker {
         return;
       }
     }
+    const issuance =
+      op.kind === 'CANCEL'
+        ? await this.prisma.financeOperation.findFirst({
+            where: { cardId: card.id, kind: 'ISSUE' },
+            orderBy: { createdAt: 'asc' },
+          })
+        : null;
+    const programme = issuance ? object(issuance.request).issuanceProgramme : undefined;
+    const creditAccountId =
+      op.kind !== 'CANCEL'
+        ? undefined
+        : programme
+          ? string(object(programme).settlementId)
+          : selectCardProgramme(this.config.get('finance'), op.currency, card.brand ?? undefined)
+              .settlementId;
     // Cancellation must use a documented supported terminal state. Provider rejection leaves the allocation intact.
     await this.sudo.call(`/cards/${encodeURIComponent(card.externalReferenceId)}`, 'PUT', {
       status: op.kind === 'RESUME' ? 'active' : op.kind === 'PAUSE' ? 'inactive' : 'canceled',
       ...(op.kind === 'CANCEL'
         ? {
             cancellationReason: (op.request as unknown as FinanceCommandDto).cancellationReason,
-            creditAccountId:
-              op.currency === 'NGN'
-                ? this.config.get('finance').ngnSettlementId
-                : this.config.get('finance').usdSettlementId,
+            creditAccountId,
           }
         : {}),
     });
@@ -431,13 +502,15 @@ export class FinanceWorker {
   private async sweep(op: FinanceOperation) {
     const c = this.config.get('finance');
     const source = string((op.request as Record<string, unknown>).sourceAccountNumber);
-    const enquiry = object(await this.safe.resolve(c.safeHavenBankCode, c.treasuryAccountNumber));
+    const treasury = this.treasuryFor(op);
+    const bankCode = (op.request as Record<string, unknown>).bankCode ?? c.safeHavenBankCode;
+    const enquiry = object(await this.safe.resolve(String(bankCode), treasury));
     const data = object(
       await this.safe.call('/transfers', 'POST', {
         nameEnquiryReference: string(enquiry.sessionId),
         debitAccountNumber: source,
-        beneficiaryBankCode: c.safeHavenBankCode,
-        beneficiaryAccountNumber: c.treasuryAccountNumber,
+        beneficiaryBankCode: bankCode,
+        beneficiaryAccountNumber: treasury,
         amount: Number(op.amount),
         paymentReference: op.id,
         narration: 'Bonde treasury sweep',
@@ -451,7 +524,15 @@ export class FinanceWorker {
     await this.settleSweep(op, data);
   }
   async settleSweep(op: FinanceOperation, data: Record<string, unknown>) {
-    if (data.paymentReference !== op.id || String(data.amount) !== op.amount.toString())
+    const request = object(op.request);
+    if (
+      data.paymentReference !== op.id ||
+      String(data.amount) !== op.amount.toString() ||
+      data.debitAccountNumber !== request.sourceAccountNumber ||
+      data.creditAccountNumber !== this.treasuryFor(op) ||
+      data.destinationInstitutionCode !==
+        (request.bankCode ?? this.config.get('finance').safeHavenBankCode)
+    )
       throw new ProviderError(false, 400);
     const status =
       data.isReversed === true
@@ -461,8 +542,13 @@ export class FinanceWorker {
           : data.status === 'Failed' || data.status === 'Canceled'
             ? 'FAILED'
             : 'PENDING';
-    await this.prisma.financeOperation.update({
-      where: { id: op.id },
+    await this.prisma.financeOperation.updateMany({
+      where: {
+        id: op.id,
+        ...(status === 'REVERSED'
+          ? {}
+          : { status: { notIn: ['SUCCEEDED', 'REVERSED', 'FAILED'] } }),
+      },
       data: { status, leaseUntil: null },
     });
     // A sweep moves existing assets. It never produces a second customer credit.
@@ -497,7 +583,7 @@ export class FinanceWorker {
       const number =
         op.kind === 'SWEEP'
           ? string((op.request as Record<string, unknown>).sourceAccountNumber)
-          : this.config.get('finance').treasuryAccountNumber;
+          : this.treasuryFor(op);
       let account = accounts.map(object).find((a) => a.accountNumber === number);
       if (!account && op.kind === 'SWEEP') {
         const customer = await this.prisma.financeCustomer.findUnique({

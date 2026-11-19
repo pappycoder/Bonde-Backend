@@ -408,7 +408,9 @@ export class FinanceWebhooksController {
     )
       throw new UnauthorizedException();
     this.capabilities.assertEnabled();
-    return { operations: await this.worker.run(), inbox: await this.events.run() };
+    const inbox = await this.events.run();
+    const operations = await this.worker.run();
+    return { operations, inbox };
   }
 }
 
@@ -579,6 +581,8 @@ export class AdminFinanceController {
       entityType: 'profile',
       entityId: p.userId,
     });
-    return { operations: await this.worker.run(), inbox: await this.events.run() };
+    const inbox = await this.events.run();
+    const operations = await this.worker.run();
+    return { operations, inbox };
   }
 }

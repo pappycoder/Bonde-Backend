@@ -1,3 +1,4 @@
+import { cardProgrammes } from './card-programmes.js';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
@@ -69,32 +70,69 @@ export class FinanceReconciliation {
   }
   async liquidity() {
     const c = this.config.get('finance');
-    const snapshots: Array<{ provider: string; currency: string; available: string | null }> = [];
+    const snapshots: Array<{
+      provider: string;
+      currency: string;
+      accountId: string;
+      brands: string[];
+      available: string | null;
+    }> = [];
+    const accounts = new Map<string, { currency: string; id: string; brands: Set<string> }>();
+    const add = (currency: string, id: string | undefined, brand?: string) => {
+      if (!id) return;
+      const key = `${currency}:${id}`;
+      const entry = accounts.get(key) ?? { currency, id, brands: new Set<string>() };
+      if (brand) entry.brands.add(brand);
+      accounts.set(key, entry);
+    };
     for (const currency of ['NGN', 'USD']) {
-      const id = currency === 'NGN' ? c.ngnSettlementId : c.usdSettlementId;
-      if (!id) continue;
+      for (const p of cardProgrammes(c, currency)) add(currency, p.settlementId, p.brand);
+      add(currency, currency === 'NGN' ? c.ngnSettlementId : c.usdSettlementId);
+    }
+    // Removed programmes may still have issued cards or unsettled purchases.
+    const historical = await this.prisma.$queryRaw<
+      Array<{ currency: string; id: string; brand: string | null }>
+    >`
+      SELECT DISTINCT currency, request->'issuanceProgramme'->>'settlementId' AS id,
+        request->'issuanceProgramme'->>'brand' AS brand
+      FROM finance_operations WHERE kind='ISSUE'
+        AND request->'issuanceProgramme'->>'settlementId' IS NOT NULL`;
+    for (const row of historical) add(row.currency, row.id, row.brand ?? undefined);
+    for (const { currency, id, brands } of accounts.values()) {
+      let available: string | null = null;
       try {
         const data = object(await this.sudo.call(`/accounts/${encodeURIComponent(id)}/balance`));
         const amount = new Prisma.Decimal(String(data.availableBalance));
         if (!amount.isFinite()) throw new Error('Invalid provider balance');
-        snapshots.push({ provider: 'sudo', currency, available: amount.toFixed(2) });
+        available = amount.toFixed(2);
       } catch {
-        snapshots.push({ provider: 'sudo', currency, available: null });
+        /* Surface an unavailable account rather than hiding it. */
       }
+      snapshots.push({ provider: 'sudo', currency, accountId: id, brands: [...brands], available });
     }
+    let treasury: string | null = null;
     try {
-      const rows = await this.safe.call('/accounts?isSubAccount=false&page=0&limit=100');
-      const account = Array.isArray(rows)
-        ? rows.map(object).find((a) => a.accountNumber === c.treasuryAccountNumber)
-        : undefined;
-      snapshots.push({
-        provider: 'safe-haven',
-        currency: 'NGN',
-        available: account ? new Prisma.Decimal(String(account.availableBalance)).toFixed(2) : null,
-      });
+      for (let page = 0; page < 10; page++) {
+        const rows = await this.safe.call(`/accounts?isSubAccount=false&page=${page}&limit=100`);
+        if (!Array.isArray(rows)) break;
+        const account = rows.map(object).find((a) => a.accountNumber === c.treasuryAccountNumber);
+        if (account) {
+          const amount = new Prisma.Decimal(String(account.availableBalance));
+          if (amount.isFinite()) treasury = amount.toFixed(2);
+          break;
+        }
+        if (rows.length < 100) break;
+      }
     } catch {
-      snapshots.push({ provider: 'safe-haven', currency: 'NGN', available: null });
+      /* Missing treasury evidence is visible to the operator. */
     }
+    snapshots.push({
+      provider: 'safe-haven',
+      currency: 'NGN',
+      accountId: c.treasuryAccountNumber,
+      brands: [],
+      available: treasury,
+    });
     // The linked Safe Haven and Sudo snapshots can represent the same assets. Never add them together.
     return { snapshots, overlapPossible: true };
   }

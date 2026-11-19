@@ -502,6 +502,9 @@ export class FinanceService {
           cardId,
           request: {
             ...command,
+            ...(command.kind === 'WITHDRAW'
+              ? { treasuryAccountNumber: c.treasuryAccountNumber }
+              : {}),
             ...(command.kind === 'ISSUE'
               ? {
                   issuanceProgramme: selectCardProgramme(c, command.currency, command.brand),

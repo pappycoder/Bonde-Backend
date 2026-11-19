@@ -91,10 +91,11 @@ export class FinanceEvents {
       const fees = new Prisma.Decimal(String(data.fees ?? 0))
         .add(String(data.vat ?? 0))
         .add(String(data.stampDuty ?? 0));
-      if (!fees.isFinite() || fees.lt(0)) throw new ProviderError(true, 400);
+      if (!fees.isFinite() || fees.lt(0) || fees.decimalPlaces() > 2)
+        throw new ProviderError(true, 400);
       const bearer = this.config.get('finance').incomingFeeBearer;
       if (bearer === 'unknown') throw new ProviderError(true, 409);
-      const amount = amountOf((bearer === 'recipient' ? gross.sub(fees) : gross).toFixed(2));
+      const amount = amountOf((bearer === 'recipient' ? gross.sub(fees) : gross).toString());
       await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM profiles WHERE id=${customer.userId}::uuid FOR UPDATE`;
         const reference = `deposit:${id}`;
@@ -127,7 +128,11 @@ export class FinanceEvents {
               kind: 'SWEEP',
               currency: 'NGN',
               amount,
-              request: { sourceAccountNumber: customer.bankAccountNumber },
+              request: {
+                sourceAccountNumber: customer.bankAccountNumber,
+                treasuryAccountNumber: this.config.get('finance').treasuryAccountNumber,
+                bankCode: this.config.get('finance').safeHavenBankCode,
+              },
             },
           });
         }
@@ -146,51 +151,14 @@ export class FinanceEvents {
         });
         return;
       }
-      if (data.isReversed === true) {
-        const command = op.request as Record<string, unknown>;
-        if (
-          !command.accountNumber ||
-          data.creditAccountNumber !== command.accountNumber ||
-          data.destinationInstitutionCode !== command.bankCode ||
-          String(data.amount) !== op.amount.toString()
-        )
-          throw new ProviderError(false, 400);
-        await this.prisma.$transaction(async (tx) => {
-          await tx.$queryRaw`SELECT id FROM profiles WHERE id=${op.userId}::uuid FOR UPDATE`;
-          const current = await tx.financeOperation.findUniqueOrThrow({ where: { id: op.id } });
-          if (current.status === 'SUCCEEDED') {
-            // Return only confirmed reversed principal; fees require their own provider confirmation.
-            await this.ledger.post(tx, `payout-reversal:${id}`, 'Bank payout reversed', [
-              {
-                key: systemKey('bank-clearing', op.currency),
-                kind: 'CLEARING',
-                currency: op.currency,
-                amount: op.amount.negated(),
-              },
-              {
-                key: walletKey(op.userId, op.currency),
-                userId: op.userId,
-                kind: 'WALLET',
-                currency: op.currency,
-                amount: op.amount,
-              },
-            ]);
-            await tx.financeOperation.update({
-              where: { id: op.id },
-              data: { status: 'REVERSED' },
-            });
-          } else if (current.status !== 'REVERSED') throw new ProviderError(false, 409);
-          await tx.financeInbox.update({ where: { id: inboxId }, data: { status: 'PROCESSED' } });
-        });
-      } else {
-        await this.worker.settleWithdrawal(op, data);
-        if (data.status !== 'Completed' && data.status !== 'Failed' && data.status !== 'Canceled')
-          throw new ProviderError(false, 202);
-        await this.prisma.financeInbox.update({
-          where: { id: inboxId },
-          data: { status: 'PROCESSED' },
-        });
-      }
+      // Callback and background recovery use the same verified settlement path.
+      await this.worker.settleWithdrawal(op, data);
+      if (data.status !== 'Completed' && data.status !== 'Failed' && data.status !== 'Canceled')
+        throw new ProviderError(false, 202);
+      await this.prisma.financeInbox.update({
+        where: { id: inboxId },
+        data: { status: 'PROCESSED' },
+      });
     } else throw new ProviderError(true, 400);
   }
   private async sudoEvent(inboxId: string, type: string, id: string) {
@@ -209,6 +177,8 @@ export class FinanceEvents {
         await tx.$queryRaw`SELECT id FROM profiles WHERE id=${auth.userId}::uuid FOR UPDATE`;
         const current = await tx.financeAuthorization.findUniqueOrThrow({ where: { id } });
         if (current.status === 'HELD' && current.settled.isZero()) {
+          const card = await tx.card.findUniqueOrThrow({ where: { id: current.cardId } });
+          const toWallet = !!card.retiredAt || card.status === 'CANCELLED';
           const held = current.amount.sub(current.released);
           if (held.gt(0))
             await this.ledger.post(tx, `declined:${id}`, 'Declined purchase hold returned', [
@@ -220,17 +190,20 @@ export class FinanceEvents {
                 amount: held.negated(),
               },
               {
-                key: cardKey(current.cardId, current.currency),
-                kind: 'CARD',
+                key: toWallet
+                  ? walletKey(current.userId, current.currency)
+                  : cardKey(current.cardId, current.currency),
+                kind: toWallet ? 'WALLET' : 'CARD',
                 currency: current.currency,
                 userId: current.userId,
                 amount: held,
               },
             ]);
-          await tx.card.update({
-            where: { id: current.cardId },
-            data: { balance: { increment: held } },
-          });
+          if (!toWallet)
+            await tx.card.update({
+              where: { id: current.cardId },
+              data: { balance: { increment: held } },
+            });
           await tx.financeAuthorization.update({
             where: { id },
             data: { released: current.amount, status: 'DECLINED' },
@@ -352,9 +325,9 @@ export class FinanceEvents {
     const amount = amountOf(
       new Prisma.Decimal(String(data.amount))
         .abs()
-        .add(String(data.fee ?? 0))
-        .add(String(data.vat ?? 0))
-        .toFixed(2),
+        .add(amountOf(String(data.fee ?? 0), true))
+        .add(amountOf(String(data.vat ?? 0), true))
+        .toString(),
       true,
     );
     await this.prisma.$transaction(async (tx) => {
@@ -392,9 +365,11 @@ export class FinanceEvents {
               amount: amount.negated(),
             },
             {
-              key: cardKey(card.id, card.currency),
+              key: toWallet
+                ? walletKey(card.userId, card.currency)
+                : cardKey(card.id, card.currency),
               userId: card.userId,
-              kind: 'CARD',
+              kind: toWallet ? 'WALLET' : 'CARD',
               currency: card.currency,
               amount,
             },
@@ -406,10 +381,11 @@ export class FinanceEvents {
               status: auth.released.add(amount).equals(auth.amount) ? 'REVERSED' : 'HELD',
             },
           });
-          await tx.card.update({
-            where: { id: card.id },
-            data: { balance: { increment: amount } },
-          });
+          if (!toWallet)
+            await tx.card.update({
+              where: { id: card.id },
+              data: { balance: { increment: amount } },
+            });
         }
         await tx.financeInbox.update({ where: { id: inboxId }, data: { status: 'PROCESSED' } });
         return;

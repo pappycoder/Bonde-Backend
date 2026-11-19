@@ -40,6 +40,20 @@ services:
       retries: 3
       start_period: 10s
 
+  finance-worker:
+    profiles: ['finance-worker']
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    restart: unless-stopped
+    command: ['node', 'scripts/finance-worker.mjs']
+    environment:
+      FINANCE_API_URL: '${FINANCE_API_URL:-}'
+      FINANCE_JOB_TOKEN: '${FINANCE_JOB_TOKEN:-}'
+    healthcheck:
+      disable: true
+
   redis:
     image: redis:7-alpine
     container_name: bonde-backend-redis

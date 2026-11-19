@@ -263,3 +263,62 @@ The additive `20261119120000_card_brands` migration adds nullable `cards.brand`;
 existing cards retain an unknown network rather than a guessed backfill. Deploy
 the migration before the backend. New cards persist the requested brand and
 mobile renders it on the card. USD/FX remain gated regardless of brand selection.
+
+## Complete NGN money flow and worker deployment
+
+A verified Safe Haven deposit credits the wallet once and queues a treasury
+sweep. The sweep validates both account numbers, bank code, amount and payment
+reference; it does not credit the wallet again. Recipient-paid incoming fees
+reduce the wallet credit. Provider money with unsupported precision is held for
+reconciliation rather than rounded into a guessed credit or debit.
+
+ISSUE charges its reviewed fee and creates an initially unallocated card.
+ALLOCATE moves wallet funds to that card's allocation; RETURN moves only the
+available allocation back. Authorization reserves card funds (including provider
+fees), capture consumes that hold, and refunds/reversals credit the card or the
+wallet if the card is retired. A purchase never debits the wallet a second time.
+Unknown outcomes keep their reservations until verified. Withdrawal failure
+releases the reservation; confirmed completion refunds any unused quoted fee.
+A later confirmed payout reversal returns the principal once, retaining any
+previously confirmed fee. Both callbacks and lost-response recovery use this
+same settlement path and issue terminal withdrawal notifications.
+
+Accepted sweeps and withdrawals save their treasury routing. Cancellation uses
+the settlement account saved at card issuance. Changing current programme
+configuration cannot redirect an already accepted transfer or card return.
+Liquidity inspection lists every distinct current and historical Sudo settlement
+account, including shared accounts only once, alongside Safe Haven treasury.
+Those views are not additive: linked balances may describe the same assets.
+This visibility does not create or replace the provider-approved treasury link.
+
+The worker must run separately from the API. The production Docker image now
+includes its script; run a second process from the same image with:
+
+```sh
+node scripts/finance-worker.mjs
+```
+
+Provide only `FINANCE_API_URL` (the public HTTPS backend origin, without `/api`)
+and `FINANCE_JOB_TOKEN` (matching the API deployment). Local Compose provides an
+opt-in `finance-worker` profile:
+
+```sh
+docker compose --profile finance-worker up -d finance-worker
+```
+
+Alternatively, schedule `pnpm finance:once` every minute, or supervise
+`pnpm finance:worker`. Provider callbacks must reach the deployed API; setting
+credentials alone does not start the worker. Each tick processes verified inbox
+events before queued operations, allowing a deposit sweep to start in the same
+tick. Deploy a continuously supervised worker or scheduler and monitor failures
+and pending operation age before enabling customer access.
+
+`test/money-flow.e2e-spec.ts` uses disposable local Postgres/Redis and fake
+provider APIs. It exercises public callback routes, jobs, passcode proofs,
+ledger movements and existing wallet/card reads for Verve, Mastercard and Visa.
+It covers duplicate deposits/captures/refunds, purchase fees, lost transfer
+responses, failed/reversed withdrawals, retired-card hold releases, invalid
+sweep destinations and insufficient funds, and asserts balanced journals and
+nonnegative customer accounts. These tests do not certify real provider account
+configuration. Confirm bank deposits, settlement coverage and each enabled brand
+against the actual sandbox, then deploy with separate production credentials.

@@ -169,6 +169,7 @@ describe('confirmed payout fee accounting', () => {
     const tx = {
       $queryRaw: vi.fn(),
       $executeRaw: vi.fn(),
+      notification: { create: vi.fn() },
       financeOperation: {
         findUniqueOrThrow: vi.fn(async () => ({ status: 'PENDING' })),
         update: vi.fn(),
