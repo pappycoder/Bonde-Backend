@@ -248,7 +248,7 @@ jobs:
       - name: Wait for deployment readiness
         run: vercel inspect "$BONDE_DEPLOYMENT_URL" --wait --token="$VERCEL_TOKEN"
       - name: Smoke test before alias or promotion
-        run: vercel curl /api/health --deployment "$BONDE_DEPLOYMENT_URL" --token="$VERCEL_TOKEN" -- --fail --silent --show-error
+        run: vercel curl /api/health --deployment "$BONDE_DEPLOYMENT_URL" -- --fail --silent --show-error
       - name: Publish checked deployment
         env:
           STAGING_DOMAIN: ${{ vars.STAGING_DOMAIN }}
