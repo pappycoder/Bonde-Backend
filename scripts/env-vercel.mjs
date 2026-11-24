@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 
 export const sections = ['shared', 'preview', 'production'];
 const isolated =
-  /^(DATABASE_URL|DIRECT_URL|SUPABASE_.*|REDIS_URL|AUTH_TOKEN_SECRET|CARD_ENCRYPTION_KEY|MFA_ENCRYPTION_KEY|KYC_HASH_SECRET|FINANCE_.*|SUDO_.*|SAFE_HAVEN_.*|FIREBASE_.*|NEXT_PUBLIC_.*API_URL|API_URL|SOCKET_URL|APP_ENV|PUBLIC_URL|ADMIN_APP_URL|CORS_ORIGINS)$/;
+  /^(DATABASE_URL|DIRECT_URL|SUPABASE_.*|REDIS_URL|AUTH_TOKEN_SECRET|CARD_ENCRYPTION_KEY|MFA_ENCRYPTION_KEY|KYC_HASH_SECRET|FINANCE_.*|SUDO_.*|SAFE_HAVEN_.*|FLUTTERWAVE_.*|FIREBASE_.*|NEXT_PUBLIC_.*API_URL|API_URL|SOCKET_URL|APP_ENV|PUBLIC_URL|ADMIN_APP_URL|CORS_ORIGINS)$/;
 const reserved = /^(VERCEL(?:_|$)|GITHUB_|NX_|TURBO_|CI$|PATH$|HOME$|NODE_OPTIONS$)/;
 const mobileKeys = new Set(['API_URL', 'SUPABASE_URL', 'SOCKET_URL', 'APP_ENV']);
 const forbiddenPublic =
@@ -116,6 +116,17 @@ export function validateDeployment(manifest, target) {
     }
   }
   return vars;
+}
+export function formatEnvValue(value) {
+  const text = String(value);
+  if (!text.includes('\0')) {
+    // dotenv quoting is not JSON escaping. Only use a representation whose
+    // parsed value is identical, including embedded quotes and backslashes.
+    for (const candidate of [text, `'${text}'`, `"${text}"`, `\`${text}\``]) {
+      if (parseEnv(`BONDE_VALUE=${candidate}\n`).BONDE_VALUE === text) return candidate;
+    }
+  }
+  throw new Error('Value cannot be represented safely in a .env file; use the JSON manifest');
 }
 function cli(args, options = {}) {
   if (args[0] === 'vercel' && process.env.VERCEL_TOKEN)
@@ -407,7 +418,7 @@ export async function main(argv = process.argv.slice(2)) {
       if (resolve(output) === file) throw new Error('Cannot overwrite the manifest');
       const data =
         Object.entries(vars)
-          .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+          .map(([k, v]) => `${k}=${formatEnvValue(v)}`)
           .join('\n') + '\n';
       writeFileSync(output, data, { mode: 0o600 });
       chmodSync(output, 0o600);

@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { parseEnv } from 'node:util';
 import {
   normalize,
   effective,
@@ -11,6 +12,7 @@ import {
   pushPlan,
   validateDeployment,
   databaseIdentity,
+  formatEnvValue,
 } from './env-vercel.mjs';
 const base = () => ({
   version: 1,
@@ -46,6 +48,7 @@ test('database, banking, auth and encryption variables cannot be shared', () => 
     'DIRECT_URL',
     'SUDO_API_KEY',
     'SAFE_HAVEN_PRIVATE_KEY',
+    'FLUTTERWAVE_SECRET_KEY',
     'CARD_ENCRYPTION_KEY',
     'SUPABASE_SERVICE_ROLE_KEY',
     'FINANCE_JOB_TOKEN',
@@ -189,4 +192,19 @@ test('public frontend prefixes reject server database credentials', () => {
       /Server credential/,
     );
   }
+});
+
+test('environment exports preserve JSON, multiline secrets, quotes, comments and literal escapes', () => {
+  const values = [
+    JSON.stringify({ private_key: 'first\\nsecond', client_email: 'fixture@example.com' }),
+    '-----BEGIN KEY-----\nline\n-----END KEY-----\n',
+    'O\'Reilly says "hello"',
+    'literal\\nvalue',
+    'a#b',
+    ' padded ',
+    '\n',
+  ];
+  for (const value of values)
+    assert.equal(parseEnv('VALUE=' + formatEnvValue(value) + '\n').VALUE, value);
+  assert.throws(() => formatEnvValue('null\0byte'), /cannot be represented/);
 });
