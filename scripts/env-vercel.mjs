@@ -117,6 +117,17 @@ export function validateDeployment(manifest, target) {
   }
   return vars;
 }
+export function formatEnvValue(value) {
+  const text = String(value);
+  if (!text.includes('\0')) {
+    // dotenv quoting is not JSON escaping. Only use a representation whose
+    // parsed value is identical, including embedded quotes and backslashes.
+    for (const candidate of [text, `'${text}'`, `"${text}"`, `\`${text}\``]) {
+      if (parseEnv(`BONDE_VALUE=${candidate}\n`).BONDE_VALUE === text) return candidate;
+    }
+  }
+  throw new Error('Value cannot be represented safely in a .env file; use the JSON manifest');
+}
 function cli(args, options = {}) {
   if (args[0] === 'vercel' && process.env.VERCEL_TOKEN)
     args = [...args, '--token', process.env.VERCEL_TOKEN];
@@ -407,7 +418,7 @@ export async function main(argv = process.argv.slice(2)) {
       if (resolve(output) === file) throw new Error('Cannot overwrite the manifest');
       const data =
         Object.entries(vars)
-          .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+          .map(([k, v]) => `${k}=${formatEnvValue(v)}`)
           .join('\n') + '\n';
       writeFileSync(output, data, { mode: 0o600 });
       chmodSync(output, 0o600);
