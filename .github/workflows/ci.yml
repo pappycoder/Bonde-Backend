@@ -258,5 +258,27 @@ jobs:
           if [ "$BONDE_TARGET" = production ]; then
             vercel promote "$BONDE_DEPLOYMENT_URL" --yes --token="$VERCEL_TOKEN"
           elif [ -n "$STAGING_DOMAIN" ]; then
-            vercel alias set "$BONDE_DEPLOYMENT_URL" "$STAGING_DOMAIN" --token="$VERCEL_TOKEN"
+            node --input-type=module <<'JS'
+          const host = new URL(process.env.BONDE_DEPLOYMENT_URL).hostname;
+          const team = encodeURIComponent(process.env.VERCEL_ORG_ID);
+          const response = await fetch(`https://api.vercel.com/v2/deployments/${host}/aliases?teamId=${team}`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${process.env.VERCEL_TOKEN}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ alias: process.env.STAGING_DOMAIN }),
+            signal: AbortSignal.timeout(30000),
+          });
+          if (!response.ok) throw new Error(`Staging alias failed: HTTP ${response.status}`);
+          if ((await response.json()).alias !== process.env.STAGING_DOMAIN) throw new Error('Unexpected staging alias response');
+          console.log('Assigned the checked staging deployment to its configured domain');
+          JS
           fi
+      - name: Verify the development API is publicly reachable
+        if: env.BONDE_TARGET == 'preview' && vars.STAGING_DOMAIN != ''
+        env:
+          STAGING_DOMAIN: ${{ vars.STAGING_DOMAIN }}
+        run: |
+          node --input-type=module <<'JS'
+          const response = await fetch(`https://${process.env.STAGING_DOMAIN}/api/health`, { signal: AbortSignal.timeout(30000) });
+          if (!response.ok || (await response.json()).status !== 'ok') throw new Error('Public development API health check failed');
+          console.log('Public development API database and Redis health passed');
+          JS
