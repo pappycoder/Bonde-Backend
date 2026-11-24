@@ -138,7 +138,7 @@ test('mobile manifests cannot carry server credentials', () => {
   );
 });
 
-test('explicit prepared file takes precedence over the original CI secret', () => {
+test('manifest ignores legacy secret overrides and explicit prepared files remain authoritative', () => {
   const dir = mkdtempSync(join(tmpdir(), 'bonde-env-test-'));
   try {
     const file = join(dir, '.env.vercel.json');
@@ -166,6 +166,11 @@ test('explicit prepared file takes precedence over the original CI secret', () =
       encoding: 'utf8',
     });
     assert.equal(prepared.status, 0, prepared.stderr);
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).preview.PUBLIC_URL, m.preview.PUBLIC_URL);
+    // An explicit validated file remains authoritative for later deployment steps.
+    const selected = JSON.parse(readFileSync(file, 'utf8'));
+    selected.preview.PUBLIC_URL = 'https://new.example.com';
+    writeFileSync(file, JSON.stringify(selected));
     delete env.BONDE_PUBLIC_URL;
     const exported = spawnSync(
       process.execPath,

@@ -187,11 +187,6 @@ jobs:
       VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
       BONDE_ENV_JSON: ${{ secrets.BONDE_ENV_JSON }}
-      BONDE_DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      BONDE_DIRECT_URL: ${{ secrets.DIRECT_URL }}
-      BONDE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      BONDE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-      BONDE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

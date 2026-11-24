@@ -74,9 +74,11 @@ staging database for a new production deployment.
 The staging GitHub environment is restricted to `staging`; production is
 restricted to `main`. `BONDE_ENV_JSON` contains the selected environment and
 shared values as an encrypted environment secret. Database/Supabase values are
-also stored as separate environment secrets. Production database secrets stay
-absent until an independent production project exists. `env:github` skips empty
-credentials and does not delete an already-existing secret.
+also mirrored as separate environment secrets for operator visibility. CI reads
+application configuration exclusively from `BONDE_ENV_JSON`; individual legacy
+secrets cannot override the manifest. Update the private manifest and run
+`env:github` to refresh the selected GitHub environments. `env:github` skips empty
+individual credentials and does not delete an already-existing secret.
 
 Vercel project/org IDs and optional `STAGING_DOMAIN` are environment variables.
 `VERCEL_TOKEN` is the user-supplied non-expiring Bonde-team token, stored only
@@ -116,7 +118,6 @@ APK builds; they do not upload to app stores or configure production signing.
 Before activating production, supply its independent database, Supabase Auth,
 encryption/signing/job keys, production URLs and approved provider configuration;
 update encrypted GitHub secrets with env:github, then merge a passing PR to main.
-
 
 Backend migration commands:
 

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-test('migration receives validated credential overrides from outside deployment source', () => {
+test('migration receives the frozen validated manifest from outside deployment source', () => {
   const dir = mkdtempSync(join(tmpdir(), 'bonde-migration-test-'));
   try {
     const source = join(dir, 'source');

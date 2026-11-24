@@ -42,7 +42,7 @@ if (command === 'create' || command === 'check') {
       ? process.env.BONDE_PREPARED_ENV_FILE || '.env.vercel.json'
       : '.env.vercel.json';
   const manifest = JSON.parse(process.env.BONDE_ENV_JSON || readFileSync(preparedFile, 'utf8'));
-  // prepare writes selected GitHub credential overrides into the local manifest.
+  // Migrations use the same frozen, validated manifest selected for the application build.
   if (process.env.BONDE_ENV_JSON && process.env.GITHUB_ACTIONS === 'true') {
     const prepared = JSON.parse(readFileSync(preparedFile, 'utf8'));
     manifest[target] = prepared[target];
