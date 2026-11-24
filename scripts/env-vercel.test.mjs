@@ -48,6 +48,7 @@ test('database, banking, auth and encryption variables cannot be shared', () => 
     'DIRECT_URL',
     'SUDO_API_KEY',
     'SAFE_HAVEN_PRIVATE_KEY',
+    'FLUTTERWAVE_SECRET_KEY',
     'CARD_ENCRYPTION_KEY',
     'SUPABASE_SERVICE_ROLE_KEY',
     'FINANCE_JOB_TOKEN',
