@@ -199,7 +199,7 @@ export async function main(argv = process.argv.slice(2)) {
     console.log('Created private .env.vercel.json with empty values');
     return;
   }
-  // Explicit files let subsequent CI steps use the validated, overridden manifest saved by prepare.
+  // Explicit files let subsequent CI steps use the validated manifest saved by prepare.
   const source = args.includes('--file')
     ? readFileSync(file, 'utf8')
     : process.env.BONDE_ENV_JSON || readFileSync(file, 'utf8');
@@ -388,10 +388,7 @@ export async function main(argv = process.argv.slice(2)) {
   }
   if (command === 'export' || command === 'prepare') {
     if (targets.length !== 1) throw new Error('Export selects exactly one environment');
-    // CI credentials may be supplied independently as environment-scoped GitHub secrets.
-    for (const key of manifest.required ?? [])
-      if (nonempty(process.env[`BONDE_${key}`]))
-        manifest[target][key] = process.env[`BONDE_${key}`];
+    // The selected manifest is authoritative; legacy individual secrets cannot override it.
     const vars =
       args.includes('--deployment') || command === 'prepare'
         ? validateDeployment(manifest, target)
