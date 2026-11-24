@@ -176,3 +176,17 @@ test('explicit prepared file takes precedence over the original CI secret', () =
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('public frontend prefixes reject server database credentials', () => {
+  for (const key of ['PUBLIC_DATABASE_URL', 'NEXT_PUBLIC_DATABASE_URL']) {
+    assert.throws(
+      () =>
+        normalize({
+          ...base(),
+          project: { kind: 'web' },
+          preview: { [key]: 'postgresql://private.example/db' },
+        }),
+      /Server credential/,
+    );
+  }
+});

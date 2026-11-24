@@ -34,7 +34,9 @@ export function normalize(manifest) {
       if (scope === 'shared' && isolated.test(key))
         throw new Error(`Environment-specific variable cannot be shared: ${key}`);
       if (
-        (manifest.project.kind === 'mobile' || key.startsWith('NEXT_PUBLIC_')) &&
+        (manifest.project.kind === 'mobile' ||
+          key.startsWith('NEXT_PUBLIC_') ||
+          key.startsWith('PUBLIC_')) &&
         forbiddenPublic.test(key)
       )
         throw new Error(`Server credential cannot enter a public build: ${key}`);
@@ -278,7 +280,7 @@ export async function main(argv = process.argv.slice(2)) {
         );
     for (const { target: t, key } of plan) {
       const value = effective(manifest, t)[key];
-      const isPublic = key.startsWith('NEXT_PUBLIC_');
+      const isPublic = key.startsWith('NEXT_PUBLIC_') || key.startsWith('PUBLIC_');
       cli(
         [
           'vercel',
