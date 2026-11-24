@@ -220,6 +220,11 @@ jobs:
       - run: pnpm prisma:generate
       - name: Sync only nonempty selected environment values
         run: node scripts/env-vercel.mjs push --environment "$BONDE_TARGET" --deployment --file .env.vercel.json
+      - name: Keep the private manifest outside deployment source
+        run: |
+          prepared="$RUNNER_TEMP/bonde-prepared-env.json"
+          mv .env.vercel.json "$prepared"
+          echo "BONDE_PREPARED_ENV_FILE=$prepared" >> "$GITHUB_ENV"
       - name: Build the actual deployment before database migration
         run: |
           vercel pull --yes --environment="$BONDE_TARGET" --token="$VERCEL_TOKEN"
