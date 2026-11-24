@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 
 export const sections = ['shared', 'preview', 'production'];
 const isolated =
-  /^(DATABASE_URL|DIRECT_URL|SUPABASE_.*|REDIS_URL|AUTH_TOKEN_SECRET|CARD_ENCRYPTION_KEY|MFA_ENCRYPTION_KEY|KYC_HASH_SECRET|FINANCE_.*|SUDO_.*|SAFE_HAVEN_.*|FIREBASE_.*|API_URL|SOCKET_URL|APP_ENV|PUBLIC_URL|ADMIN_APP_URL|CORS_ORIGINS)$/;
+  /^(DATABASE_URL|DIRECT_URL|SUPABASE_.*|REDIS_URL|AUTH_TOKEN_SECRET|CARD_ENCRYPTION_KEY|MFA_ENCRYPTION_KEY|KYC_HASH_SECRET|FINANCE_.*|SUDO_.*|SAFE_HAVEN_.*|FIREBASE_.*|NEXT_PUBLIC_.*API_URL|API_URL|SOCKET_URL|APP_ENV|PUBLIC_URL|ADMIN_APP_URL|CORS_ORIGINS)$/;
 const reserved = /^(VERCEL_|GITHUB_|CI$|PATH$|HOME$|NODE_OPTIONS$)/;
 const mobileKeys = new Set(['API_URL', 'SUPABASE_URL', 'SOCKET_URL', 'APP_ENV']);
 const forbiddenPublic =
@@ -186,7 +186,11 @@ export async function main(argv = process.argv.slice(2)) {
     console.log('Created private .env.vercel.json with empty values');
     return;
   }
-  const manifest = normalize(JSON.parse(process.env.BONDE_ENV_JSON || readFileSync(file, 'utf8')));
+  // Explicit files let subsequent CI steps use the validated, overridden manifest saved by prepare.
+  const source = args.includes('--file')
+    ? readFileSync(file, 'utf8')
+    : process.env.BONDE_ENV_JSON || readFileSync(file, 'utf8');
+  const manifest = normalize(JSON.parse(source));
   if (existsSync(template)) {
     const policy = JSON.parse(readFileSync(template, 'utf8'));
     if (manifest.project.kind !== policy.project.kind || manifest.project.id !== policy.project.id)

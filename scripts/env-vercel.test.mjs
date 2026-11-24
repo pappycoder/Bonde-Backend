@@ -1,5 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import {
   normalize,
   effective,
@@ -38,6 +42,7 @@ test('environment overrides shared values without leaking preview-only keys to p
 test('database, banking, auth and encryption variables cannot be shared', () => {
   for (const key of [
     'DATABASE_URL',
+    'NEXT_PUBLIC_API_URL',
     'DIRECT_URL',
     'SUDO_API_KEY',
     'SAFE_HAVEN_PRIVATE_KEY',
@@ -123,4 +128,44 @@ test('mobile manifests cannot carry server credentials', () => {
       }),
     /Unsupported mobile/,
   );
+});
+
+test('explicit prepared file takes precedence over the original CI secret', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bonde-env-test-'));
+  try {
+    const file = join(dir, '.env.vercel.json');
+    const output = join(dir, 'export.env');
+    const m = {
+      ...base(),
+      project: { kind: 'web' },
+      shared: {},
+      required: ['PUBLIC_URL'],
+      preview: { PUBLIC_URL: 'https://old.example.com' },
+    };
+    const env = {
+      ...process.env,
+      BONDE_ENV_JSON: JSON.stringify(m),
+      BONDE_PUBLIC_URL: 'https://new.example.com',
+      GITHUB_ENV: join(dir, 'github-env'),
+      GITHUB_REF_NAME: 'staging',
+    };
+    const script = new URL('./env-vercel.mjs', import.meta.url).pathname;
+    const prepared = spawnSync(process.execPath, [script, 'prepare', '--environment', 'preview'], {
+      cwd: dir,
+      env,
+      encoding: 'utf8',
+    });
+    assert.equal(prepared.status, 0, prepared.stderr);
+    delete env.BONDE_PUBLIC_URL;
+    const exported = spawnSync(
+      process.execPath,
+      [script, 'export', '--environment', 'preview', '--file', file, '--output', output],
+      { cwd: dir, env, encoding: 'utf8' },
+    );
+    assert.equal(exported.status, 0, exported.stderr);
+    assert.match(readFileSync(output, 'utf8'), /new\.example\.com/);
+    assert.doesNotMatch(readFileSync(output, 'utf8'), /old\.example\.com/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

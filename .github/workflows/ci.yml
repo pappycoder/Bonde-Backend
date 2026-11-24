@@ -219,7 +219,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm prisma:generate
       - name: Sync only nonempty selected environment values
-        run: node scripts/env-vercel.mjs push --environment "$BONDE_TARGET" --deployment
+        run: node scripts/env-vercel.mjs push --environment "$BONDE_TARGET" --deployment --file .env.vercel.json
       - name: Build the actual deployment before database migration
         run: |
           vercel pull --yes --environment="$BONDE_TARGET" --token="$VERCEL_TOKEN"
