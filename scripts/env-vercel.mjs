@@ -363,7 +363,7 @@ export async function main(argv = process.argv.slice(2)) {
       for (const [key, value] of Object.entries({
         VERCEL_ORG_ID: manifest.project.orgId,
         VERCEL_PROJECT_ID: manifest.project.id,
-        STAGING_DOMAIN: manifest.project.stagingDomain,
+        STAGING_DOMAIN: t === 'preview' ? manifest.project.stagingDomain : '',
       })) {
         if (nonempty(value))
           cli(
