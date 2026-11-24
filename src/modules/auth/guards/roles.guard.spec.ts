@@ -11,6 +11,7 @@ function principal(role: BondeRole): AuthPrincipal {
     email: 'a@b.dev',
     phone: null,
     role,
+    sessionId: 'test-session',
     appMetadata: {},
     userMetadata: {},
   };

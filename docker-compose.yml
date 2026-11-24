@@ -74,15 +74,15 @@ services:
     container_name: bonde-backend-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: Luc4$d3nn1$
+      POSTGRES_USER: bonde
+      POSTGRES_PASSWORD: bonde
       POSTGRES_DB: bonde
     ports:
       - '5433:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U postgres -d bonde']
+      test: ['CMD-SHELL', 'pg_isready -U bonde -d bonde']
       interval: 10s
       timeout: 3s
       retries: 5

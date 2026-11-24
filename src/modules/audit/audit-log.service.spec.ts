@@ -9,7 +9,7 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
   const create = vi.fn(async (args) => args.data);
   const findMany = vi.fn(async () => [ROW]);
   const count = vi.fn(async () => 1);
-  const findFirst = vi.fn(async () => ROW);
+  const findFirst = vi.fn(async (): Promise<typeof ROW | null> => ROW);
   const service = new AuditLogService({
     $transaction: vi.fn(async (ops: Array<Promise<unknown>>) => Promise.all(ops)),
     auditLog: { create, findMany, count, findFirst, ...overrides },

@@ -33,7 +33,7 @@ const setup = () => {
     $queryRaw: vi.fn(async () => [{ id: 'chat' }]),
     message: {
       findFirst: vi.fn(async () => ({ id: 'message', content: content() })),
-      update: vi.fn(async () => ({ id: 'message' })),
+      update: vi.fn(async (_args: { data: { content: string } }) => ({ id: 'message' })),
     },
     chat: { update: vi.fn(async () => ({ id: 'chat' })) },
   };

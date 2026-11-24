@@ -7,6 +7,16 @@ set -uo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Environment tools work without starting the app or installing its runtime.
+case "${1:-}" in
+  env:init|env:pull|env:push|env:plan|env:validate|env:export|env:github)
+    command_name="${1#env:}"; shift
+    cd "$PROJECT_DIR" || exit 1
+    exec node scripts/env-vercel.mjs "$command_name" "$@"
+    ;;
+esac
+
+
 RESET=$'\033[0m'
 BOLD=$'\033[1m'
 GREEN=$'\033[32m'
@@ -43,6 +53,18 @@ run_cmd() {
   fi
   return "$rc"
 }
+
+case "${1:-}" in
+  db:migration:create|db:migration:check|db:migrate:deploy)
+    action="${1#db:}"; shift
+    cd "$PROJECT_DIR" || exit 1
+    case "$action" in
+      migration:create) exec node scripts/db-migration.mjs create "$@" ;;
+      migration:check) exec node scripts/db-migration.mjs check "$@" ;;
+      migrate:deploy) exec node scripts/db-migration.mjs deploy "$@" ;;
+    esac
+    ;;
+esac
 
 # --- api lifecycle -----------------------------------------------------------
 # The one-shot actions below need a live API, because provisioning a user goes
@@ -363,6 +385,7 @@ main() {
     printf '  %b  Build                      %b\n' "$BOLD[4]$RESET" "$DIM pnpm build$RESET"
     printf '  %b  Start infra (Redis + Postgres)%b\n' "$BOLD[5]$RESET" "$DIM docker compose up -d redis postgres$RESET"
     printf '  %b  Register superuser (Supabase)%b\n' "$BOLD[6]$RESET" "$DIM creates the user, starts the API if needed, stops it after$RESET"
+    printf '  %b  Environment sync commands: ./bonde.sh env:pull / env:push / env:plan\n' "$BOLD[e]$RESET"
     printf '  %b  Quit\n\n' "$BOLD[q]$RESET"
     printf '%b> %b' "$GREEN" "$RESET"
     read -r choice
@@ -373,6 +396,7 @@ main() {
       4) build_prod ;;
       5) run_infra ;;
       6) register_superuser ;;
+      e|E) printf 'Use ./bonde.sh env:pull --environment preview or env:push --environment preview\n' ;;
       q|Q) ok "Bye!"; exit 0 ;;
       *) warn "Invalid choice: $choice" ;;
     esac

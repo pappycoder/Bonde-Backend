@@ -181,6 +181,19 @@ export class FinanceController {
     });
     return this.finance.viewOperation(op);
   }
+  @Post('operation-key/:key/abandon')
+  @HttpCode(200)
+  @StrictThrottle()
+  @ApiOperation({
+    summary: 'Fence an unsubmitted retry key without cancelling an accepted operation',
+  })
+  abandon(
+    @CurrentUser() p: AuthPrincipal,
+    @Param('key') key: string,
+    @Body() command: FinanceCommandDto,
+  ) {
+    return this.finance.abandon(p.userId, command, key);
+  }
   @Get('operations/:id')
   @ApiOkResponse({ type: FinanceOperationViewDto })
   operation(

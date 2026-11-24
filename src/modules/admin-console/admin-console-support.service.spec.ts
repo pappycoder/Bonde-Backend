@@ -47,9 +47,11 @@ function ticketWithMessages(status: string = 'OPEN') {
 
 function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
   const supportTicket = {
-    findMany: vi.fn(async () => [ticketRow()]),
+    findMany: vi.fn(async (_args: { where: Record<string, unknown> }) => [ticketRow()]),
     count: vi.fn(async () => 1),
-    findUnique: vi.fn(async () => ticketWithMessages()),
+    findUnique: vi.fn(async (): Promise<ReturnType<typeof ticketWithMessages> | null> =>
+      ticketWithMessages(),
+    ),
     create: vi.fn(async (args: { data: { id: string } }) => ({ ...ticketRow(), id: args.data.id })),
     update: vi.fn(async (): Promise<unknown> => ({})),
     ...overrides.supportTicket,
@@ -59,7 +61,7 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
     ...overrides.supportMessage,
   };
   const profile = {
-    findUnique: vi.fn(async () => ({ id: USER_ID })),
+    findUnique: vi.fn(async (): Promise<{ id: string } | null> => ({ id: USER_ID })),
     ...overrides.profile,
   };
   const audit = {
@@ -191,7 +193,7 @@ describe('AdminConsoleSupportService', () => {
 
   it('rejects a reply on a resolved ticket', async () => {
     const { service, supportTicket } = makeService();
-    supportTicket.findUnique.mockResolvedValue({ id: TICKET_ID, status: 'RESOLVED' });
+    supportTicket.findUnique.mockResolvedValue(ticketWithMessages('RESOLVED'));
     await expect(service.reply(TICKET_ID, ACTOR_ID, 'Hello')).rejects.toBeInstanceOf(
       ConflictException,
     );

@@ -208,6 +208,9 @@ describe('worker crash recovery', () => {
       safe as never,
       {} as never,
       {} as never,
+
+      {} as never,
+      {} as never,
     );
     await worker.process('already-running');
     expect(sudo.call).not.toHaveBeenCalled();
@@ -241,6 +244,9 @@ describe('worker crash recovery', () => {
       {} as never,
       safe as never,
       { get: () => ({ treasuryAccountNumber: 'treasury' }) } as never,
+      {} as never,
+
+      {} as never,
       {} as never,
     );
     await worker.process('o');
@@ -336,6 +342,10 @@ describe('Issuance without an initial allocation', () => {
       { assertCurrency: () => undefined } as never,
       {} as never,
       { get: () => ({ ngnIssueFee: '2.50' }) } as never,
+
+      {} as never,
+      {} as never,
+      {} as never,
     );
     expect(() =>
       service.validate({ kind: 'ISSUE', currency: 'NGN', amount: '0.00', fee: '2.50' }),

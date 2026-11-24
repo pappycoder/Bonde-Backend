@@ -2,6 +2,7 @@ import { ShoppingJobsController } from './shopping-jobs.controller.js';
 import { ChatTurnsController } from './chat-turns.controller.js';
 import { ChatWorker } from './chat-worker.service.js';
 import { AiCreditsModule } from '../billing/ai-credits.module.js';
+import { BillingModule } from '../billing/billing.module.js';
 import { ChatTurnsService } from './chat-turns.service.js';
 import { ProfilesModule } from '../profiles/profiles.module.js';
 import { Module } from '@nestjs/common';
@@ -17,7 +18,7 @@ import { SubscriptionReminders } from './subscription-reminders.service.js';
 import { SubscriptionRemindersController } from './subscription-reminders.controller.js';
 
 @Module({
-  imports: [AuditLogModule, ProfilesModule, AiCreditsModule],
+  imports: [AuditLogModule, ProfilesModule, AiCreditsModule, BillingModule],
   controllers: [
     ChatsController,
     ChatTurnsController,

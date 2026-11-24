@@ -987,6 +987,7 @@ model FinanceInbox {
 
   @@unique([provider, reference])
   @@index([status, createdAt])
+  @@index([cardId, status], map: "finance_inbox_card_status_idx")
   @@map("finance_inbox")
 }
 

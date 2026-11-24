@@ -14,14 +14,14 @@ const PASSCODE_ROW = {
   salt: SALT,
   hash: HASH,
   failedAttempts: 0,
-  lockedUntil: null,
+  lockedUntil: null as Date | null,
   createdAt: new Date(),
   updatedAt: new Date(),
 };
 
 function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
   const passcode = {
-    findUnique: vi.fn(async () => PASSCODE_ROW),
+    findUnique: vi.fn(async (): Promise<typeof PASSCODE_ROW | null> => PASSCODE_ROW),
     create: vi.fn(async (args) => ({ ...PASSCODE_ROW, ...args.data })),
     update: vi.fn(async (args) => ({ ...PASSCODE_ROW, ...args.data })),
     ...overrides.passcode,

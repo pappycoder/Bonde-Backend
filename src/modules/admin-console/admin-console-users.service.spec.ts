@@ -84,8 +84,14 @@ function recentTxRow() {
 
 function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
   const profile = {
-    findMany: vi.fn(async () => [profileRow()]),
-    findUnique: vi.fn(async () => profileRow()),
+    findMany: vi.fn(
+      async (_args: {
+        where: { AND: Array<{ OR?: unknown[]; emailVerified?: boolean }> };
+      }): Promise<Array<ReturnType<typeof profileRow> | { id: string; fullName: string }>> => [
+        profileRow(),
+      ],
+    ),
+    findUnique: vi.fn(async (): Promise<ReturnType<typeof profileRow> | null> => profileRow()),
     count: vi.fn(async () => 1),
     ...overrides.profile,
   };

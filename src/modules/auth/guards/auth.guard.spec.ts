@@ -9,6 +9,7 @@ const principal: AuthPrincipal = {
   email: 'a@b.dev',
   phone: null,
   role: 'USER',
+  sessionId: 'test-session',
   appMetadata: {},
   userMetadata: {},
 };

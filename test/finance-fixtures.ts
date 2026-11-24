@@ -83,7 +83,7 @@ export async function executeFinance(
   ctx: BootedE2EApp,
   fields: Record<string, unknown>,
   key = randomUUID(),
-) {
+): Promise<import('supertest').Response> {
   const command = { currency: 'NGN', amount: '0.00', fee: '0.00', ...fields };
   const proof = await ctx.http
     .post('/finance/proof')

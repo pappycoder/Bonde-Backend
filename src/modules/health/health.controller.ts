@@ -12,6 +12,7 @@ import { REDIS_CLIENT } from '../../common/redis/redis.module.js';
 import type { RedisClient } from '../../common/redis/redis-client.interface.js';
 import { Public } from '../auth/decorators/public.decorator.js';
 import { ApiErrorResponse } from '../../common/errors/api-error-response.decorator.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
 
 @ApiTags('health')
 @Controller('health')
@@ -20,6 +21,7 @@ export class HealthController {
     private readonly health: HealthCheckService,
     private readonly indicator: HealthIndicatorService,
     @Inject(REDIS_CLIENT) private readonly redis: RedisClient,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Get()
@@ -32,6 +34,20 @@ export class HealthController {
   check() {
     return this.health
       .check([
+        async () => {
+          try {
+            await this.prisma.$transaction(
+              async (tx) => {
+                await tx.$executeRaw`SET LOCAL statement_timeout = '3000ms'`;
+                await tx.$queryRaw`SELECT 1`;
+              },
+              { maxWait: 3000, timeout: 4000 },
+            );
+            return this.indicator.check('database').up();
+          } catch {
+            return this.indicator.check('database').down({ message: 'Database unavailable' });
+          }
+        },
         () =>
           (async () => {
             const pong = await this.redis.ping();
