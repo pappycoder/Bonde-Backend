@@ -137,7 +137,7 @@ test('explicit prepared file takes precedence over the original CI secret', () =
     const output = join(dir, 'export.env');
     const m = {
       ...base(),
-      project: { kind: 'web' },
+      project: { kind: 'web', repository: 'test/test', id: 'test-project' },
       shared: {},
       required: ['PUBLIC_URL'],
       preview: { PUBLIC_URL: 'https://old.example.com' },
@@ -148,6 +148,8 @@ test('explicit prepared file takes precedence over the original CI secret', () =
       BONDE_PUBLIC_URL: 'https://new.example.com',
       GITHUB_ENV: join(dir, 'github-env'),
       GITHUB_REF_NAME: 'staging',
+      GITHUB_REPOSITORY: 'test/test',
+      VERCEL_PROJECT_ID: 'test-project',
     };
     const script = new URL('./env-vercel.mjs', import.meta.url).pathname;
     const prepared = spawnSync(process.execPath, [script, 'prepare', '--environment', 'preview'], {
