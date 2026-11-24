@@ -132,3 +132,22 @@ Commit generated prisma/migrations SQL with the schema change. CI compares the
 migrated local test database against schema.prisma and fails for missing migrations.
 After all checks and the environment build pass, it deploys those committed
 migrations to the selected database. Production requires its independent values.
+
+## Temporary main deployment while development continues
+
+The backend supports an explicit, production-scoped `ALLOW_PRODUCTION_SANDBOX=true`
+exception requested for development. This permits the Vercel Production target
+to use the staging database/Auth and sandbox payment configuration. CI still
+requires all quality checks, a matching runtime/migration database, a target
+build, migrations and smoke checks before publication.
+
+This flag requires `FINANCE_ENVIRONMENT=sandbox`, explicit Sudo and Safe Haven
+sandbox base URLs, and a Flutterwave test secret when configured. Live or
+unspecified provider settings are rejected. The flag cannot be shared and the
+committed template leaves it empty. `prepare` emits a development notice in CI.
+
+Before a live launch, set the production flag to `false`, provide independent
+production database/Auth and production provider settings, sync GitHub secrets,
+and rerun main deployment. With the flag disabled, strict production isolation
+checks apply again. Empty Vercel values are retained, so use explicit `false`
+to disable a previously enabled flag.

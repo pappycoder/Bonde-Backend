@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 
 export const sections = ['shared', 'preview', 'production'];
 const isolated =
-  /^(DATABASE_URL|DIRECT_URL|SUPABASE_.*|REDIS_URL|AUTH_TOKEN_SECRET|CARD_ENCRYPTION_KEY|MFA_ENCRYPTION_KEY|KYC_HASH_SECRET|FINANCE_.*|SUDO_.*|SAFE_HAVEN_.*|FLUTTERWAVE_.*|FIREBASE_.*|NEXT_PUBLIC_.*API_URL|API_URL|SOCKET_URL|APP_ENV|PUBLIC_URL|ADMIN_APP_URL|CORS_ORIGINS)$/;
+  /^(ALLOW_PRODUCTION_SANDBOX|DATABASE_URL|DIRECT_URL|SUPABASE_.*|REDIS_URL|AUTH_TOKEN_SECRET|CARD_ENCRYPTION_KEY|MFA_ENCRYPTION_KEY|KYC_HASH_SECRET|FINANCE_.*|SUDO_.*|SAFE_HAVEN_.*|FLUTTERWAVE_.*|FIREBASE_.*|NEXT_PUBLIC_.*API_URL|API_URL|SOCKET_URL|APP_ENV|PUBLIC_URL|ADMIN_APP_URL|CORS_ORIGINS)$/;
 const reserved = /^(VERCEL(?:_|$)|GITHUB_|NX_|TURBO_|CI$|PATH$|HOME$|NODE_OPTIONS$)/;
 const mobileKeys = new Set(['API_URL', 'SUPABASE_URL', 'SOCKET_URL', 'APP_ENV']);
 const forbiddenPublic =
@@ -95,6 +95,18 @@ export function validateDeployment(manifest, target) {
       throw new Error(`Deployment URL must be public HTTPS without credentials: ${key}`);
   }
   if (manifest.project.kind === 'backend') {
+    const productionSandbox = target === 'production' && vars.ALLOW_PRODUCTION_SANDBOX === 'true';
+    if (
+      productionSandbox &&
+      (vars.FINANCE_ENVIRONMENT !== 'sandbox' ||
+        vars.SUDO_BASE_URL !== 'https://api.sandbox.sudo.cards' ||
+        vars.SAFE_HAVEN_BASE_URL !== 'https://api.sandbox.safehavenmfb.com' ||
+        (nonempty(vars.FLUTTERWAVE_SECRET_KEY) &&
+          !vars.FLUTTERWAVE_SECRET_KEY.startsWith('FLWSECK_TEST-')))
+    )
+      throw new Error(
+        'Production sandbox exception requires explicit sandbox provider configuration',
+      );
     const runtime = databaseIdentity(vars.DATABASE_URL),
       direct = databaseIdentity(vars.DIRECT_URL);
     if (runtime !== direct)
@@ -102,16 +114,20 @@ export function validateDeployment(manifest, target) {
     const staging = nonempty(manifest.preview.DATABASE_URL)
       ? databaseIdentity(manifest.preview.DATABASE_URL)
       : manifest._meta?.stagingDatabaseFingerprint;
-    if (target === 'production' && (!staging || staging === runtime))
+    if (target === 'production' && !productionSandbox && (!staging || staging === runtime))
       throw new Error('Production requires a database distinct from the recorded staging database');
     const stagingAuth = manifest.preview.SUPABASE_URL || manifest._meta?.stagingSupabaseUrl;
     if (
       target === 'production' &&
+      !productionSandbox &&
       (!stagingAuth || new URL(stagingAuth).hostname === new URL(vars.SUPABASE_URL).hostname)
     )
       throw new Error('Production requires a separate Supabase Auth project');
     if (vars.FINANCE_ENABLED === 'true' || vars.SERVICE_PURCHASES_ENABLED === 'true') {
-      if (vars.FINANCE_ENVIRONMENT !== (target === 'preview' ? 'sandbox' : 'production'))
+      if (
+        vars.FINANCE_ENVIRONMENT !==
+        (target === 'preview' || productionSandbox ? 'sandbox' : 'production')
+      )
         throw new Error('Payment provider environment does not match deployment environment');
     }
   }
@@ -394,6 +410,10 @@ export async function main(argv = process.argv.slice(2)) {
         ? validateDeployment(manifest, target)
         : effective(manifest, target);
     if (command === 'prepare') {
+      if (target === 'production' && vars.ALLOW_PRODUCTION_SANDBOX === 'true')
+        console.warn(
+          '::warning::Development exception enabled: the production Vercel target uses sandbox payments and may share staging database/Auth. Disable ALLOW_PRODUCTION_SANDBOX before a live launch.',
+        );
       for (const value of Object.values(vars))
         console.log(
           '::add-mask::' +
