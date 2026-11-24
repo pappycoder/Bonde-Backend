@@ -60,10 +60,15 @@ test('pulling protected secrets preserves local values and records unreadable na
     DIRECT_URL: '[SENSITIVE]',
     PUBLIC_URL: 'https://api.example.com',
     VERCEL_TOKEN: 'ignore',
+    VERCEL: '1',
+    NX_DAEMON: 'false',
+    TURBO_REMOTE_ONLY: 'true',
   });
   assert.equal(m.preview.DATABASE_URL, 'local-known-value');
   assert.equal(m.preview.DIRECT_URL, '');
   assert.equal(m.preview.VERCEL_TOKEN, undefined);
+  for (const key of ['VERCEL', 'NX_DAEMON', 'TURBO_REMOTE_ONLY'])
+    assert.equal(m.preview[key], undefined);
   assert.deepEqual(m._meta.unreadable.preview, ['DATABASE_URL', 'DIRECT_URL']);
   assert(!JSON.stringify(m).includes('[SENSITIVE]'));
 });
@@ -169,5 +174,19 @@ test('explicit prepared file takes precedence over the original CI secret', () =
     assert.doesNotMatch(readFileSync(output, 'utf8'), /old\.example\.com/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('public frontend prefixes reject server database credentials', () => {
+  for (const key of ['PUBLIC_DATABASE_URL', 'NEXT_PUBLIC_DATABASE_URL']) {
+    assert.throws(
+      () =>
+        normalize({
+          ...base(),
+          project: { kind: 'web' },
+          preview: { [key]: 'postgresql://private.example/db' },
+        }),
+      /Server credential/,
+    );
   }
 });

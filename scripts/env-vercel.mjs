@@ -9,7 +9,7 @@ import { pathToFileURL } from 'node:url';
 export const sections = ['shared', 'preview', 'production'];
 const isolated =
   /^(DATABASE_URL|DIRECT_URL|SUPABASE_.*|REDIS_URL|AUTH_TOKEN_SECRET|CARD_ENCRYPTION_KEY|MFA_ENCRYPTION_KEY|KYC_HASH_SECRET|FINANCE_.*|SUDO_.*|SAFE_HAVEN_.*|FIREBASE_.*|NEXT_PUBLIC_.*API_URL|API_URL|SOCKET_URL|APP_ENV|PUBLIC_URL|ADMIN_APP_URL|CORS_ORIGINS)$/;
-const reserved = /^(VERCEL_|GITHUB_|CI$|PATH$|HOME$|NODE_OPTIONS$)/;
+const reserved = /^(VERCEL(?:_|$)|GITHUB_|NX_|TURBO_|CI$|PATH$|HOME$|NODE_OPTIONS$)/;
 const mobileKeys = new Set(['API_URL', 'SUPABASE_URL', 'SOCKET_URL', 'APP_ENV']);
 const forbiddenPublic =
   /(SERVICE_ROLE|PRIVATE_KEY|ENCRYPTION_KEY|TOKEN_SECRET|DATABASE_URL|DIRECT_URL)/;
@@ -34,7 +34,9 @@ export function normalize(manifest) {
       if (scope === 'shared' && isolated.test(key))
         throw new Error(`Environment-specific variable cannot be shared: ${key}`);
       if (
-        (manifest.project.kind === 'mobile' || key.startsWith('NEXT_PUBLIC_')) &&
+        (manifest.project.kind === 'mobile' ||
+          key.startsWith('NEXT_PUBLIC_') ||
+          key.startsWith('PUBLIC_')) &&
         forbiddenPublic.test(key)
       )
         throw new Error(`Server credential cannot enter a public build: ${key}`);
@@ -278,7 +280,7 @@ export async function main(argv = process.argv.slice(2)) {
         );
     for (const { target: t, key } of plan) {
       const value = effective(manifest, t)[key];
-      const isPublic = key.startsWith('NEXT_PUBLIC_');
+      const isPublic = key.startsWith('NEXT_PUBLIC_') || key.startsWith('PUBLIC_');
       cli(
         [
           'vercel',
