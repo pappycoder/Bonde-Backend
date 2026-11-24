@@ -7,3 +7,7 @@ coverage
 outputs
 
 .env.vercel.json
+
+!.env.vercel.example.json
+
+!.env.example
