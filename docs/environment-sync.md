@@ -1,5 +1,17 @@
 # Vercel environments and checked deployments
 
+Staging domains (branch `staging`, Vercel Preview):
+
+- API: https://staging-api.usebonde.com
+- Admin: https://staging-admin.usebonde.com
+- Web: https://staging.usebonde.com
+
+Staging clients use staging-api.usebonde.com; Mobile includes the `/api` prefix.
+`STAGING_DOMAIN` is stored only in the GitHub staging environment. The API host
+requires its own public deployment-protection exception for app/provider access;
+Admin and Web keep their preview protection. Shared NEXT_PUBLIC settings remain
+common, with API URLs scoped by environment.
+
 Each repository has a private `.env.vercel.json` and a committed, empty
 `.env.vercel.example.json` listing the application variables. Run `npm run
 env:init` (or `pnpm env:init`) when creating a private file from the template.
@@ -92,7 +104,7 @@ are not automatically reversed if a later application health check fails.
 
 CI stages an unaliased production deployment, health-checks it, and only then
 promotes it. Staging creates a preview deployment and may attach STAGING_DOMAIN.
-The existing development API can remain api.usebonde.com; leave future production
+The development API uses staging-api.usebonde.com; leave future production
 URLs empty until the production environment is ready. Manual operator CLI deploys
 are outside the GitHub gate and should not be used to bypass failed checks.
 
