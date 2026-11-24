@@ -67,14 +67,19 @@ absent until an independent production project exists. `env:github` skips empty
 credentials and does not delete an already-existing secret.
 
 Vercel project/org IDs and optional `STAGING_DOMAIN` are environment variables.
-`VERCEL_TOKEN` is a dedicated project-scoped CI secret, separate from the app's
-keys. If provisioned with a 90-day lifetime, rotate it before expiry; its metadata
-is recorded in the private manifest. A CLI login token is not used as the CI key.
+`VERCEL_TOKEN` is a dedicated 90-day Bonde-team CI secret per hosted repository,
+separate from app keys. The pinned Vercel CLI cannot load project settings with
+project-restricted tokens (vercel/vercel#17506), so these credentials have access
+to the Bonde team. Each workflow validates its assigned project ID. Rotate before
+expiry; token metadata is recorded in the private manifest. A CLI login token
+is not used as the CI key.
 
 Every PR and push to main/staging runs the quality checks. `All checks passed`
 requires every check to succeed, including non-skipped jobs. Deployment jobs run
 only after that gate and only for branch pushes, never fork/PR code. Automatic
-Vercel Git deployments are disabled by `vercel.json`; CI owns deployment.
+Vercel Git deployments are disabled by `vercel.json`, with a project-level
+ignored-build fallback (`exit 0`) until main receives the configuration. CI uses
+prebuilt deployments and owns publication.
 
 Deployment validates the selected manifest before touching Vercel or the database,
 builds the actual target with the selected environment, then (backend only) runs
