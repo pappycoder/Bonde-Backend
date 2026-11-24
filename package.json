@@ -42,7 +42,7 @@
     "env:plan": "node scripts/env-vercel.mjs plan",
     "env:validate": "node scripts/env-vercel.mjs validate",
     "env:export": "node scripts/env-vercel.mjs export",
-    "test:env": "node --test scripts/env-vercel.test.mjs",
+    "test:env": "node --test scripts/env-vercel.test.mjs scripts/db-migration.test.mjs",
     "env:github": "node scripts/env-vercel.mjs github",
     "db:migration:create": "node scripts/db-migration.mjs create",
     "db:migration:check": "node scripts/db-migration.mjs check",

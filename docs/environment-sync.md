@@ -82,7 +82,8 @@ ignored-build fallback (`exit 0`) until main receives the configuration. CI uses
 prebuilt deployments and owns publication.
 
 Deployment validates the selected manifest before touching Vercel or the database,
-builds the actual target with the selected environment, then (backend only) runs
+moves the prepared private manifest outside deployment source before building
+the actual target with the selected environment, then (backend only) runs
 `prisma migrate deploy`. Runtime and migration URLs must refer to the same DB;
 production must differ from the recorded staging database and Supabase Auth
 project. Failed CI/builds never apply staging/production migrations. Deployments

@@ -37,12 +37,14 @@ if (command === 'create' || command === 'check') {
   }
 } else if (command === 'deploy') {
   const target = flag('environment', 'preview');
-  const manifest = JSON.parse(
-    process.env.BONDE_ENV_JSON || readFileSync('.env.vercel.json', 'utf8'),
-  );
+  const preparedFile =
+    process.env.GITHUB_ACTIONS === 'true'
+      ? process.env.BONDE_PREPARED_ENV_FILE || '.env.vercel.json'
+      : '.env.vercel.json';
+  const manifest = JSON.parse(process.env.BONDE_ENV_JSON || readFileSync(preparedFile, 'utf8'));
   // prepare writes selected GitHub credential overrides into the local manifest.
   if (process.env.BONDE_ENV_JSON && process.env.GITHUB_ACTIONS === 'true') {
-    const prepared = JSON.parse(readFileSync('.env.vercel.json', 'utf8'));
+    const prepared = JSON.parse(readFileSync(preparedFile, 'utf8'));
     manifest[target] = prepared[target];
   }
   env = { ...env, ...validateDeployment(manifest, target) };
