@@ -216,7 +216,7 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 11
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --prod=false
       - run: pnpm prisma:generate
       - name: Sync only nonempty selected environment values
         run: node scripts/env-vercel.mjs push --environment "$BONDE_TARGET" --deployment --file .env.vercel.json
