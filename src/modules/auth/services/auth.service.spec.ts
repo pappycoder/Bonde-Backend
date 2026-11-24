@@ -159,7 +159,7 @@ function makeService(
   } as unknown as AuditLogService;
 
   const mail = {
-    send: vi.fn(async () => undefined),
+    send: vi.fn(async (_message: { to: string; subject: string; html: string }) => undefined),
   };
 
   const sessions = {

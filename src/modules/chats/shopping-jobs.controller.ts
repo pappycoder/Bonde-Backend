@@ -1,4 +1,12 @@
-import { Controller, Get, Headers, HttpCode, Post, UnauthorizedException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Headers,
+  HttpCode,
+  Post,
+  UnauthorizedException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { AppConfig } from '../../config/configuration.js';
@@ -11,6 +19,7 @@ import { ChatTurnsService } from './chat-turns.service.js';
 import { ChatWorker } from './chat-worker.service.js';
 import { AiMonitoringService } from '../ai-monitoring/ai-monitoring.service.js';
 import { SubscriptionReminders } from './subscription-reminders.service.js';
+import { BillingService } from '../billing/billing.service.js';
 
 @ApiTags('shopping-operations')
 @Controller('shopping')
@@ -23,6 +32,7 @@ export class ShoppingJobsController {
     private readonly prisma: PrismaService,
     private readonly monitoring: AiMonitoringService,
     private readonly subscriptionReminders: SubscriptionReminders,
+    private readonly billing: BillingService,
   ) {}
   @Post('jobs')
   @Public()
@@ -32,11 +42,25 @@ export class ShoppingJobsController {
     const token = this.config.get('finance', { infer: true }).jobToken;
     if (!token || !secretMatches(authorization, `Bearer ${token}`))
       throw new UnauthorizedException();
-    await this.turns.reap();
-    await this.worker.run();
-    await this.services.run();
-    await this.monitoring.run();
-    await this.subscriptionReminders.run();
+    const jobs = [
+      [
+        'chat',
+        async () => {
+          await this.turns.reap();
+          await this.worker.run();
+        },
+      ],
+      ['services', () => this.services.run()],
+      ['monitoring', () => this.monitoring.run()],
+      ['reminders', () => this.subscriptionReminders.run()],
+      ['billing', () => this.billing.renewDue()],
+    ] as const;
+    const results = await Promise.allSettled(jobs.map(([, run]) => run()));
+    const failed = results.flatMap((result, index) =>
+      result.status === 'rejected' ? [jobs[index][0]] : [],
+    );
+    if (failed.length)
+      throw new ServiceUnavailableException(`Background jobs failed: ${failed.join(', ')}`);
     return { processed: true };
   }
   @Get('operations')

@@ -8,5 +8,6 @@ import { BillingService } from './billing.service.js';
   imports: [PasscodeModule, AiCreditsModule],
   controllers: [BillingController],
   providers: [BillingService, BillingRenewalService],
+  exports: [BillingService],
 })
 export class BillingModule {}

@@ -17,7 +17,7 @@ function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
       createdAt: new Date(),
       updatedAt: new Date(),
     })),
-    findFirst: vi.fn(async () => CHAT),
+    findFirst: vi.fn(async (_args: Record<string, unknown>): Promise<typeof CHAT | null> => CHAT),
     update: vi.fn(async (args) => ({ ...CHAT, ...args.data })),
     delete: vi.fn(async () => CHAT),
     ...overrides.chat,

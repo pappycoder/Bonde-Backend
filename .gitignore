@@ -49,3 +49,10 @@ docker-compose.override.yml
 # bonde.sh auto-started backend log
 .bonde-api.log
 .vercel
+
+# Local supervised worker credential (never deploy or commit).
+.env.worker
+
+# Private Vercel environment values; commit only the empty template.
+.env.vercel.json
+!.env.vercel.example.json

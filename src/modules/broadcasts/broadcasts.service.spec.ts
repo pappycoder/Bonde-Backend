@@ -23,7 +23,7 @@ function makeHarness(activeIds: string[] = [USER_A, USER_B]) {
         broadcastRows.push(data);
         return data;
       }),
-      findMany: vi.fn(async () => [
+      findMany: vi.fn(async (_args: Record<string, unknown>) => [
         {
           id: 'bc-1',
           title: 'Scheduled maintenance',
@@ -108,7 +108,7 @@ describe('BroadcastsService', () => {
     // The fake has no `notification.create`, so a per-recipient call (the
     // push-dispatching NotificationsService.create path) would throw. Bulk
     // insert means in-app only, with no device or inbox fan-out.
-    expect(prisma.notification.create).toBeUndefined();
+    expect(prisma.notification).not.toHaveProperty('create');
     expect(prisma.notification.createMany).toHaveBeenCalledTimes(1);
     expect(prisma.notification.createMany.mock.calls[0]![0]).toMatchObject({
       skipDuplicates: true,

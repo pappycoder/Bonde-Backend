@@ -52,7 +52,7 @@ function makeHarness() {
     wallet: { create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ ...data })) },
     userInvite: {
       findUnique: vi.fn(async () => rows.invite),
-      findFirst: vi.fn(async () => rows.invite),
+      findFirst: vi.fn(async (): Promise<Record<string, unknown> | null> => rows.invite),
       findMany: vi.fn(async () => [rows.invite]),
       count: vi.fn(async () => 1),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
@@ -63,7 +63,7 @@ function makeHarness() {
         ...rows.invite,
         ...data,
       })),
-      updateMany: vi.fn(async () => ({ count: 1 })),
+      updateMany: vi.fn(async (_args: Record<string, unknown>) => ({ count: 1 })),
       delete: vi.fn(async () => ({})),
     },
     $transaction: vi.fn(async (arg: unknown) =>

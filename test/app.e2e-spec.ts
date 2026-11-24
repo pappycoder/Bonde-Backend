@@ -10,6 +10,7 @@ import { configureSwagger } from './../src/common/swagger.js';
 import { REDIS_CLIENT } from './../src/common/redis/redis.module.js';
 import type { RedisClient } from './../src/common/redis/redis-client.interface.js';
 import { Redis } from 'ioredis';
+import { PrismaService } from '../src/prisma/prisma.service.js';
 
 /**
  * This smoke file runs on its OWN Redis database (db 13) so the rate-limiting
@@ -100,11 +101,24 @@ describe('App (e2e)', () => {
     const res = await request(app.getHttpServer()).get('/health').expect(200);
     expect(res.body.status).toBe('ok');
     expect(res.body.info.redis.status).toBe('up');
+    expect(res.body.info.database.status).toBe('up');
   });
 
   it('GET /health/ready → ready', async () => {
     const res = await request(app.getHttpServer()).get('/health/ready').expect(200);
     expect(res.body.status).toBe('ready');
+  });
+
+  it('GET /health reports database failure while Redis remains available', async () => {
+    const query = vi
+      .spyOn(app.get(PrismaService), '$transaction')
+      .mockRejectedValueOnce(new Error('Database unavailable'));
+    try {
+      await request(app.getHttpServer()).get('/health').expect(503);
+      await request(app.getHttpServer()).get('/health/ready').expect(200);
+    } finally {
+      query.mockRestore();
+    }
   });
 
   it('unknown route → uniform JSON 404', async () => {
@@ -140,6 +154,7 @@ describe('App (e2e)', () => {
       email: 'me@bonde.app',
       phone: '+2348000000000',
       role: 'ADMIN',
+      sessionId: 'test-session',
       appMetadata: { role: 'ADMIN' },
       userMetadata: {},
     });
@@ -301,6 +316,7 @@ describe('App (e2e) — storage', () => {
       email: 'me@bonde.app',
       phone: null,
       role: 'ADMIN',
+      sessionId: 'test-session',
       appMetadata: { role: 'ADMIN' },
       userMetadata: {},
     });

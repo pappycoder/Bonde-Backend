@@ -168,7 +168,7 @@ describe('SupabaseAuthClient', () => {
 
   it('sends grant_type in the query string, not only the JSON body', async () => {
     const fetchMock = vi.fn(
-      async () =>
+      async (_url: string, _init: RequestInit) =>
         new Response(
           JSON.stringify({
             access_token: 'at',

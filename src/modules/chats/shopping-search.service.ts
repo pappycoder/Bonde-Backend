@@ -366,7 +366,7 @@ export class ShoppingSearch {
     chatId: string,
     query: string,
     hosts: string[],
-    key: string,
+    braveKey: string,
     onProviderRequest?: () => void,
     onMerchantFailure?: () => void,
   ): Promise<ShoppingDiscoveryDto[]> {
@@ -390,7 +390,7 @@ export class ShoppingSearch {
         url.searchParams.set('count', '20');
         onProviderRequest?.();
         const request: RequestInit = {
-          headers: { 'X-Subscription-Token': key, Accept: 'application/json' },
+          headers: { 'X-Subscription-Token': braveKey, Accept: 'application/json' },
           signal: AbortSignal.timeout(15_000),
         };
         const response = this.meter

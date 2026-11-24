@@ -46,7 +46,7 @@ function setup({ approvalId = APPROVAL, amount = '349.00' } = {}) {
       ]),
       findFirst: vi.fn(async () => message),
       create: vi.fn(async (args) => ({ id: ASSISTANT, ...args.data })),
-      update: vi.fn(async () => message),
+      update: vi.fn(async (_args: { data: { content: string } }) => message),
     },
     transactionApproval: {
       findFirst: vi.fn(async () => ({

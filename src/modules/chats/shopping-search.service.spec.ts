@@ -92,6 +92,19 @@ afterEach(() => {
 });
 
 describe('cached product discovery', () => {
+  it('sends the configured Brave credential, never the merchant cooldown cache key', async () => {
+    const { service } = setup();
+    const tokens: unknown[] = [];
+    vi.stubGlobal('fetch', async (url: string | URL, options?: RequestInit) => {
+      if (String(url).startsWith('https://api.search.brave.com/')) {
+        tokens.push(new Headers(options?.headers).get('X-Subscription-Token'));
+        return response();
+      }
+      return new Response(productHtml, { headers: { 'Content-Type': 'text/html' } });
+    });
+    await service.search('owner', 'chat', 'headphones');
+    expect(tokens).toEqual(['test-key']);
+  });
   const supermartUrl = 'https://www.supermart.ng/products/rice-5-kg-local';
   const supermartHtml = readFileSync(
     new URL('./fixtures/merchants/supermart.html', import.meta.url),

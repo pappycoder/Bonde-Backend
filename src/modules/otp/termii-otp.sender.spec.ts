@@ -79,7 +79,7 @@ describe('TermiiOtpSender', () => {
 
     const error = await sender.send(request).catch((e: Error) => e);
     expect(error).toBeInstanceOf(OtpSendError);
-    expect(error.message).toContain('Termii returned HTTP 200');
+    expect((error as Error).message).toContain('Termii returned HTTP 200');
   });
 
   it('fails closed on a non-2xx response with the server detail', async () => {
@@ -87,7 +87,7 @@ describe('TermiiOtpSender', () => {
 
     const error = await sender.send(request).catch((e: Error) => e);
     expect(error).toBeInstanceOf(OtpSendError);
-    expect(error.message).toContain('Termii returned HTTP 500');
+    expect((error as Error).message).toContain('Termii returned HTTP 500');
   });
 
   it('fails closed on an unparseable 2xx body', async () => {

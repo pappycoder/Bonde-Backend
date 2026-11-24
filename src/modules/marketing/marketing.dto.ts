@@ -18,21 +18,28 @@ export class JoinWaitlistDto {
 
   @IsString()
   @Length(1, 255)
-  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  @Transform(({ obj, key }: { obj: Record<string, unknown>; key: string }) => {
+    const value = obj[key];
+    return typeof value === 'string' ? value.trim() : value;
+  })
   firstName: string;
 
   @IsString()
   @Length(1, 255)
-  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  @Transform(({ obj, key }: { obj: Record<string, unknown>; key: string }) => {
+    const value = obj[key];
+    return typeof value === 'string' ? value.trim() : value;
+  })
   lastName: string;
 
   @IsString()
   @Matches(/^\+?[0-9]{7,15}$/, {
     message: 'phone must contain 7–15 digits and an optional leading +',
   })
-  @Transform(({ value }: { value: unknown }) =>
-    typeof value === 'string' ? value.replace(/[\s()-]/g, '') : value,
-  )
+  @Transform(({ obj, key }: { obj: Record<string, unknown>; key: string }) => {
+    const value = obj[key];
+    return typeof value === 'string' ? value.replace(/[\s()-]/g, '') : value;
+  })
   phone: string;
 
   @IsOptional()

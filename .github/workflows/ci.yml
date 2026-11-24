@@ -14,13 +14,13 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   pull_request:
-    branches: [main]
+    branches: [main, staging]
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   # --- Joi boot validation (src/config/env.validation.ts) -------------------
@@ -61,6 +61,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
 
+  env-tools:
+    name: Environment sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test scripts/env-vercel.test.mjs scripts/db-migration.test.mjs
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -90,6 +100,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm prisma:generate
+      - run: pnpm typecheck
+      - run: pnpm test:workers
       - run: pnpm test
 
   build:
@@ -146,10 +158,122 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm prisma:generate
       - run: pnpm test:e2e
+      - run: pnpm db:migration:check
 
   check:
     name: All checks passed
     runs-on: ubuntu-latest
-    needs: [format, lint, unit, build, e2e]
+    if: always()
+    needs: [format, lint, unit, build, e2e, env-tools]
     steps:
-      - run: echo "All CI jobs passed."
+      - name: Require every check
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: node -e 'if(Object.values(JSON.parse(process.env.RESULTS)).some(j=>j.result!=="success"))process.exit(1)'
+
+  deploy:
+    name: Deploy checked commit
+    if: github.event_name == 'push' && (github.ref_name == 'staging' || github.ref_name == 'main')
+    needs: [check]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+    concurrency:
+      group: deploy-${{ github.ref_name }}
+      cancel-in-progress: false
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+      BONDE_ENV_JSON: ${{ secrets.BONDE_ENV_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Confirm this is still the branch head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_REF_NAME" --jq .sha)" = "$GITHUB_SHA"
+      - name: Validate selected environment before any remote mutation
+        run: |
+          test -n "$BONDE_ENV_JSON"
+          test -n "$VERCEL_TOKEN"
+          test -n "$VERCEL_PROJECT_ID"
+          test -n "$VERCEL_ORG_ID"
+          target=preview
+          if [ "$GITHUB_REF_NAME" = main ]; then target=production; fi
+          echo "BONDE_TARGET=$target" >> "$GITHUB_ENV"
+          node scripts/env-vercel.mjs prepare --environment "$target"
+      - name: Install deployment CLI
+        run: npm install --global vercel@65.9.0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - run: pnpm install --frozen-lockfile --prod=false
+      - run: pnpm prisma:generate
+      - name: Sync only nonempty selected environment values
+        run: node scripts/env-vercel.mjs push --environment "$BONDE_TARGET" --deployment --file .env.vercel.json
+      - name: Keep the private manifest outside deployment source
+        run: |
+          prepared="$RUNNER_TEMP/bonde-prepared-env.json"
+          mv .env.vercel.json "$prepared"
+          echo "BONDE_PREPARED_ENV_FILE=$prepared" >> "$GITHUB_ENV"
+      - name: Build the actual deployment before database migration
+        run: |
+          vercel pull --yes --environment="$BONDE_TARGET" --token="$VERCEL_TOKEN"
+          if [ "$BONDE_TARGET" = production ]; then
+            vercel build --prod --token="$VERCEL_TOKEN"
+          else
+            vercel build --token="$VERCEL_TOKEN"
+          fi
+      - name: Apply only this environment's migrations after all checks and build
+        run: pnpm db:migrate:deploy --environment "$BONDE_TARGET"
+      - name: Stage deployment without promoting production domains
+        run: |
+          if [ "$BONDE_TARGET" = production ]; then
+            vercel deploy --prebuilt --prod --skip-domain --yes --token="$VERCEL_TOKEN" > deployment-url.txt
+          else
+            vercel deploy --prebuilt --yes --meta githubCommitRef=staging --token="$VERCEL_TOKEN" > deployment-url.txt
+          fi
+          url=$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' deployment-url.txt | tail -1)
+          test -n "$url"
+          echo "BONDE_DEPLOYMENT_URL=$url" >> "$GITHUB_ENV"
+      - name: Wait for deployment readiness
+        run: vercel inspect "$BONDE_DEPLOYMENT_URL" --wait --token="$VERCEL_TOKEN"
+      - name: Smoke test before alias or promotion
+        run: vercel curl /api/health --deployment "$BONDE_DEPLOYMENT_URL" -- --fail --silent --show-error
+      - name: Publish checked deployment
+        env:
+          STAGING_DOMAIN: ${{ vars.STAGING_DOMAIN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_REF_NAME" --jq .sha)" = "$GITHUB_SHA"
+          if [ "$BONDE_TARGET" = production ]; then
+            vercel promote "$BONDE_DEPLOYMENT_URL" --yes --token="$VERCEL_TOKEN"
+          elif [ -n "$STAGING_DOMAIN" ]; then
+            node --input-type=module <<'JS'
+          const host = new URL(process.env.BONDE_DEPLOYMENT_URL).hostname;
+          const team = encodeURIComponent(process.env.VERCEL_ORG_ID);
+          const response = await fetch(`https://api.vercel.com/v2/deployments/${host}/aliases?teamId=${team}`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${process.env.VERCEL_TOKEN}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ alias: process.env.STAGING_DOMAIN }),
+            signal: AbortSignal.timeout(30000),
+          });
+          if (!response.ok) throw new Error(`Staging alias failed: HTTP ${response.status}`);
+          if ((await response.json()).alias !== process.env.STAGING_DOMAIN) throw new Error('Unexpected staging alias response');
+          console.log('Assigned the checked staging deployment to its configured domain');
+          JS
+          fi
+      - name: Verify the development API is publicly reachable
+        if: env.BONDE_TARGET == 'preview' && vars.STAGING_DOMAIN != ''
+        env:
+          STAGING_DOMAIN: ${{ vars.STAGING_DOMAIN }}
+        run: |
+          node --input-type=module <<'JS'
+          const response = await fetch(`https://${process.env.STAGING_DOMAIN}/api/health`, { signal: AbortSignal.timeout(30000) });
+          if (!response.ok || (await response.json()).status !== 'ok') throw new Error('Public development API health check failed');
+          console.log('Public development API database and Redis health passed');
+          JS

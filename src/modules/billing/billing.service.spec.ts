@@ -183,14 +183,21 @@ function setup(balance = '20000.00') {
   const passcode = { validate: vi.fn(async () => undefined) };
   const config = { get: vi.fn(() => ({ billingEnabled: true })) };
   const ledger = {
-    post: vi.fn(async (_tx, _reference, _description, lines) => {
-      expect(
-        lines.reduce((sum, line) => sum.add(line.amount), new Prisma.Decimal(0)).isZero(),
-      ).toBe(true);
-      const debit = lines.find((line) => line.userId === 'owner');
-      expect(debit.key).toBe('wallet:owner:NGN');
-      state.ledgerBalance = state.ledgerBalance.add(debit.amount);
-    }),
+    post: vi.fn(
+      async (
+        _tx,
+        _reference,
+        _description,
+        lines: import('../finance/ledger.service.js').Posting[],
+      ) => {
+        expect(
+          lines.reduce((sum, line) => sum.add(line.amount), new Prisma.Decimal(0)).isZero(),
+        ).toBe(true);
+        const debit = lines.find((line) => line.userId === 'owner');
+        expect(debit?.key).toBe('wallet:owner:NGN');
+        state.ledgerBalance = state.ledgerBalance.add(debit!.amount);
+      },
+    ),
   };
   const capabilities = {
     assertCurrency: vi.fn(),

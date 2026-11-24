@@ -1,5 +1,11 @@
 import { NotFoundException } from '@nestjs/common';
-import type { ApprovalStatus, TransactionStatus, TransactionType } from '@prisma/client';
+import {
+  Prisma,
+  type ApprovalStatus,
+  type TransactionStatus,
+  type TransactionType,
+  type TransactionFrequency,
+} from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import {
   AdminConsoleTransactionsService,
@@ -20,11 +26,11 @@ interface TxSource {
   type: TransactionType;
   status: TransactionStatus;
   approvalStatus: ApprovalStatus;
-  amount: string;
+  amount: Prisma.Decimal;
   currency: string;
   description: string | null;
   metadata: Record<string, never>;
-  frequency: string;
+  frequency: TransactionFrequency;
   isRecurring: boolean;
   recurrenceEndDate: null;
   nextOccurrenceDate: null;
@@ -45,7 +51,7 @@ function txRow(overrides: Partial<TxSource> = {}): TxSource {
     type: 'PAYMENT',
     status: 'SUCCESS',
     approvalStatus: 'APPROVED',
-    amount: '2500.00',
+    amount: new Prisma.Decimal('2500.00'),
     currency: 'NGN',
     description: 'Lunch',
     metadata: {},
@@ -103,9 +109,9 @@ function detailRow(overrides: Partial<TxSource> = {}) {
 
 function makeService(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
   const transaction = {
-    findMany: vi.fn(async () => [listRow()]),
+    findMany: vi.fn(async (_args: { where: Record<string, unknown> }) => [listRow()]),
     count: vi.fn(async () => 1),
-    findUnique: vi.fn(async () => detailRow()),
+    findUnique: vi.fn(async (): Promise<ReturnType<typeof detailRow> | null> => detailRow()),
     update: vi.fn(async (): Promise<unknown> => ({ id: TX_ID })),
     ...overrides.transaction,
   };

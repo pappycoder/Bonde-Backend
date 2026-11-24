@@ -34,7 +34,7 @@ function setup() {
       findMany: vi.fn(async () => [savedRow]),
       findFirst: vi.fn(async () => savedRow),
       count: vi.fn(async () => 1),
-      create: vi.fn(async () => savedRow),
+      create: vi.fn(async (_args: { data: Record<string, unknown> }) => savedRow),
       update: vi.fn(async () => savedRow),
       updateMany: vi.fn(async () => ({ count: 1 })),
       delete: vi.fn(async () => undefined),

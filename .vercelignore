@@ -1,0 +1,13 @@
+.git
+node_modules
+.env
+.env.*
+*.log
+coverage
+outputs
+
+.env.vercel.json
+
+!.env.vercel.example.json
+
+!.env.example

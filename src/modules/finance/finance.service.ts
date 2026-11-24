@@ -573,6 +573,52 @@ export class FinanceService {
       return this.viewOperation(operation);
     });
   }
+  /** Fence an unsubmitted key under the same lock used by execute. A delayed
+   * request can only replay SUPERSEDED; accepted operations are never cancelled. */
+  async abandon(userId: string, command: FinanceCommandDto, key: string) {
+    if (!/^[a-zA-Z0-9_-]{16,100}$/.test(key ?? ''))
+      throw new BadRequestException('A valid idempotency key is required');
+    currencyOf(command.currency);
+    const amount = amountOf(command.amount, true),
+      fee = amountOf(command.fee, true);
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM profiles WHERE id=${userId}::uuid FOR UPDATE`;
+      const hash = fingerprint(command);
+      const existing = await tx.financeOperation.findUnique({
+        where: { userId_idempotencyKey: { userId, idempotencyKey: key } },
+      });
+      if (existing) {
+        if (existing.fingerprint !== hash)
+          throw new ConflictException('Idempotency key belongs to a different request');
+        return this.viewOperation(existing);
+      }
+      const op = await tx.financeOperation.create({
+        data: {
+          id: randomUUID(),
+          userId,
+          idempotencyKey: key,
+          fingerprint: hash,
+          kind: command.kind,
+          currency: command.currency,
+          amount,
+          fee,
+          status: 'SUPERSEDED',
+          request: command as unknown as Prisma.InputJsonValue,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          id: randomUUID(),
+          userId,
+          action: 'finance.abandon',
+          entityType: 'finance_operation',
+          entityId: op.id,
+          metadata: { reason: 'UNSUBMITTED_REQUEST' },
+        },
+      });
+      return this.viewOperation(op);
+    });
+  }
   async operations(userId: string) {
     return (
       await this.prisma.financeOperation.findMany({

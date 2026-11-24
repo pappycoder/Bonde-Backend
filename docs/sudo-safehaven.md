@@ -67,7 +67,7 @@ before enabling the programme; zero example values are not advertised prices.
    query API before funds are credited or a payout outcome is applied.
 6. Start the supervised worker with `node scripts/finance-worker.mjs`, or run
    `node scripts/finance-worker.mjs --once` from a regular scheduler. It POSTs
-   `/api/finance/jobs` using `Bearer FINANCE_JOB_TOKEN`. Configure
+   both `/api/finance/jobs` and `/api/shopping/jobs` using `Bearer FINANCE_JOB_TOKEN`. Configure
    `FINANCE_API_URL` separately on the worker. Do not expose this token in apps.
 7. Validate receiving-account identity/OTP, treasury sweeps, settlement account
    coverage, fees, authorization timeouts, refunds, payout reversal and secure
@@ -322,3 +322,110 @@ sweep destinations and insufficient funds, and asserts balanced journals and
 nonnegative customer accounts. These tests do not certify real provider account
 configuration. Confirm bank deposits, settlement coverage and each enabled brand
 against the actual sandbox, then deploy with separate production credentials.
+
+## Sandbox readiness and recovery checks
+
+Run `pnpm sandbox:preflight` before attempting a real provider payment. It only
+uses the explicit sandbox API origins, reads bank/service catalogs, inspects
+settlement accounts and the JIT gateway, and checks treasury liquidity. It never
+creates a customer, card, deposit or payment. A blocked check exits nonzero and
+prints no keys, account numbers, personal details or raw provider responses.
+A successful preflight is a prerequisite, not proof of end-to-end settlement.
+
+The supervised `finance:worker` now calls **both** `/api/finance/jobs` and
+`/api/shopping/jobs` on every tick. Shopping jobs also renew due Bonde Premium
+subscriptions using their existing owner locks and period idempotency keys.
+Individual shopping job failures do not prevent the other jobs from running;
+any failure still makes the tick fail so supervision can alert. Schedule both
+endpoints if using a platform scheduler instead of this worker. Local testing
+may use `FINANCE_API_URL=http://127.0.0.1:3001`; remote origins require HTTPS.
+Provider callbacks still require a separate public HTTPS `PUBLIC_URL` and
+provider dashboard configuration. Setting a loopback worker origin does not
+make callbacks reachable or deploy a worker.
+
+For an interrupted mobile command whose key is absent on the server, the app
+fences that key through `POST /api/finance/operation-key/:key/abandon` before
+starting a different command. The server serializes this against command
+execution under the owner's profile lock. An unaccepted key becomes
+`SUPERSEDED`; a delayed original request can never debit it. If the command was
+already accepted, abandonment returns its existing state without cancelling it.
+Unknown network outcomes retain the original saved key. Deploy this backend
+endpoint before distributing the updated mobile client.
+
+`pnpm check` now includes full test-source type checking and worker tests.
+The full integration suite uses only local test Postgres/Redis and injected
+provider fakes; it cannot certify sandbox provider delivery. Its payment flow
+covers deposits, sweeps, card issue/allocation, authorization/capture, refunds,
+withdrawals/reversals, duplicate deliveries and abandoned-key races. Never
+replace provider setup, liquidity, callback evidence or commercial approvals
+with the integration fixtures' verification flags.
+
+`GET /api/health` now checks both Postgres and Redis. Readiness remains an
+application liveness probe; neither endpoint certifies card/payment providers.
+
+
+## Current development domain
+
+Bonde uses `https://api.usebonde.com` for the current development deployment.
+This public application address does not select production banking: keep
+`FINANCE_ENVIRONMENT=sandbox`, `SUDO_BASE_URL=https://api.sandbox.sudo.cards`
+and `SAFE_HAVEN_BASE_URL=https://api.sandbox.safehavenmfb.com`.
+Set both `PUBLIC_URL` and `FINANCE_API_URL` to `https://api.usebonde.com`.
+
+Provider configuration must use:
+
+- Sudo JIT authorization and card-event callback:
+  `https://api.usebonde.com/api/finance/webhooks/sudo`.
+- Safe Haven bank-event callback:
+  `https://api.usebonde.com/api/finance/webhooks/safe-haven`.
+
+These are the intended callback destinations; their presence here does not
+certify that the updated backend is deployed or that provider delivery has been
+validated. Sudo's Authorization header must match `SUDO_WEBHOOK_TOKEN` exactly;
+it is not the Sudo API key. Confirm the supported custom-header mechanism with
+the provider and exchange the callback token through its secure configuration
+channel. Safe Haven's optional callback header similarly matches
+`SAFE_HAVEN_WEBHOOK_TOKEN`; authenticated transfer lookup remains mandatory.
+
+The worker calls the two protected POST job endpoints on this same origin with
+`Authorization: Bearer <FINANCE_JOB_TOKEN>`. Vercel request handlers do not host
+an always-running worker. Deploy the worker under a process supervisor or use a
+scheduler that supports authenticated POST calls at least once per minute.
+Do not treat GitHub Actions' five-minute schedule as a one-minute scheduler.
+Keep the web server's `NODE_ENV=production` for hosted security defaults even
+while payment providers use sandbox; do not expose development Swagger or debug
+logging merely to select test payments. AI replies on that hosted runtime still
+require the separate pricing approval described in `docs/ai-shopping.md`.
+
+### Supervised development worker on this workstation
+
+The development worker can run as the user service `bonde-finance-worker.service`.
+It reads only `.env.worker` (`FINANCE_API_URL` and `FINANCE_JOB_TOKEN`), which must
+remain mode 0600, git-ignored, and excluded from deployment uploads. Provider
+keys stay in the API environment. The service uses the current Node 22 binary
+and this checkout's worker script; update its paths if either is moved.
+
+Useful commands:
+
+```sh
+systemctl --user status bonde-finance-worker.service
+journalctl --user -u bonde-finance-worker.service -n 20
+systemctl --user stop bonde-finance-worker.service
+systemctl --user start bonde-finance-worker.service
+```
+
+This is development supervision, not an always-on hosting guarantee. Jobs pause
+when this computer is asleep/offline or the user service manager is stopped.
+Move the same worker to an always-on host before customer access. No Vercel
+plan upgrade or new paid hosting subscription is provisioned by this setup.
+
+
+Development deployment verified on 24 November 2026:
+`https://api.usebonde.com` points to deployment
+`dpl_3g4Rs4mGiapsSKSY1wfCvLtezAHQ`. Public database/Redis health passed; both job
+routes reject missing tokens with 401 and accept the configured worker token
+with 200. Hosted Sudo/Safe Haven settings use sandbox, with NGN activation and
+fee/treasury verification disabled until provider readiness is established.
+The development worker was enabled as a local user service; its uptime remains
+dependent on this workstation. Provider callback delivery and actual provider
+card/service transactions remain unvalidated pending provider setup.

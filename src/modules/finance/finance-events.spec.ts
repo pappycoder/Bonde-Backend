@@ -15,6 +15,9 @@ describe('provider event economic identity', () => {
       {} as never,
       {} as never,
       { get: () => ({ incomingFeeBearer: 'sender' }) } as never,
+
+      {} as never,
+      {} as never,
     );
     await events.receive('safe-haven', 'account.debit', 'transfer', {
       status: 'Completed',
@@ -63,6 +66,9 @@ describe('provider event economic identity', () => {
       {} as never,
       {} as never,
       { get: () => ({ incomingFeeBearer: 'sender' }) } as never,
+
+      {} as never,
+      {} as never,
     ).run();
     expect(post).not.toHaveBeenCalled();
     expect(update).toHaveBeenCalledWith(
@@ -110,6 +116,9 @@ describe('provider event economic identity', () => {
       {} as never,
       {} as never,
       { get: () => ({ incomingFeeBearer: 'sender' }) } as never,
+
+      {} as never,
+      {} as never,
     ).run();
     expect(post).not.toHaveBeenCalled();
     expect(tx.financeInbox.update).toHaveBeenCalled();
@@ -146,6 +155,9 @@ describe('provider event economic identity', () => {
       sudo as never,
       {} as never,
       { get: () => ({ incomingFeeBearer: 'sender' }) } as never,
+
+      {} as never,
+      {} as never,
     ).run();
     expect(post).not.toHaveBeenCalled();
     expect(prisma.financeInbox.update).toHaveBeenCalledWith(
@@ -184,6 +196,8 @@ describe('confirmed payout fee accounting', () => {
       {} as never,
       {} as never,
       { get: () => ({ treasuryAccountNumber: 'treasury' }) } as never,
+      {} as never,
+      {} as never,
       {} as never,
     );
     await worker.settleWithdrawal(op as never, {
