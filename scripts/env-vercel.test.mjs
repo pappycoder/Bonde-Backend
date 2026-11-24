@@ -52,6 +52,7 @@ test('database, banking, auth and encryption variables cannot be shared', () => 
     'CARD_ENCRYPTION_KEY',
     'SUPABASE_SERVICE_ROLE_KEY',
     'FINANCE_JOB_TOKEN',
+    'ALLOW_PRODUCTION_SANDBOX',
   ]) {
     assert.throws(() => normalize({ ...base(), shared: { [key]: '' } }), /cannot be shared/);
   }
@@ -122,6 +123,62 @@ test('production cannot use staging database with different credentials', () => 
 });
 test('migration and runtime URLs cannot point at different databases', () => {
   const m = databaseManifest();
+  m.production.DIRECT_URL = 'postgresql://postgres:password@db.other.supabase.co/postgres';
+  assert.throws(() => validateDeployment(m, 'production'), /same database/);
+});
+function productionSandboxManifest() {
+  const m = databaseManifest();
+  m.production = {
+    ...m.production,
+    DATABASE_URL: m.preview.DATABASE_URL,
+    DIRECT_URL: 'postgresql://postgres:password@db.stage.supabase.co:5432/postgres',
+    SUPABASE_URL: m.preview.SUPABASE_URL,
+    ALLOW_PRODUCTION_SANDBOX: 'true',
+    FINANCE_ENABLED: 'true',
+    FINANCE_ENVIRONMENT: 'sandbox',
+    SUDO_BASE_URL: 'https://api.sandbox.sudo.cards',
+    SAFE_HAVEN_BASE_URL: 'https://api.sandbox.safehavenmfb.com',
+    FLUTTERWAVE_SECRET_KEY: 'FLWSECK_TEST-fixture-only',
+  };
+  return m;
+}
+test('explicit production sandbox exception permits the shared development database and Auth', () => {
+  assert(validateDeployment(productionSandboxManifest(), 'production'));
+  const m = productionSandboxManifest();
+  m._meta = {
+    stagingDatabaseFingerprint: databaseIdentity(m.preview.DATABASE_URL),
+    stagingSupabaseUrl: m.preview.SUPABASE_URL,
+  };
+  m.preview = {};
+  assert(validateDeployment(m, 'production'));
+});
+test('removing the production sandbox exception restores database and Auth isolation', () => {
+  for (const flag of ['', 'false']) {
+    const m = productionSandboxManifest();
+    m.production.ALLOW_PRODUCTION_SANDBOX = flag;
+    assert.throws(() => validateDeployment(m, 'production'), /distinct/);
+    m.production.DATABASE_URL =
+      'postgresql://postgres.prod:password@aws.pooler.supabase.com/postgres';
+    m.production.DIRECT_URL = 'postgresql://postgres:password@db.prod.supabase.co/postgres';
+    assert.throws(() => validateDeployment(m, 'production'), /separate Supabase Auth/);
+  }
+});
+test('production sandbox exception refuses live or unspecified provider settings', () => {
+  for (const [key, value] of [
+    ['FINANCE_ENVIRONMENT', 'production'],
+    ['FINANCE_ENVIRONMENT', ''],
+    ['SUDO_BASE_URL', 'https://api.sudo.cards'],
+    ['SUDO_BASE_URL', ''],
+    ['SAFE_HAVEN_BASE_URL', 'https://api.safehavenmfb.com'],
+    ['FLUTTERWAVE_SECRET_KEY', 'FLWSECK-live-fixture'],
+  ]) {
+    const m = productionSandboxManifest();
+    m.production[key] = value;
+    assert.throws(() => validateDeployment(m, 'production'), /explicit sandbox provider/);
+  }
+});
+test('production sandbox exception still rejects mismatched runtime and migration databases', () => {
+  const m = productionSandboxManifest();
   m.production.DIRECT_URL = 'postgresql://postgres:password@db.other.supabase.co/postgres';
   assert.throws(() => validateDeployment(m, 'production'), /same database/);
 });
