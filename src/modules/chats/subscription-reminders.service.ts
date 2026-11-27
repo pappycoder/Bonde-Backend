@@ -8,12 +8,14 @@ import {
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { prepareSubscriptionCheckout, subscriptionServices } from './subscription-catalog.js';
+import { shouldRunBackgroundJobs } from '../../common/runtime.js';
 
 @Injectable()
 export class SubscriptionReminders implements OnModuleInit, OnModuleDestroy {
   private timer?: ReturnType<typeof setInterval>;
   constructor(private readonly prisma: PrismaService) {}
   onModuleInit() {
+    if (!shouldRunBackgroundJobs()) return;
     this.timer = setInterval(() => void this.run().catch(() => undefined), 30_000);
     this.timer.unref();
   }

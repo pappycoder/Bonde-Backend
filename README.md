@@ -70,6 +70,12 @@ pnpm start:dev
 
 The API is served at `http://localhost:3001`. Swagger / OpenAPI docs are available at `/api/docs` (UI) and `/api/docs-json` (OpenAPI 3 document) in non-production environments.
 
+On Vercel, `/` is served from `public/index.html` with shared caching and does
+not boot NestJS. Vercel instances also skip in-process polling workers because
+serverless lifetimes are not reliable job runners. Keep background jobs enabled
+on a long-running deployment; `BONDE_ENABLE_BACKGROUND_JOBS=true` is an explicit
+opt-in for environments that need those timers.
+
 **Auth (BFF over Supabase):** registration and password recovery are brokered by
 this API against Supabase Auth so clients never hold the service-role key.
 See `POST /api/auth/register` → `POST /api/auth/verify-email` →

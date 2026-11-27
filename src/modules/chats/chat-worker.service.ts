@@ -1,6 +1,8 @@
 import { Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { shouldRunBackgroundJobs } from '../../common/runtime.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { ChatRepliesService } from './chat-replies.service.js';
+
 @Injectable()
 export class ChatWorker implements OnModuleInit, OnModuleDestroy {
   private timer?: ReturnType<typeof setInterval>;
@@ -10,6 +12,7 @@ export class ChatWorker implements OnModuleInit, OnModuleDestroy {
     private readonly replies: ChatRepliesService,
   ) {}
   onModuleInit() {
+    if (!shouldRunBackgroundJobs()) return;
     this.timer = setInterval(() => void this.run().catch(() => undefined), 5000);
     this.timer.unref();
   }
