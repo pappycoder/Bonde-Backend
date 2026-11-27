@@ -1,5 +1,6 @@
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { BillingService } from './billing.service.js';
+import { shouldRunBackgroundJobs } from '../../common/runtime.js';
 
 /** Each replica may run this job: period keys and profile row locks prevent duplicate charges. */
 @Injectable()
@@ -9,6 +10,7 @@ export class BillingRenewalService implements OnModuleInit, OnModuleDestroy {
   private running = false;
   constructor(private readonly billing: BillingService) {}
   onModuleInit() {
+    if (!shouldRunBackgroundJobs()) return;
     this.timer = setInterval(() => void this.tick(), 60_000);
     this.timer.unref();
   }

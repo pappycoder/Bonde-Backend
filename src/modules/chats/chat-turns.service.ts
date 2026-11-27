@@ -9,6 +9,7 @@ import { Prisma, type AiChatTurn } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { AiCreditsService } from '../billing/ai-credits.service.js';
+import { shouldRunBackgroundJobs } from '../../common/runtime.js';
 
 @Injectable()
 export class ChatTurnsService implements OnModuleInit, OnModuleDestroy {
@@ -18,6 +19,7 @@ export class ChatTurnsService implements OnModuleInit, OnModuleDestroy {
     private readonly credits: AiCreditsService,
   ) {}
   onModuleInit() {
+    if (!shouldRunBackgroundJobs()) return;
     this.timer = setInterval(() => void this.reap().catch(() => undefined), 30_000);
     this.timer.unref();
   }

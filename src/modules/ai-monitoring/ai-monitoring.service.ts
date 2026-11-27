@@ -12,6 +12,7 @@ import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { MAIL_SENDER, type MailSender } from '../../common/mail/mail.types.js';
 import { emailLayout } from '../../common/mail/templates/layout.js';
+import { shouldRunBackgroundJobs } from '../../common/runtime.js';
 import type { AppConfig } from '../../config/configuration.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type {
@@ -65,6 +66,7 @@ export class AiMonitoringService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit() {
     if (
+      !shouldRunBackgroundJobs() ||
       this.config.get('nodeEnv') === 'test' ||
       !this.config.get('aiMonitoring', { infer: true }).enabled
     )
