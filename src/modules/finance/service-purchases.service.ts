@@ -20,6 +20,7 @@ import { LedgerService, type Posting } from './ledger.service.js';
 import { fingerprint, holdKey, systemKey, walletKey } from './finance.types.js';
 import { ServiceQuoteDto } from './service-purchase.dto.js';
 import { SafeHavenVasClient, isTv, type ServiceOutcome } from './safe-haven-vas.client.js';
+import { shouldRunBackgroundJobs } from '../../common/runtime.js';
 
 type OrderWithQuote = ServiceOrder & { quote: ServiceQuote };
 
@@ -35,6 +36,7 @@ export class ServicePurchases implements OnModuleInit, OnModuleDestroy {
     private readonly config: ConfigService<AppConfig, true>,
   ) {}
   onModuleInit() {
+    if (!shouldRunBackgroundJobs()) return;
     this.timer = setInterval(() => void this.run().catch(() => undefined), 15_000);
     this.timer.unref();
   }

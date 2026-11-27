@@ -1,5 +1,6 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { shouldRunBackgroundJobs } from '../../common/runtime.js';
 import type { AppConfig } from '../../config/configuration.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
@@ -10,6 +11,7 @@ export class FinanceInstallation implements OnModuleInit {
     private readonly config: ConfigService<AppConfig, true>,
   ) {}
   async onModuleInit() {
+    if (!shouldRunBackgroundJobs()) return;
     const c = this.config.get('finance');
     if (!c.enabled && !this.config.get('shopping').servicesEnabled) return;
     await this.prisma.financeInstallation.createMany({
