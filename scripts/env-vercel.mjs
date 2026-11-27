@@ -9,7 +9,7 @@ import { pathToFileURL } from 'node:url';
 export const sections = ['shared', 'preview', 'production'];
 const isolated =
   /^(ALLOW_PRODUCTION_SANDBOX|DATABASE_URL|DIRECT_URL|SUPABASE_.*|REDIS_URL|AUTH_TOKEN_SECRET|CARD_ENCRYPTION_KEY|MFA_ENCRYPTION_KEY|KYC_HASH_SECRET|FINANCE_.*|SUDO_.*|SAFE_HAVEN_.*|FLUTTERWAVE_.*|FIREBASE_.*|NEXT_PUBLIC_.*API_URL|API_URL|SOCKET_URL|APP_ENV|PUBLIC_URL|ADMIN_APP_URL|CORS_ORIGINS)$/;
-const reserved = /^(VERCEL(?:_|$)|GITHUB_|NX_|TURBO_|CI$|PATH$|HOME$|NODE_OPTIONS$)/;
+const reserved = /^(BONDE_TARGET$|VERCEL(?:_|$)|GITHUB_|NX_|TURBO_|CI$|PATH$|HOME$|NODE_OPTIONS$)/;
 const mobileKeys = new Set(['API_URL', 'SUPABASE_URL', 'SOCKET_URL', 'APP_ENV']);
 const forbiddenPublic =
   /(SERVICE_ROLE|PRIVATE_KEY|ENCRYPTION_KEY|TOKEN_SECRET|DATABASE_URL|DIRECT_URL)/;
@@ -202,7 +202,7 @@ export async function main(argv = process.argv.slice(2)) {
     const i = args.indexOf(`--${key}`);
     return i < 0 ? fallback : args[i + 1];
   };
-  const target = option('environment', 'preview');
+  const target = option('environment', process.env.BONDE_TARGET || 'preview');
   const targets = target === 'all' ? ['preview', 'production'] : [target];
   if (targets.some((t) => !['preview', 'production'].includes(t)))
     throw new Error('Environment must be preview, production or all');

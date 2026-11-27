@@ -55,6 +55,11 @@ helper also supports `./bonde.sh env:pull all --environment preview` from the
 parent Bonde directory. Flutter projects can use these Node tooling commands
 without installing npm application dependencies.
 
+`BONDE_TARGET=preview` or `BONDE_TARGET=production` can select the default target
+for `env:push` and `env:pull`; an explicit `--environment` takes precedence.
+`BONDE_TARGET` is a CLI control setting and must not be stored in or synced from
+`.env.vercel.json` as an application variable.
+
 Use `--from production` only for the initial import of legacy development values
 into preview. Normal pulls select their actual Vercel environment. Vercel cannot
 return protected secret values. Pulls retain known local values, leave unknown
